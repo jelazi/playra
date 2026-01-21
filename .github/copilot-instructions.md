@@ -6,6 +6,13 @@
 - Keep comments clear, concise and descriptive
 - Use proper English grammar and spelling
 
+## Development Guidelines
+- Use BLoC architecture for state management
+- Use Hive for local data storage
+- Use easy_localization for internationalization and localization
+- Follow clean architecture principles with separation of concerns
+- Prefer repository pattern for API communication
+
 ## Commit Messages
 - ALWAYS use conventional commits format: `<type>: <description>`
 - Types: feat, fix, docs, refactor, test, chore, style, perf
