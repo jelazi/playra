@@ -45,6 +45,7 @@ class SubtitleSearchResults extends SubtitleState {
   final VideoInfo videoInfo;
   final List<Subtitle> subtitles;
   final Subtitle? selectedSubtitle;
+  final Subtitle? enhancedOriginal; // Enhanced version of selected subtitle with details
   final SortedSubtitles? sortedSubtitles;
   final bool showOthers;
   final String searchQuery;
@@ -58,6 +59,7 @@ class SubtitleSearchResults extends SubtitleState {
     required this.videoInfo,
     required this.subtitles,
     this.selectedSubtitle,
+    this.enhancedOriginal,
     this.sortedSubtitles,
     this.showOthers = false,
     required this.searchQuery,
@@ -85,6 +87,7 @@ class SubtitleSearchResults extends SubtitleState {
     VideoInfo? videoInfo,
     List<Subtitle>? subtitles,
     Subtitle? selectedSubtitle,
+    Subtitle? enhancedOriginal,
     SortedSubtitles? sortedSubtitles,
     bool? showOthers,
     String? searchQuery,
@@ -94,11 +97,13 @@ class SubtitleSearchResults extends SubtitleState {
     List<Subtitle>? alternativeSubtitles,
     bool? isLoadingAlternatives,
     bool clearAlternatives = false,
+    bool clearEnhanced = false,
   }) {
     return SubtitleSearchResults(
       videoInfo: videoInfo ?? this.videoInfo,
       subtitles: subtitles ?? this.subtitles,
       selectedSubtitle: selectedSubtitle ?? this.selectedSubtitle,
+      enhancedOriginal: clearEnhanced ? null : (enhancedOriginal ?? this.enhancedOriginal),
       sortedSubtitles: sortedSubtitles ?? this.sortedSubtitles,
       showOthers: showOthers ?? this.showOthers,
       searchQuery: searchQuery ?? this.searchQuery,
@@ -115,6 +120,7 @@ class SubtitleSearchResults extends SubtitleState {
     videoInfo,
     subtitles,
     selectedSubtitle,
+    enhancedOriginal,
     sortedSubtitles,
     showOthers,
     searchQuery,

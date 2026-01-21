@@ -367,10 +367,8 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                             spacing: 16,
                             runSpacing: 4,
                             children: [
-                              if (subtitle.movieName != null && subtitle.movieName!.isNotEmpty) Text('🎬 ${subtitle.movieName}', style: const TextStyle(fontSize: 12)),
-                              if (subtitle.uploader != null) Text('👤 ${subtitle.uploader}', style: const TextStyle(fontSize: 12)),
-                              if (subtitle.downloadCount != null) Text('⬇️ ${subtitle.downloadCount}×', style: const TextStyle(fontSize: 12)),
-                              Text('📄 ${subtitle.format.toUpperCase()}', style: const TextStyle(fontSize: 12)),
+                              // Determine which subtitle data to use
+                              ..._buildSubtitleDetails(subtitle, isSelected, state),
                             ],
                           ),
                           // Show alternative subtitles section for desktop when selected
@@ -378,7 +376,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                         ] else ...[
                           const SizedBox(height: 4),
                           Text(
-                            '${subtitle.format.toUpperCase()} • ${subtitle.uploader ?? "?"} • ${subtitle.downloadCount ?? 0}× staženo',
+                            _buildMobileSubtitleInfo(subtitle, isSelected, state),
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -500,6 +498,10 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
           final alternatives = currentState is SubtitleSearchResults ? currentState.alternativeSubtitles : null;
           final isLoadingAlternatives = currentState is SubtitleSearchResults ? currentState.isLoadingAlternatives : false;
 
+          // Use enhanced original if available and this is the selected subtitle
+          final isSelected = currentState is SubtitleSearchResults && currentState.selectedSubtitle?.id == subtitle.id;
+          final displaySubtitle = (isSelected && currentState.enhancedOriginal != null) ? currentState.enhancedOriginal! : subtitle;
+
           return SafeArea(
             child: DraggableScrollableSheet(
               initialChildSize: 0.5,
@@ -523,20 +525,21 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                           decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
                         ),
                       ),
-                      Text(subtitle.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(displaySubtitle.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
-                      if (subtitle.movieName != null) Text('🎬 Film: ${subtitle.movieName}'),
-                      if (subtitle.uploader != null) Text('👤 Nahrál: ${subtitle.uploader}'),
-                      if (subtitle.downloadCount != null) Text('⬇️ Staženo: ${subtitle.downloadCount}×'),
-                      Text('📄 Formát: ${subtitle.format.toUpperCase()}'),
-                      Text('🌍 Jazyk: ${subtitle.language.toUpperCase()}'),
+                      if (displaySubtitle.movieName != null) Text('🎬 Film: ${displaySubtitle.movieName}'),
+                      if (displaySubtitle.uploader != null) Text('👤 Nahrál: ${displaySubtitle.uploader}'),
+                      if (displaySubtitle.details != null) Text('📋 Detaily: ${displaySubtitle.details}'),
+                      if (displaySubtitle.downloadCount != null) Text('⬇️ Staženo: ${displaySubtitle.downloadCount}×'),
+                      Text('📄 Formát: ${displaySubtitle.format.toUpperCase()}'),
+                      Text('🌍 Jazyk: ${displaySubtitle.language.toUpperCase()}'),
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(context);
-                            _downloadSubtitle(subtitle);
+                            _downloadSubtitle(subtitle); // Use original subtitle for download
                           },
                           icon: const Icon(Icons.download),
                           label: Text('subtitle.download_button'.tr()),
@@ -654,5 +657,51 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
               ),
       ),
     );
+  }
+
+  // Helper function to determine which subtitle data to display
+  Subtitle _getDisplaySubtitle(Subtitle subtitle, bool isSelected, SubtitleSearchResults state) {
+    if (isSelected && state.selectedSubtitle?.id == subtitle.id && state.enhancedOriginal != null) {
+      return state.enhancedOriginal!;
+    }
+    return subtitle;
+  }
+
+  // Helper function to build subtitle detail widgets for desktop
+  List<Widget> _buildSubtitleDetails(Subtitle subtitle, bool isSelected, SubtitleSearchResults state) {
+    final displaySubtitle = _getDisplaySubtitle(subtitle, isSelected, state);
+
+    final details = <Widget>[];
+
+    if (displaySubtitle.movieName != null && displaySubtitle.movieName!.isNotEmpty) {
+      details.add(Text('🎬 ${displaySubtitle.movieName}', style: const TextStyle(fontSize: 12)));
+    }
+
+    if (displaySubtitle.uploader != null && displaySubtitle.uploader!.isNotEmpty) {
+      details.add(Text('👤 ${displaySubtitle.uploader}', style: const TextStyle(fontSize: 12)));
+    }
+
+    if (displaySubtitle.details != null && displaySubtitle.details!.isNotEmpty) {
+      details.add(Text('📋 ${displaySubtitle.details}', style: const TextStyle(fontSize: 12)));
+    }
+
+    if (displaySubtitle.downloadCount != null && displaySubtitle.downloadCount!.isNotEmpty) {
+      details.add(Text('⬇️ ${displaySubtitle.downloadCount}×', style: const TextStyle(fontSize: 12)));
+    }
+
+    details.add(Text('📄 ${displaySubtitle.format.toUpperCase()}', style: const TextStyle(fontSize: 12)));
+
+    return details;
+  }
+
+  // Helper function to build subtitle info string for mobile
+  String _buildMobileSubtitleInfo(Subtitle subtitle, bool isSelected, SubtitleSearchResults state) {
+    final displaySubtitle = _getDisplaySubtitle(subtitle, isSelected, state);
+
+    final format = displaySubtitle.format.toUpperCase();
+    final uploader = displaySubtitle.uploader?.isNotEmpty == true ? displaySubtitle.uploader! : "?";
+    final downloadCount = displaySubtitle.downloadCount?.isNotEmpty == true ? displaySubtitle.downloadCount! : "0";
+
+    return '$format • $uploader • ${downloadCount}× staženo';
   }
 }

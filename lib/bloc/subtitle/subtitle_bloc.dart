@@ -260,30 +260,23 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     emit(currentState.copyWith(selectedSubtitle: event.subtitle, isLoadingAlternatives: true, clearAlternatives: true));
 
     try {
-      print('🔵 Fetching alternative subtitles for: ${event.subtitle.title}');
+      print('🔵 Fetching alternative subtitles and enhanced details for: ${event.subtitle.title}');
 
-      final alternatives = await _repository.getAlternativeSubtitles(event.subtitle);
+      final result = await _repository.getAlternativeSubtitles(event.subtitle);
 
-      if (alternatives.isNotEmpty) {
-        print('🔵 Found ${alternatives.length} alternative subtitles');
+      print('🔵 Found ${result.alternatives.length} alternative subtitles');
+      print('🔵 Enhanced original subtitle with details: ${result.enhancedOriginal.uploader != null || result.enhancedOriginal.details != null}');
 
-        // Filter out duplicates that are already in the main list
-        final existingIds = currentState.subtitles.map((s) => s.id).toSet();
-        final newAlternatives = alternatives.where((alt) => !existingIds.contains(alt.id)).toList();
+      // Filter out duplicates that are already in the main list
+      final existingIds = currentState.subtitles.map((s) => s.id).toSet();
+      final newAlternatives = result.alternatives.where((alt) => !existingIds.contains(alt.id)).toList();
 
-        print('🔵 New alternatives (not in main list): ${newAlternatives.length}');
+      print('🔵 New alternatives (not in main list): ${newAlternatives.length}');
 
-        // Get current state again in case it changed
-        if (state is SubtitleSearchResults) {
-          final updatedState = state as SubtitleSearchResults;
-          emit(updatedState.copyWith(alternativeSubtitles: newAlternatives, isLoadingAlternatives: false));
-        }
-      } else {
-        print('🔵 No alternative subtitles found');
-        if (state is SubtitleSearchResults) {
-          final updatedState = state as SubtitleSearchResults;
-          emit(updatedState.copyWith(alternativeSubtitles: [], isLoadingAlternatives: false));
-        }
+      // Get current state again in case it changed
+      if (state is SubtitleSearchResults) {
+        final updatedState = state as SubtitleSearchResults;
+        emit(updatedState.copyWith(enhancedOriginal: result.enhancedOriginal, alternativeSubtitles: newAlternatives, isLoadingAlternatives: false));
       }
     } catch (e) {
       print('🔴 Error fetching alternative subtitles: $e');

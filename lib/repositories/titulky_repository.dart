@@ -7,6 +7,14 @@ import 'package:path/path.dart' as path;
 
 import '../models/subtitle.dart';
 
+/// Result of fetching alternative subtitles with enhanced original subtitle details
+class AlternativeSubtitlesResult {
+  final Subtitle enhancedOriginal;
+  final List<Subtitle> alternatives;
+
+  AlternativeSubtitlesResult({required this.enhancedOriginal, required this.alternatives});
+}
+
 class TitulkyRepository {
   final Dio _dio;
   final String _baseUrl = 'https://premium.titulky.com';
@@ -412,8 +420,8 @@ class TitulkyRepository {
   }
 
   /// Get alternative subtitles from a subtitle detail page
-  /// Returns a list of alternative subtitles found on the detail page
-  Future<List<Subtitle>> getAlternativeSubtitles(Subtitle subtitle) async {
+  /// Returns enhanced original subtitle with details and list of alternative subtitles
+  Future<AlternativeSubtitlesResult> getAlternativeSubtitles(Subtitle subtitle) async {
     if (!isLoggedIn) {
       throw Exception('Not logged in');
     }
@@ -429,6 +437,97 @@ class TitulkyRepository {
 
       final document = html_parser.parse(response.data);
       final List<Subtitle> alternatives = [];
+
+      // Extract enhanced details for the original subtitle from the detail page
+      Subtitle enhancedOriginal = subtitle;
+
+      // Try to get enhanced info about the original subtitle from detail page content
+      try {
+        // Look for uploader info and other details in the page content
+        final detailElements = document.querySelectorAll('td, .info, .detail-info, .table-cell, div');
+        String? uploader;
+        String? details;
+        String? downloadCount;
+
+        // Look for uploader patterns in various formats
+        for (final element in detailElements) {
+          final text = element.text.trim();
+
+          // Uploader patterns
+          if (text.contains('Přidal:') || text.contains('Autor:') || text.contains('Uživatel:') || text.contains('Nahrál:')) {
+            final match = RegExp(r'(?:Přidal:|Autor:|Uživatel:|Nahrál:)\s*([^\s,\n\r]+)').firstMatch(text);
+            if (match != null) {
+              uploader = match.group(1);
+              print('🔍 Found uploader in element: $uploader');
+            }
+          }
+
+          // Release info patterns
+          if (text.contains('Release:') || text.contains('Verze:') || text.contains('BDRip') || text.contains('BluRay') || text.contains('x264')) {
+            // Look for release patterns
+            final releasePattern = RegExp(r'([A-Za-z0-9\.\-_]+(?:BDRip|BluRay|x264|DEMAND|ROVERS)[A-Za-z0-9\.\-_]*)');
+            final match = releasePattern.firstMatch(text);
+            if (match != null) {
+              details = match.group(1);
+              print('🔍 Found release details: $details');
+            }
+          }
+
+          // Download count patterns
+          if (text.contains('staženo') || text.contains('krát') || RegExp(r'\d+×').hasMatch(text)) {
+            final countMatch = RegExp(r'(\d+)(?:×|krát|staženo)').firstMatch(text);
+            if (countMatch != null) {
+              downloadCount = countMatch.group(1);
+              print('🔍 Found download count: $downloadCount');
+            }
+          }
+        }
+
+        // Additional search in table cells specifically for True Detective pattern
+        final tableCells = document.querySelectorAll('table td');
+        for (final cell in tableCells) {
+          final cellText = cell.text.trim();
+
+          // Look for username patterns in table cells (like "mark82", "badboy.majkl")
+          if (uploader == null &&
+              RegExp(r'^[a-zA-Z0-9\._-]+$').hasMatch(cellText) &&
+              cellText.length > 2 &&
+              cellText.length < 20 &&
+              !cellText.contains(' ') &&
+              !cellText.contains('BDRip') &&
+              !cellText.contains('BluRay')) {
+            // This might be a username
+            uploader = cellText;
+            print('🔍 Found potential uploader in table cell: $uploader');
+          }
+
+          // Look for detailed release strings in cells
+          if (details == null && (cellText.contains('BDRip') || cellText.contains('BluRay') || cellText.contains('x264'))) {
+            details = cellText;
+            print('🔍 Found release details in table cell: $details');
+          }
+        }
+
+        // Create enhanced version of original subtitle if we found additional info
+        if (uploader != null || details != null || downloadCount != null) {
+          enhancedOriginal = Subtitle(
+            id: subtitle.id,
+            title: subtitle.title,
+            language: subtitle.language,
+            format: subtitle.format,
+            downloadUrl: subtitle.downloadUrl,
+            rating: subtitle.rating,
+            uploader: uploader ?? subtitle.uploader,
+            details: details ?? subtitle.details,
+            downloadCount: downloadCount ?? subtitle.downloadCount,
+            movieName: subtitle.movieName,
+            isSynced: subtitle.isSynced,
+          );
+          print('🔵 Enhanced original subtitle: uploader=$uploader, details=$details, downloadCount=$downloadCount');
+        }
+      } catch (e) {
+        print('Could not extract enhanced original subtitle details: $e');
+      }
 
       // Look for the "Alternativní titulky" table
       // The structure is: table.table.table-hover with rows containing links to action=detail
@@ -491,11 +590,11 @@ class TitulkyRepository {
       }
 
       print('Found ${alternatives.length} alternative subtitles');
-      return alternatives;
+      return AlternativeSubtitlesResult(enhancedOriginal: enhancedOriginal, alternatives: alternatives);
     } catch (e, stackTrace) {
       print('Error fetching alternative subtitles: $e');
       print('Stack trace: $stackTrace');
-      return [];
+      return AlternativeSubtitlesResult(enhancedOriginal: subtitle, alternatives: []);
     }
   }
 }
