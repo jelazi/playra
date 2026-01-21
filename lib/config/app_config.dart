@@ -20,7 +20,7 @@ class AppConfig {
     return {'username': username, 'sessionCookie': sessionCookie};
   }
 
-  /// Načtení konfigurace ze souboru
+  /// Load configuration from file
   static Future<AppConfig> load() async {
     try {
       final configFile = await _getConfigFile();
@@ -35,7 +35,7 @@ class AppConfig {
     return AppConfig();
   }
 
-  /// Uložení konfigurace do souboru
+  /// Save configuration to file
   Future<void> save() async {
     try {
       final configFile = await _getConfigFile();
@@ -46,7 +46,7 @@ class AppConfig {
     }
   }
 
-  /// Smazání konfigurace
+  /// Clear configuration
   static Future<void> clear() async {
     try {
       final configFile = await _getConfigFile();

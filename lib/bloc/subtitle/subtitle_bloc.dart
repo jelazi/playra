@@ -32,7 +32,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       print('🔵 SubtitleBloc: Login result: $success');
       if (success) {
         print('🔵 SubtitleBloc: Login successful, emitting SubtitleLoggedIn');
-        // Uložit přihlašovací údaje pokud je to požadováno
+        // Save login credentials if requested
         if (event.saveCredentials) {
           await SettingsService.saveCredentials(event.username, event.password);
           print('🔵 SubtitleBloc: Credentials saved');
@@ -48,7 +48,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     }
   }
 
-  /// Automatické přihlášení z uložených údajů
+  /// Auto-login from saved credentials
   Future<void> _onAutoLoginToTitulky(AutoLoginToTitulky event, Emitter<SubtitleState> emit) async {
     print('🔵 SubtitleBloc: AutoLoginToTitulky event received');
     final settings = SettingsService.getSettings();
@@ -79,11 +79,11 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   }
 
   Future<void> _onSearchSubtitles(SearchSubtitles event, Emitter<SubtitleState> emit) async {
-    // Parsovat název videa pro extrakci sezóny/epizody
+    // Parse video name to extract season/episode
     final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
     print('🔵 Parsed video: ${parsedVideo.cleanName}, isTV: ${parsedVideo.isTV}, S${parsedVideo.season}E${parsedVideo.episode}');
 
-    // Sestavit vyhledávací dotaz - přidat sezónu/epizodu pokud existuje
+    // Build search query - add season/episode if exists
     String searchQuery = parsedVideo.cleanName;
     if (parsedVideo.isTV && parsedVideo.season != null && parsedVideo.episode != null) {
       final seasonStr = parsedVideo.season.toString().padLeft(2, '0');
@@ -94,7 +94,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
     emit(SubtitleSearching(event.videoInfo, searchQuery: searchQuery));
     try {
-      // Získat preferovaný jazyk z nastavení
+      // Get preferred language from settings
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
 
@@ -103,11 +103,11 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       if (subtitles.isEmpty) {
         emit(SubtitleError('subtitle.no_results'));
       } else {
-        // Seřadit titulky podle relevance
+        // Sort subtitles by relevance
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
         print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
 
-        // Pokud máme přesně 25 výsledků, pravděpodobně existuje další stránka
+        // If we have exactly 25 results, there probably is another page
         final hasMore = subtitles.length >= 25;
 
         emit(
@@ -128,7 +128,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     }
   }
 
-  /// Manuální vyhledávání s vlastním dotazem
+  /// Manual search with custom query
   Future<void> _onSearchSubtitlesManual(SearchSubtitlesManual event, Emitter<SubtitleState> emit) async {
     final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
     final searchQuery = event.query.trim();
@@ -168,7 +168,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     }
   }
 
-  /// Načíst další stránku výsledků
+  /// Load next page of results
   Future<void> _onLoadMoreSubtitles(LoadMoreSubtitles event, Emitter<SubtitleState> emit) async {
     if (state is! SubtitleSearchResults) return;
 
@@ -189,10 +189,10 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       if (newSubtitles.isEmpty) {
         emit(currentState.copyWith(hasMore: false, isLoadingMore: false));
       } else {
-        // Přidat nové titulky k existujícím
+        // Add new subtitles to existing ones
         final allSubtitles = [...currentState.subtitles, ...newSubtitles];
 
-        // Znovu seřadit všechny titulky
+        // Re-sort all subtitles
         final parsedVideo = VideoNameParser.parse(currentState.videoInfo.path);
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(allSubtitles, parsedVideo);
 

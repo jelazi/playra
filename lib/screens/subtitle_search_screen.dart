@@ -25,7 +25,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
   @override
   void initState() {
     super.initState();
-    // Automaticky zahájit vyhledávání titulků
+    // Automatically start subtitle search
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SubtitleBloc>().add(SearchSubtitles(widget.videoInfo));
     });
@@ -54,8 +54,8 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
-                  // Po stažení otevřít přehrávač s titulky - použijeme push místo pushReplacement
-                  // aby se uživatel mohl vrátit zpět na výběr titulků
+                  // After download, open player with subtitles - use push instead of pushReplacement
+                  // so user can go back to subtitle selection
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -167,13 +167,13 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
   Widget _buildSearchField() {
     return BlocBuilder<SubtitleBloc, SubtitleState>(
       buildWhen: (previous, current) {
-        // Aktualizovat když se změní searchQuery
+        // Update when searchQuery changes
         if (current is SubtitleSearching && previous is! SubtitleSearching) return true;
         if (current is SubtitleSearchResults) return true;
         return false;
       },
       builder: (context, state) {
-        // Nastavit text v inputu podle aktuálního dotazu
+        // Set input text according to current query
         if (!_isManualSearch) {
           if (state is SubtitleSearching && state.searchQuery != null) {
             _searchController.text = state.searchQuery!;
@@ -200,7 +200,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                 ),
                 IconButton(
                   onPressed: () {
-                    // Reset na automatický dotaz
+                    // Reset to automatic query
                     _isManualSearch = false;
                     context.read<SubtitleBloc>().add(SearchSubtitles(widget.videoInfo));
                   },
@@ -267,13 +267,13 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
             ),
           ),
 
-        // Seznam titulků
+        // Subtitle list
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: displayedSubtitles.length + (state.hasMore || state.isLoadingMore ? 1 : 0),
             itemBuilder: (context, index) {
-              // Poslední položka je "Load More" tlačítko
+              // Last item is "Load More" button
               if (index == displayedSubtitles.length) {
                 return _buildLoadMoreButton(state);
               }
@@ -281,10 +281,10 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
               final subtitle = displayedSubtitles[index];
               final isSelected = state.selectedSubtitle?.id == subtitle.id;
 
-              // Určit zda je titulek relevantní
+              // Determine if subtitle is relevant
               final isRelevant = state.sortedSubtitles?.relevant.contains(subtitle) ?? true;
 
-              // Responzivní layout
+              // Responsive layout
               final isPhone = MediaQuery.of(context).size.width < 600;
 
               return Card(

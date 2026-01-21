@@ -9,7 +9,7 @@ void main() async {
   final repository = TitulkyRepository();
   final bloc = SubtitleBloc(repository: repository);
 
-  // Poslouchat změny stavu
+  // Listen to state changes
   bloc.stream.listen((state) {
     print('📱 BLoC State changed: $state');
     if (state is SubtitleLoggedIn) {
@@ -19,11 +19,11 @@ void main() async {
     }
   });
 
-  // Odeslat přihlašovací event
+  // Send login event
   print('Sending LoginToTitulky event...');
   bloc.add(LoginToTitulky('jelazi', 'Honzicek1'));
 
-  // Počkat na dokončení
+  // Wait for completion
   await Future.delayed(const Duration(seconds: 10));
 
   print('\nClosing BLoC...');

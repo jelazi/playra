@@ -64,17 +64,17 @@ class SubtitleSearchResults extends SubtitleState {
     this.isLoadingMore = false,
   });
 
-  /// Vrací titulky k zobrazení (relevantní + ostatní pokud jsou zobrazeny)
+  /// Returns subtitles to display (relevant + others if shown)
   List<Subtitle> get displayedSubtitles {
     if (sortedSubtitles == null) return subtitles;
     if (showOthers) return sortedSubtitles!.allSorted;
     return sortedSubtitles!.relevant.isEmpty ? sortedSubtitles!.allSorted : sortedSubtitles!.relevant;
   }
 
-  /// Počet skrytých titulků
+  /// Number of hidden subtitles
   int get hiddenCount => sortedSubtitles?.othersCount ?? 0;
 
-  /// Má skryté titulky?
+  /// Has hidden subtitles?
   bool get hasHiddenSubtitles => !showOthers && (sortedSubtitles?.hasOthers ?? false);
 
   SubtitleSearchResults copyWith({

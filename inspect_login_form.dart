@@ -9,7 +9,7 @@ void main() async {
   dio.options.receiveTimeout = const Duration(seconds: 30);
 
   try {
-    // Stáhnout hlavní stránku
+    // Download main page
     print('Downloading homepage...');
     final response = await dio.get('https://www.titulky.com/');
 
@@ -18,10 +18,10 @@ void main() async {
       return;
     }
 
-    // Parsovat HTML
+    // Parse HTML
     final document = html_parser.parse(response.data);
 
-    // Najít všechny formuláře
+    // Find all forms
     final forms = document.querySelectorAll('form');
     print('\nFound ${forms.length} forms on the page\n');
 
@@ -38,7 +38,7 @@ void main() async {
       print('ID: $id');
       print('Class: $className');
 
-      // Najít všechny input pole
+      // Find all input fields
       final inputs = form.querySelectorAll('input');
       print('Inputs:');
       for (var input in inputs) {
@@ -49,7 +49,7 @@ void main() async {
         print('  - Type: $type, Name: $name, ID: $id, Value: $value');
       }
 
-      // Najít buttony
+      // Find buttons
       final buttons = form.querySelectorAll('button');
       print('Buttons:');
       for (var button in buttons) {
@@ -61,10 +61,10 @@ void main() async {
       print('');
     }
 
-    // Hledat přihlašovací formulář specificky
+    // Look for login form specifically
     print('\n=== Looking for login-related elements ===\n');
 
-    // Hledat input s názvem obsahujícím login, user, password
+    // Look for input with name containing login, user, password
     final loginInputs = document.querySelectorAll('input[name*="ogin"], input[name*="ser"], input[name*="assword"]');
     print('Found ${loginInputs.length} potential login inputs:');
     for (var input in loginInputs) {

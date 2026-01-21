@@ -56,23 +56,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         print('🔴 VideoPlayerScreen: Player error: $error');
       });
 
-      // Otevřít video soubor - pro lokální soubory použijeme file:// protokol
+      // Open video file - use file:// protocol for local files
       print('🎬 VideoPlayerScreen: Opening media...');
       final mediaUri = videoPath.startsWith('file://') ? videoPath : 'file://$videoPath';
       print('🎬 VideoPlayerScreen: Media URI: $mediaUri');
       await _player!.open(Media(mediaUri));
 
-      // Přidání titulků, pokud jsou k dispozici
+      // Add subtitles if available
       if (widget.subtitlePath != null) {
         print('🎬 VideoPlayerScreen: Setting subtitle: ${widget.subtitlePath}');
         final subtitleUri = widget.subtitlePath!.startsWith('file://') ? widget.subtitlePath! : 'file://${widget.subtitlePath}';
         await _player!.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
       }
 
-      // Čekání na načtení videa a získání informací
+      // Wait for video to load and get information
       print('🎬 VideoPlayerScreen: Waiting for video to load...');
 
-      // Počkáme na první frame nebo timeout
+      // Wait for first frame or timeout
       int attempts = 0;
       while (_player!.state.duration == Duration.zero && attempts < 50) {
         await Future.delayed(const Duration(milliseconds: 100));
@@ -84,7 +84,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       final height = _player!.state.height;
       print('🎬 VideoPlayerScreen: Video loaded, duration: $_duration, size: ${width}x$height');
 
-      // Automaticky spustit přehrávání
+      // Automatically start playback
       await _player!.play();
       print('🎬 VideoPlayerScreen: Playback started');
 
@@ -178,14 +178,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             ),
           ),
 
-        // Video přehrávač
+        // Video player
         Expanded(
           child: Center(
             child: _videoController != null ? Video(controller: _videoController!, controls: NoVideoControls) : const CircularProgressIndicator(),
           ),
         ),
 
-        // Ovládací prvky
+        // Control elements
         _buildControls(),
       ],
     );
@@ -201,7 +201,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Posuvník času
+          // Time slider
           StreamBuilder<Duration>(
             stream: _player?.stream.position,
             initialData: Duration.zero,
@@ -228,7 +228,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Tlačítka přehrávání
+          // Playback buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

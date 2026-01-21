@@ -19,7 +19,7 @@ class LoginToTitulky extends SubtitleEvent {
   List<Object> get props => [username, password, saveCredentials];
 }
 
-/// Automatické přihlášení z uložených údajů
+/// Auto-login from saved credentials
 class AutoLoginToTitulky extends SubtitleEvent {}
 
 class SearchSubtitles extends SubtitleEvent {
@@ -31,7 +31,7 @@ class SearchSubtitles extends SubtitleEvent {
   List<Object> get props => [videoInfo];
 }
 
-/// Manuální vyhledávání s vlastním dotazem
+/// Manual search with custom query
 class SearchSubtitlesManual extends SubtitleEvent {
   final VideoInfo videoInfo;
   final String query;
@@ -42,7 +42,7 @@ class SearchSubtitlesManual extends SubtitleEvent {
   List<Object> get props => [videoInfo, query];
 }
 
-/// Načíst další stránku výsledků
+/// Load next page of results
 class LoadMoreSubtitles extends SubtitleEvent {}
 
 class SelectSubtitle extends SubtitleEvent {
@@ -66,5 +66,5 @@ class DownloadSubtitle extends SubtitleEvent {
 
 class LogoutFromTitulky extends SubtitleEvent {}
 
-/// Přepíná zobrazení ostatních (méně relevantních) titulků
+/// Toggles display of other (less relevant) subtitles
 class ToggleShowOtherSubtitles extends SubtitleEvent {}

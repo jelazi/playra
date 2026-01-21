@@ -50,16 +50,16 @@ class SettingsService {
     await saveSettings(settings.copyWith(password: password));
   }
 
-  /// Uložit přihlašovací údaje pro auto-login
+  /// Save login credentials for auto-login
   static Future<void> saveCredentials(String username, String password) async {
     final settings = getSettings();
     await saveSettings(settings.copyWith(username: username, password: password));
   }
 
-  /// Vymazat přihlašovací údaje (při odhlášení)
+  /// Clear login credentials (on logout)
   static Future<void> clearCredentials() async {
     final settings = getSettings();
-    // Vymazat username, password a sessionCookie
+    // Clear username, password and sessionCookie
     final newSettings = AppSettings(language: settings.language, lastVideoPath: settings.lastVideoPath, preferredSubtitleLanguage: settings.preferredSubtitleLanguage);
     await saveSettings(newSettings);
   }

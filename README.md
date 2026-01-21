@@ -1,10 +1,10 @@
-# Titulky.com Desktop
+# Titulky.com
 
-Desktop application for video management and subtitle downloading from titulky.com with automatic movie and TV series identification.
+Cross-platform Flutter application for video management and subtitle downloading from titulky.com with automatic movie and TV series identification.
 
 ## Features
 
-- ✅ **Video Library** with drag & drop support
+- ✅ **Video Library** with drag & drop support (desktop)
 - ✅ **Automatic identification** of movies and TV series from file names
 - ✅ **TMDB integration** - display movie/TV information in Czech/English
 - ✅ **Intelligent subtitle search** based on TMDB titles
@@ -13,14 +13,25 @@ Desktop application for video management and subtitle downloading from titulky.c
 - ✅ **Timing verification** of subtitles with video
 - ✅ **Automatic download** and subtitle renaming
 - ✅ **Localization** - Czech and English
+- ✅ **Cross-platform** - iOS, Android, macOS, Windows, Linux
 
 ## How it works?
 
-1. **Add videos** - drag & drop files or use "Add" button
+1. **Add videos** - drag & drop files (desktop) or use file picker (mobile)
 2. **Automatic identification** - app parses filename (e.g. `True.Detective.S01E02.720p.BluRay`)
 3. **TMDB search** - finds movie/TV information in Czech/English database
 4. **Display details** - poster, rating, genres, description
 5. **Subtitle search** - automatically searches subtitles using correct TMDB title
+
+## Platforms
+
+This app runs on multiple platforms:
+
+- **iOS** - iPhone and iPad with Files app integration
+- **Android** - Phone and tablet with document picker
+- **macOS** - Desktop with drag & drop and file picker
+- **Windows** - Desktop with drag & drop and file picker
+- **Linux** - Desktop with drag & drop and file picker
 
 ## Architecture
 
@@ -99,11 +110,30 @@ Quick setup:
    ```
 
 ### 3. Run the application
+
+**iOS:**
 ```bash
-flutter run -d macos    # For macOS
-flutter run -d windows  # For Windows
-flutter run -d linux    # For Linux
+flutter run -d ios
 ```
+
+**Android:**
+```bash
+flutter run -d android
+```
+
+**macOS:**
+```bash
+flutter run -d macos
+```
+
+**Windows:**
+```bash
+flutter run -d windows
+```
+
+**Linux:**
+```bash
+flutter run -d linux
 
 ## Usage
 
@@ -115,12 +145,23 @@ flutter run -d linux    # For Linux
 
 ### 2. Adding Videos
 
-**Drag & Drop:**
+**Desktop (macOS, Windows, Linux):**
 - Drag video files into the right panel
+- Or click "Add Videos" and select files
 
-**File picker:**
+**Mobile (iOS, Android):**
 - Click "Add Videos"
-- Select one or multiple video files
+- Use file picker to select video files
+- On iOS: Files app supports iCloud Drive, SMB servers, etc.
+- On Android: Document picker supports local storage, cloud drives
+
+### 3. Automatic Identification
+
+The app automatically:
+- Parses filename (e.g. `True.Detective.S01E02.720p.BluRay.mkv`)
+- Identifies: `True Detective`, season 1, episode 2
+- Searches TMDB database
+- Displays Czech/English title, poster, rating, genres
 
 ### 3. Automatic Identification
 
@@ -186,7 +227,11 @@ And update methods according to real API documentation.
 ## Requirements
 
 - Flutter SDK ≥ 3.10.4
-- macOS 10.14+, Windows 10+, or Linux (Ubuntu 20.04+)
+- **iOS:** iOS 11.0+ with Xcode
+- **Android:** Android 5.0+ (API 21+) with Android Studio
+- **macOS:** macOS 10.14+ with Xcode
+- **Windows:** Windows 10+ with Visual Studio
+- **Linux:** Ubuntu 20.04+ or similar
 - Premium account on titulky.com
 
 ## Known Issues

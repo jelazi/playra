@@ -39,7 +39,7 @@ void main() async {
 
     print('Cookies: ${cookieJar.join('; ')}\n');
 
-    // 3. Test vyhledávání s různými parametry
+    // 3. Test search with different parameters
     print('3. Testing search with Fulltext parameter...');
     response = await dio.get(
       'https://www.titulky.com/',
@@ -54,7 +54,7 @@ void main() async {
     var results = document.querySelectorAll('.content-box, .result, .titulky-box, [class*="tilutek"]');
     print('Found ${results.length} result containers\n');
 
-    // Hledat všechny odkazy na titulky
+    // Look for all subtitle links
     var links = document.querySelectorAll('a[href*="titulky"], a[href*="idown"]');
     print('Found ${links.length} subtitle-related links');
     if (links.isNotEmpty) {
@@ -66,7 +66,7 @@ void main() async {
       }
     }
 
-    // Hledat tabulky
+    // Look for tables
     print('\n4. Looking for tables...');
     var tables = document.querySelectorAll('table');
     print('Found ${tables.length} tables');
@@ -78,7 +78,7 @@ void main() async {
       final rows = table.querySelectorAll('tr');
       print('  Table ${i + 1}: class="$className", id="$id", ${rows.length} rows');
 
-      // Zobrazit první řádek
+      // Display first row
       if (rows.isNotEmpty) {
         final firstRow = rows[0];
         final cells = firstRow.querySelectorAll('td, th');
@@ -91,7 +91,7 @@ void main() async {
       }
     }
 
-    // Hledat výsledky přes různé selektory
+    // Look for results using different selectors
     print('\n5. Trying different selectors...');
     final selectors = ['.titulky-box', '.tilutek', '[class*="tilutek"]', 'div[id*="tilutek"]', '.result-item', 'article', 'section'];
 

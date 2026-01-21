@@ -34,19 +34,19 @@ class TitulkyRepository {
     }
   }
 
-  // Premium server používá SESSTITULKY cookie
+  // Premium server uses SESSTITULKY cookie
   bool get isLoggedIn => _cookies.any((c) => c.startsWith('SESSTITULKY=') || c.startsWith('LogonLogin='));
 
-  /// Přihlášení k titulky.com
+  /// Login to titulky.com
   Future<bool> login(String username, String password) async {
     try {
-      // Krok 1: Získat hlavní stránku pro inicializační cookies
+      // Step 1: Get main page for initial cookies
       print('Getting main page for initial cookies...');
       final homeResponse = await _dio.get('/');
       _updateCookies(homeResponse.headers['set-cookie']);
 
-      // Krok 2: Přihlášení s použitím správných polí z formuláře
-      // Premium server používá jiná pole než běžný server
+      // Step 2: Login using correct form fields
+      // Premium server uses different fields than regular server
       print('Logging in with username: $username');
 
       final loginResponse = await _dio.post(
@@ -62,17 +62,17 @@ class TitulkyRepository {
         ),
       );
 
-      // Aktualizovat cookies po přihlášení (obsahuje LogonLogin, LogonId, CRC)
+      // Update cookies after login (contains LogonLogin, LogonId, CRC)
       _updateCookies(loginResponse.headers['set-cookie']);
 
-      // Krok 3: Ověření přihlášení
+      // Step 3: Verify login
       print('Verifying login...');
       final verifyResponse = await _dio.get(
         '/',
         options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}),
       );
 
-      // Kontrola, zda jsme přihlášeni (hledáme "Odhlásit" nebo username)
+      // Check if we are logged in (look for "Odhlásit" or username)
       final htmlContent = verifyResponse.data.toString();
 
       final success = htmlContent.contains('Odhlásit') || htmlContent.contains(username);
@@ -91,7 +91,7 @@ class TitulkyRepository {
     }
   }
 
-  /// Vyhledání titulků podle názvu videa
+  /// Search subtitles by video name
   Future<List<Subtitle>> searchSubtitles(String query, {String? languageFilter, int page = 1}) async {
     if (!isLoggedIn) {
       throw Exception('Not logged in');
@@ -100,10 +100,10 @@ class TitulkyRepository {
     try {
       print('Searching for: $query (language filter: ${languageFilter ?? 'all'}, page: $page)');
 
-      // Sestavit query parametry
+      // Build query parameters
       final queryParams = <String, dynamic>{'action': 'search', 'Fulltext': query};
 
-      // Přidat stránkování - premium.titulky.com používá parametr Strana
+      // Add pagination - premium.titulky.com uses Strana parameter
       if (page > 1) {
         queryParams['Strana'] = page.toString();
       }
@@ -122,17 +122,17 @@ class TitulkyRepository {
         print('WARNING: Not logged in on premium server!');
       }
 
-      // Premium server používá jinou strukturu - hledáme odkazy s action=detail
+      // Premium server uses different structure - look for links with action=detail
       final detailLinks = document.querySelectorAll('a[href*="action=detail"]');
 
-      // Vyfiltrovat unikátní odkazy (některé se opakují)
+      // Filter unique links (some are repeated)
       final seenIds = <String>{};
 
       for (final link in detailLinks) {
         try {
           final href = link.attributes['href'] ?? '';
 
-          // Získat ID z URL (např. ./?action=detail&id=12345)
+          // Get ID from URL (e.g. ./?action=detail&id=12345)
           final idMatch = RegExp(r'id=(\d+)').firstMatch(href);
           final id = idMatch?.group(1) ?? '';
 
@@ -141,18 +141,18 @@ class TitulkyRepository {
 
           if (id.isEmpty) continue;
 
-          // Přeskočit duplikáty
+          // Skip duplicates
           if (seenIds.contains(id)) continue;
 
-          // Získat název z textu odkazu
+          // Get title from link text
           var title = link.text.trim();
 
-          // Pokud je odkaz prázdný, přeskočit (bude další odkaz se stejným ID)
+          // If link is empty, skip (there will be another link with same ID)
           if (title.isEmpty) continue;
 
           seenIds.add(id);
 
-          // Normalizovat URL
+          // Normalize URL
           var downloadUrl = href;
           if (href.startsWith('./')) {
             downloadUrl = '$_baseUrl/${href.substring(2)}';
@@ -179,7 +179,7 @@ class TitulkyRepository {
 
       print('Found ${subtitles.length} unique subtitles');
 
-      // Filtrovat podle jazyka, pokud je zadán
+      // Filter by language if specified
       if (languageFilter != null && languageFilter != 'all') {
         subtitles.removeWhere((s) => s.language != languageFilter);
         print('After language filter: ${subtitles.length} subtitles');
@@ -193,7 +193,7 @@ class TitulkyRepository {
     }
   }
 
-  /// Stažení titulku
+  /// Download subtitle
   Future<String?> downloadSubtitle(Subtitle subtitle, String savePath) async {
     if (!isLoggedIn) {
       throw Exception('Not logged in');
@@ -202,7 +202,7 @@ class TitulkyRepository {
     try {
       print('Downloading subtitle: ${subtitle.title}');
 
-      // Stáhnout soubor titulků
+      // Download subtitle file
       final response = await _dio.get(
         subtitle.downloadUrl,
         options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}, responseType: ResponseType.bytes),

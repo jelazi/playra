@@ -12,10 +12,10 @@ import 'services/settings_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializace Media Kit pro přehrávání videa
+  // Initialize Media Kit for video playback
   MediaKit.ensureInitialized();
 
-  // Inicializace Hive pro ukládání nastavení
+  // Initialize Hive for settings storage
   await SettingsService.init();
 
   // Inicializace Media Cache
