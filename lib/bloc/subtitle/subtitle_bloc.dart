@@ -1,0 +1,246 @@
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../repositories/titulky_repository.dart';
+import '../../services/settings_service.dart';
+import '../../services/subtitle_relevance_service.dart';
+import '../../services/video_name_parser.dart';
+import 'subtitle_event.dart';
+import 'subtitle_state.dart';
+
+class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
+  final TitulkyRepository _repository;
+
+  SubtitleBloc({required TitulkyRepository repository}) : _repository = repository, super(SubtitleInitial()) {
+    on<LoginToTitulky>(_onLoginToTitulky);
+    on<AutoLoginToTitulky>(_onAutoLoginToTitulky);
+    on<SearchSubtitles>(_onSearchSubtitles);
+    on<SearchSubtitlesManual>(_onSearchSubtitlesManual);
+    on<LoadMoreSubtitles>(_onLoadMoreSubtitles);
+    on<SelectSubtitle>(_onSelectSubtitle);
+    on<DownloadSubtitle>(_onDownloadSubtitle);
+    on<LogoutFromTitulky>(_onLogoutFromTitulky);
+    on<ToggleShowOtherSubtitles>(_onToggleShowOtherSubtitles);
+  }
+
+  Future<void> _onLoginToTitulky(LoginToTitulky event, Emitter<SubtitleState> emit) async {
+    print('🔵 SubtitleBloc: LoginToTitulky event received for username: ${event.username}');
+    emit(SubtitleLoggingIn());
+    print('🔵 SubtitleBloc: Emitted SubtitleLoggingIn state');
+    try {
+      print('🔵 SubtitleBloc: Calling repository.login()...');
+      final success = await _repository.login(event.username, event.password);
+      print('🔵 SubtitleBloc: Login result: $success');
+      if (success) {
+        print('🔵 SubtitleBloc: Login successful, emitting SubtitleLoggedIn');
+        // Uložit přihlašovací údaje pokud je to požadováno
+        if (event.saveCredentials) {
+          await SettingsService.saveCredentials(event.username, event.password);
+          print('🔵 SubtitleBloc: Credentials saved');
+        }
+        emit(SubtitleLoggedIn(event.username));
+      } else {
+        print('🔵 SubtitleBloc: Login failed, emitting SubtitleLoginFailed');
+        emit(SubtitleLoginFailed('auth.login_failed'));
+      }
+    } catch (e) {
+      print('🔴 SubtitleBloc: Login error: $e');
+      emit(SubtitleLoginFailed('auth.login_error'));
+    }
+  }
+
+  /// Automatické přihlášení z uložených údajů
+  Future<void> _onAutoLoginToTitulky(AutoLoginToTitulky event, Emitter<SubtitleState> emit) async {
+    print('🔵 SubtitleBloc: AutoLoginToTitulky event received');
+    final settings = SettingsService.getSettings();
+
+    if (settings.username == null || settings.username!.isEmpty || settings.password == null || settings.password!.isEmpty) {
+      print('🔵 SubtitleBloc: No saved credentials, skipping auto-login');
+      return;
+    }
+
+    print('🔵 SubtitleBloc: Found saved credentials for: ${settings.username}');
+    emit(SubtitleLoggingIn());
+
+    try {
+      final success = await _repository.login(settings.username!, settings.password!);
+      print('🔵 SubtitleBloc: Auto-login result: $success');
+      if (success) {
+        print('🔵 SubtitleBloc: Auto-login successful');
+        emit(SubtitleLoggedIn(settings.username!));
+      } else {
+        print('🔵 SubtitleBloc: Auto-login failed, clearing credentials');
+        await SettingsService.clearCredentials();
+        emit(SubtitleInitial());
+      }
+    } catch (e) {
+      print('🔴 SubtitleBloc: Auto-login error: $e');
+      emit(SubtitleInitial());
+    }
+  }
+
+  Future<void> _onSearchSubtitles(SearchSubtitles event, Emitter<SubtitleState> emit) async {
+    // Parsovat název videa pro extrakci sezóny/epizody
+    final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
+    print('🔵 Parsed video: ${parsedVideo.cleanName}, isTV: ${parsedVideo.isTV}, S${parsedVideo.season}E${parsedVideo.episode}');
+
+    // Sestavit vyhledávací dotaz - přidat sezónu/epizodu pokud existuje
+    String searchQuery = parsedVideo.cleanName;
+    if (parsedVideo.isTV && parsedVideo.season != null && parsedVideo.episode != null) {
+      final seasonStr = parsedVideo.season.toString().padLeft(2, '0');
+      final episodeStr = parsedVideo.episode.toString().padLeft(2, '0');
+      searchQuery = '${parsedVideo.cleanName} S${seasonStr}E$episodeStr';
+    }
+    print('🔵 Search query: $searchQuery');
+
+    emit(SubtitleSearching(event.videoInfo, searchQuery: searchQuery));
+    try {
+      // Získat preferovaný jazyk z nastavení
+      final settings = SettingsService.getSettings();
+      final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
+
+      final subtitles = await _repository.searchSubtitles(searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter);
+
+      if (subtitles.isEmpty) {
+        emit(SubtitleError('subtitle.no_results'));
+      } else {
+        // Seřadit titulky podle relevance
+        final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
+        print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
+
+        // Pokud máme přesně 25 výsledků, pravděpodobně existuje další stránka
+        final hasMore = subtitles.length >= 25;
+
+        emit(
+          SubtitleSearchResults(
+            videoInfo: event.videoInfo,
+            subtitles: subtitles,
+            sortedSubtitles: sortedSubtitles,
+            showOthers: false,
+            searchQuery: searchQuery,
+            currentPage: 1,
+            hasMore: hasMore,
+          ),
+        );
+      }
+    } catch (e) {
+      print('🔴 SubtitleBloc: Search error: $e');
+      emit(SubtitleError('subtitle.search_error'));
+    }
+  }
+
+  /// Manuální vyhledávání s vlastním dotazem
+  Future<void> _onSearchSubtitlesManual(SearchSubtitlesManual event, Emitter<SubtitleState> emit) async {
+    final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
+    final searchQuery = event.query.trim();
+
+    print('🔵 Manual search query: $searchQuery');
+    emit(SubtitleSearching(event.videoInfo, searchQuery: searchQuery));
+
+    try {
+      final settings = SettingsService.getSettings();
+      final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
+
+      final subtitles = await _repository.searchSubtitles(searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter);
+
+      if (subtitles.isEmpty) {
+        emit(SubtitleError('subtitle.no_results'));
+      } else {
+        final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
+        print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
+
+        final hasMore = subtitles.length >= 25;
+
+        emit(
+          SubtitleSearchResults(
+            videoInfo: event.videoInfo,
+            subtitles: subtitles,
+            sortedSubtitles: sortedSubtitles,
+            showOthers: false,
+            searchQuery: searchQuery,
+            currentPage: 1,
+            hasMore: hasMore,
+          ),
+        );
+      }
+    } catch (e) {
+      print('🔴 SubtitleBloc: Manual search error: $e');
+      emit(SubtitleError('subtitle.search_error'));
+    }
+  }
+
+  /// Načíst další stránku výsledků
+  Future<void> _onLoadMoreSubtitles(LoadMoreSubtitles event, Emitter<SubtitleState> emit) async {
+    if (state is! SubtitleSearchResults) return;
+
+    final currentState = state as SubtitleSearchResults;
+    if (!currentState.hasMore || currentState.isLoadingMore) return;
+
+    emit(currentState.copyWith(isLoadingMore: true));
+
+    try {
+      final settings = SettingsService.getSettings();
+      final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
+      final nextPage = currentState.currentPage + 1;
+
+      print('🔵 Loading page $nextPage for query: ${currentState.searchQuery}');
+
+      final newSubtitles = await _repository.searchSubtitles(currentState.searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter, page: nextPage);
+
+      if (newSubtitles.isEmpty) {
+        emit(currentState.copyWith(hasMore: false, isLoadingMore: false));
+      } else {
+        // Přidat nové titulky k existujícím
+        final allSubtitles = [...currentState.subtitles, ...newSubtitles];
+
+        // Znovu seřadit všechny titulky
+        final parsedVideo = VideoNameParser.parse(currentState.videoInfo.path);
+        final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(allSubtitles, parsedVideo);
+
+        final hasMore = newSubtitles.length >= 25;
+
+        emit(currentState.copyWith(subtitles: allSubtitles, sortedSubtitles: sortedSubtitles, currentPage: nextPage, hasMore: hasMore, isLoadingMore: false));
+
+        print('🔵 Loaded ${newSubtitles.length} more subtitles. Total: ${allSubtitles.length}');
+      }
+    } catch (e) {
+      print('🔴 SubtitleBloc: Load more error: $e');
+      emit(currentState.copyWith(isLoadingMore: false));
+    }
+  }
+
+  Future<void> _onSelectSubtitle(SelectSubtitle event, Emitter<SubtitleState> emit) async {
+    if (state is SubtitleSearchResults) {
+      final currentState = state as SubtitleSearchResults;
+      emit(currentState.copyWith(selectedSubtitle: event.subtitle));
+    }
+  }
+
+  Future<void> _onDownloadSubtitle(DownloadSubtitle event, Emitter<SubtitleState> emit) async {
+    emit(SubtitleDownloading(event.subtitle));
+    try {
+      final path = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
+
+      if (path != null) {
+        emit(SubtitleDownloaded(event.subtitle, path));
+      } else {
+        emit(SubtitleError('subtitle.download_error'));
+      }
+    } catch (e) {
+      emit(SubtitleError('subtitle.download_error'));
+    }
+  }
+
+  Future<void> _onLogoutFromTitulky(LogoutFromTitulky event, Emitter<SubtitleState> emit) async {
+    print('🔵 SubtitleBloc: Logout, clearing credentials');
+    await _repository.logout();
+    await SettingsService.clearCredentials();
+    emit(SubtitleInitial());
+  }
+
+  void _onToggleShowOtherSubtitles(ToggleShowOtherSubtitles event, Emitter<SubtitleState> emit) {
+    if (state is SubtitleSearchResults) {
+      final currentState = state as SubtitleSearchResults;
+      emit(currentState.copyWith(showOthers: !currentState.showOthers));
+    }
+  }
+}

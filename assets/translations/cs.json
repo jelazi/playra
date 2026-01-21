@@ -1,0 +1,79 @@
+{
+    "app": {
+        "title": "Titulky.com Desktop"
+    },
+    "auth": {
+        "login_title": "Přihlášení k Titulky.com",
+        "username": "Uživatelské jméno",
+        "password": "Heslo",
+        "login_button": "Přihlásit se",
+        "logout_button": "Odhlásit se",
+        "login_success": "Přihlášení úspěšné!",
+        "login_failed": "Přihlášení selhalo",
+        "login_error": "Chyba při přihlašování: {}",
+        "fill_all_fields": "Vyplňte prosím všechna pole"
+    },
+    "video": {
+        "select_title": "Výběr videa",
+        "select_video": "Vyberte video soubor",
+        "select_video_description": "Klikněte na tlačítko níže a vyberte video, ke kterému chcete stáhnout titulky.",
+        "select_button": "Vybrat video",
+        "loading": "Načítání videa...",
+        "load_error": "Nepodařilo se načíst video: {}",
+        "library_title": "Knihovna videí",
+        "select_video_from_list": "Vyberte video ze seznamu",
+        "drag_drop_hint": "Přetáhněte sem videosouboy\nnebo klikněte na tlačítko Přidat",
+        "add_videos": "Přidat videa",
+        "clear_all": "Vymazat vše",
+        "select_videos": "Vyberte videa",
+        "no_media_info": "Nepodařilo se najít informace o filmu/seriálu",
+        "select_media": "Vyberte správný film/seriál",
+        "manual_search": "Vyhledat ručně",
+        "manual_search_hint": "Zadejte název filmu nebo seriálu",
+        "edit_media_info": "Změnit přiřazení",
+        "cached_info": "Uloženo z předchozího přiřazení",
+        "search_again": "Hledat znovu",
+        "media_not_found": "Film/seriál nenalezen",
+        "search_error": "Chyba při vyhledávání",
+        "release_date": "Datum vydání",
+        "seasons": "Sezóny",
+        "episodes": "Epizody",
+        "overview": "Popis",
+        "play": "Přehrát",
+        "tap_to_add": "Klepněte na tlačítko pro přidání videí",
+        "remove": "Odstranit",
+        "play_video": "Přehrát video"
+    },
+    "subtitle": {
+        "search_title": "Výběr titulků",
+        "searching": "Vyhledávání titulků...",
+        "no_results": "Nebyly nalezeny žádné titulky",
+        "search_error": "Chyba při vyhledávání titulků: {}",
+        "uploader": "Nahrál: {}",
+        "format": "Formát: {}",
+        "test_button": "Otestovat",
+        "download_button": "Stáhnout",
+        "search_button": "Vyhledat titulky",
+        "downloading": "Stahování titulků: {}",
+        "downloaded": "Titulky uloženy: {}",
+        "download_error": "Nepodařilo se stáhnout titulky",
+        "subtitle_load_error": "Nepodařilo se načíst titulky: {}"
+    },
+    "player": {
+        "title": "Přehrávač",
+        "testing_subtitles": "Testování titulků:",
+        "check_timing": "Zkontrolujte, zda jsou titulky správně načasované",
+        "save_subtitles": "Uložit titulky",
+        "save_dialog_title": "Uložit titulky",
+        "save_dialog_message": "Jsou titulky správně načasované? Chcete je uložit vedle videa?",
+        "cancel": "Zrušit",
+        "save": "Uložit",
+        "back": "Zpět"
+    },
+    "common": {
+        "error": "Chyba",
+        "loading": "Načítání...",
+        "cancel": "Zrušit",
+        "ok": "OK"
+    }
+}

@@ -1,0 +1,79 @@
+{
+    "app": {
+        "title": "Titulky.com Desktop"
+    },
+    "auth": {
+        "login_title": "Login to Titulky.com",
+        "username": "Username",
+        "password": "Password",
+        "login_button": "Login",
+        "logout_button": "Logout",
+        "login_success": "Login successful!",
+        "login_failed": "Login failed",
+        "login_error": "Login error: {}",
+        "fill_all_fields": "Please fill in all fields"
+    },
+    "video": {
+        "select_title": "Select Video",
+        "select_video": "Select video file",
+        "select_video_description": "Click the button below and select a video for which you want to download subtitles.",
+        "select_button": "Select video",
+        "loading": "Loading video...",
+        "load_error": "Failed to load video: {}",
+        "library_title": "Video Library",
+        "select_video_from_list": "Select a video from the list",
+        "drag_drop_hint": "Drag and drop video files here\nor click Add button",
+        "add_videos": "Add Videos",
+        "clear_all": "Clear All",
+        "select_videos": "Select Videos",
+        "no_media_info": "Could not find movie/series information",
+        "select_media": "Select the correct movie/series",
+        "manual_search": "Manual Search",
+        "manual_search_hint": "Enter movie or series name",
+        "edit_media_info": "Change Assignment",
+        "cached_info": "Loaded from previous assignment",
+        "search_again": "Search Again",
+        "media_not_found": "Movie/series not found",
+        "search_error": "Search error",
+        "release_date": "Release Date",
+        "seasons": "Seasons",
+        "episodes": "Episodes",
+        "overview": "Overview",
+        "play": "Play",
+        "tap_to_add": "Tap button to add videos",
+        "remove": "Remove",
+        "play_video": "Play video"
+    },
+    "subtitle": {
+        "search_title": "Select Subtitles",
+        "searching": "Searching for subtitles...",
+        "no_results": "No subtitles found",
+        "search_error": "Error searching for subtitles: {}",
+        "uploader": "Uploaded by: {}",
+        "format": "Format: {}",
+        "test_button": "Test",
+        "download_button": "Download",
+        "search_button": "Search Subtitles",
+        "downloading": "Downloading subtitles: {}",
+        "downloaded": "Subtitles saved: {}",
+        "download_error": "Failed to download subtitles",
+        "subtitle_load_error": "Failed to load subtitles: {}"
+    },
+    "player": {
+        "title": "Player",
+        "testing_subtitles": "Testing subtitles:",
+        "check_timing": "Check if the subtitles are properly synchronized",
+        "save_subtitles": "Save subtitles",
+        "save_dialog_title": "Save Subtitles",
+        "save_dialog_message": "Are the subtitles properly synchronized? Do you want to save them next to the video?",
+        "cancel": "Cancel",
+        "save": "Save",
+        "back": "Back"
+    },
+    "common": {
+        "error": "Error",
+        "loading": "Loading...",
+        "cancel": "Cancel",
+        "ok": "OK"
+    }
+}
