@@ -1,5 +1,11 @@
 # GitHub Copilot Instructions
 
+## Code Comments
+- Write all code comments in English only
+- Do not use Czech or any other non-English languages in comments
+- Keep comments clear, concise and descriptive
+- Use proper English grammar and spelling
+
 ## Commit Messages
 - ALWAYS use conventional commits format: `<type>: <description>`
 - Types: feat, fix, docs, refactor, test, chore, style, perf
