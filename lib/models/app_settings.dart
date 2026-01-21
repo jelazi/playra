@@ -22,9 +22,28 @@ class AppSettings extends HiveObject {
   @HiveField(5)
   String? password; // Uložené heslo pro auto-login
 
-  AppSettings({this.username, this.sessionCookie, this.language = 'cs', this.lastVideoPath, this.preferredSubtitleLanguage = 'cs', this.password});
+  @HiveField(6)
+  List<String> downloadedVideoPaths; // Seznam cest k videím, pro které byly staženy titulky
 
-  AppSettings copyWith({String? username, String? sessionCookie, String? language, String? lastVideoPath, String? preferredSubtitleLanguage, String? password}) {
+  AppSettings({
+    this.username,
+    this.sessionCookie,
+    this.language = 'cs',
+    this.lastVideoPath,
+    this.preferredSubtitleLanguage = 'cs',
+    this.password,
+    List<String>? downloadedVideoPaths,
+  }) : downloadedVideoPaths = downloadedVideoPaths ?? [];
+
+  AppSettings copyWith({
+    String? username,
+    String? sessionCookie,
+    String? language,
+    String? lastVideoPath,
+    String? preferredSubtitleLanguage,
+    String? password,
+    List<String>? downloadedVideoPaths,
+  }) {
     return AppSettings(
       username: username ?? this.username,
       sessionCookie: sessionCookie ?? this.sessionCookie,
@@ -32,6 +51,7 @@ class AppSettings extends HiveObject {
       lastVideoPath: lastVideoPath ?? this.lastVideoPath,
       preferredSubtitleLanguage: preferredSubtitleLanguage ?? this.preferredSubtitleLanguage,
       password: password ?? this.password,
+      downloadedVideoPaths: downloadedVideoPaths ?? this.downloadedVideoPaths,
     );
   }
 }

@@ -12,6 +12,7 @@ import '../models/media_info.dart';
 import '../models/video_info.dart';
 import '../services/media_cache_service.dart';
 import '../services/settings_service.dart';
+import '../services/subtitle_file_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/video_name_parser.dart';
 import 'subtitle_search_screen.dart';
@@ -49,6 +50,15 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     // Zkontrolovat, zda je uživatel přihlášen
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLoginStatus();
+    });
+  }
+
+  /// Refresh subtitle status for all videos (both from Hive and file system)
+  void _refreshSubtitleStates() {
+    setState(() {
+      for (int i = 0; i < _videos.length; i++) {
+        _videos[i] = SubtitleFileService.updateVideoInfoWithSubtitles(_videos[i]);
+      }
     });
   }
 
@@ -336,11 +346,67 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           itemBuilder: (context, index) {
                             final video = _videos[index];
                             final isSelected = _selectedVideo == video;
+                            
                             return ListTile(
                               selected: isSelected,
-                              leading: const Icon(Icons.movie),
+                              leading: Stack(
+                                children: [
+                                  Icon(
+                                    Icons.movie,
+                                    color: video.hasAnySubtitles ? Colors.green : null,
+                                  ),
+                                  // Subtitle indicator
+                                  if (video.hasAnySubtitles)
+                                    Positioned(
+                                      right: -2,
+                                      bottom: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: BoxDecoration(
+                                          color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Icons.subtitles,
+                                          color: Colors.white,
+                                          size: 10,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                               title: Text(video.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              subtitle: Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                  if (video.hasAnySubtitles)
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.subtitles,
+                                          size: 12,
+                                          color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            video.hasPhysicalSubtitles 
+                                                ? 'Soubory titulků (${video.subtitleFiles.length})'
+                                                : 'Stažené přes aplikaci',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
                               trailing: isPhone
                                   ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
                                   : Row(
@@ -367,6 +433,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(onPressed: _pickVideos, icon: const Icon(Icons.add), label: Text('video.add_videos'.tr())),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(onPressed: _videos.isNotEmpty ? _refreshSubtitleStates : null, icon: const Icon(Icons.refresh), label: const Text('Aktualizovat titulky')),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -449,7 +519,9 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       final fileName = path.basename(filePath);
       final fileDir = path.dirname(filePath);
 
-      final videoInfo = VideoInfo(path: filePath, name: fileName, directory: fileDir);
+      // Create VideoInfo and check for subtitles
+      var videoInfo = VideoInfo(path: filePath, name: fileName, directory: fileDir);
+      videoInfo = SubtitleFileService.updateVideoInfoWithSubtitles(videoInfo);
 
       setState(() {
         _videos.add(videoInfo);
@@ -782,7 +854,13 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     // Vytvořit upravené VideoInfo s názvem z TMDB
     final videoInfo = VideoInfo(path: _selectedVideo!.path, name: _selectedMediaInfo!.title, directory: _selectedVideo!.directory);
 
-    Navigator.push(context, MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo)));
+    Navigator.push(
+      context, 
+      MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo))
+    ).then((_) {
+      // Refresh subtitle states after returning from subtitle search
+      _refreshSubtitleStates();
+    });
   }
 }
 

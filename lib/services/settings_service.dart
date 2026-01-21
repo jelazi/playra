@@ -59,9 +59,44 @@ class SettingsService {
   /// Clear login credentials (on logout)
   static Future<void> clearCredentials() async {
     final settings = getSettings();
-    // Clear username, password and sessionCookie
-    final newSettings = AppSettings(language: settings.language, lastVideoPath: settings.lastVideoPath, preferredSubtitleLanguage: settings.preferredSubtitleLanguage);
+    // Clear username, password and sessionCookie, keep other settings
+    final newSettings = AppSettings(
+      language: settings.language,
+      lastVideoPath: settings.lastVideoPath,
+      preferredSubtitleLanguage: settings.preferredSubtitleLanguage,
+      downloadedVideoPaths: settings.downloadedVideoPaths,
+    );
     await saveSettings(newSettings);
+  }
+
+  /// Mark video as having downloaded subtitles
+  static Future<void> markVideoWithSubtitles(String videoPath) async {
+    final settings = getSettings();
+    final paths = List<String>.from(settings.downloadedVideoPaths);
+    if (!paths.contains(videoPath)) {
+      paths.add(videoPath);
+      await saveSettings(settings.copyWith(downloadedVideoPaths: paths));
+    }
+  }
+
+  /// Check if video has downloaded subtitles recorded in settings
+  static bool hasDownloadedSubtitles(String videoPath) {
+    final settings = getSettings();
+    return settings.downloadedVideoPaths.contains(videoPath);
+  }
+
+  /// Remove video from downloaded subtitles list
+  static Future<void> removeVideoFromDownloaded(String videoPath) async {
+    final settings = getSettings();
+    final paths = List<String>.from(settings.downloadedVideoPaths);
+    paths.remove(videoPath);
+    await saveSettings(settings.copyWith(downloadedVideoPaths: paths));
+  }
+
+  /// Get all video paths with downloaded subtitles
+  static List<String> getVideosWithDownloadedSubtitles() {
+    final settings = getSettings();
+    return settings.downloadedVideoPaths;
   }
 
   static Future<void> clear() async {

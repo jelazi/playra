@@ -410,4 +410,92 @@ class TitulkyRepository {
       print('Logout error: $e');
     }
   }
+
+  /// Get alternative subtitles from a subtitle detail page
+  /// Returns a list of alternative subtitles found on the detail page
+  Future<List<Subtitle>> getAlternativeSubtitles(Subtitle subtitle) async {
+    if (!isLoggedIn) {
+      throw Exception('Not logged in');
+    }
+
+    try {
+      print('Fetching alternative subtitles for: ${subtitle.title}');
+
+      // Fetch the detail page
+      final response = await _dio.get(
+        subtitle.downloadUrl,
+        options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}),
+      );
+
+      final document = html_parser.parse(response.data);
+      final List<Subtitle> alternatives = [];
+
+      // Look for the "Alternativní titulky" table
+      // The structure is: table.table.table-hover with rows containing links to action=detail
+      final tables = document.querySelectorAll('table.table');
+
+      for (final table in tables) {
+        final rows = table.querySelectorAll('tbody tr');
+
+        for (final row in rows) {
+          try {
+            // Find the link to the subtitle detail
+            final link = row.querySelector('a[href*="action=detail"]');
+            if (link == null) continue;
+
+            final href = link.attributes['href'] ?? '';
+            final idMatch = RegExp(r'id=(\d+)').firstMatch(href);
+            final id = idMatch?.group(1) ?? '';
+
+            if (id.isEmpty) continue;
+
+            // Skip if this is the same subtitle we're viewing
+            if (id == subtitle.id) continue;
+
+            // Get title from link text
+            var title = link.text.trim();
+            if (title.isEmpty) continue;
+
+            // Get additional info from row cells
+            final cells = row.querySelectorAll('td');
+            String? uploader;
+            String? releaseInfo;
+
+            if (cells.length >= 4) {
+              // Uploader in 4th cell
+              uploader = cells.length > 3 ? cells[3].text.trim() : null;
+              // Release info in 5th cell (hidden on mobile)
+              if (cells.length > 4) {
+                releaseInfo = cells[4].text.trim();
+              }
+            }
+
+            // Normalize URL
+            var downloadUrl = href;
+            if (href.startsWith('./')) {
+              downloadUrl = '$_baseUrl/${href.substring(2)}';
+            } else if (href.startsWith('/')) {
+              downloadUrl = '$_baseUrl$href';
+            } else if (!href.startsWith('http')) {
+              downloadUrl = '$_baseUrl/$href';
+            }
+
+            final alternativeSubtitle = Subtitle(id: id, title: title, language: 'cs', format: 'srt', downloadUrl: downloadUrl, uploader: uploader, details: releaseInfo);
+
+            alternatives.add(alternativeSubtitle);
+          } catch (e) {
+            print('Error parsing alternative subtitle row: $e');
+            continue;
+          }
+        }
+      }
+
+      print('Found ${alternatives.length} alternative subtitles');
+      return alternatives;
+    } catch (e, stackTrace) {
+      print('Error fetching alternative subtitles: $e');
+      print('Stack trace: $stackTrace');
+      return [];
+    }
+  }
 }

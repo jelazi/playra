@@ -292,9 +292,10 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                 color: isSelected ? Colors.blue.shade50 : (!isRelevant ? Colors.grey.shade100 : null),
                 child: InkWell(
                   onTap: () {
-                    context.read<SubtitleBloc>().add(SelectSubtitle(subtitle));
+                    // Fetch alternative subtitles when selecting a subtitle
+                    context.read<SubtitleBloc>().add(FetchAlternativeSubtitles(subtitle));
                     if (isPhone) {
-                      _showSubtitleBottomSheet(subtitle, isRelevant);
+                      _showSubtitleBottomSheet(subtitle, isRelevant, state);
                     }
                   },
                   child: Padding(
@@ -372,6 +373,8 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                               Text('📄 ${subtitle.format.toUpperCase()}', style: const TextStyle(fontSize: 12)),
                             ],
                           ),
+                          // Show alternative subtitles section for desktop when selected
+                          if (isSelected) _buildDesktopAlternativesSection(state),
                         ] else ...[
                           const SizedBox(height: 4),
                           Text(
@@ -393,39 +396,231 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
     );
   }
 
-  void _showSubtitleBottomSheet(Subtitle subtitle, bool isRelevant) {
+  Widget _buildDesktopAlternativesSection(SubtitleSearchResults state) {
+    final alternatives = state.alternativeSubtitles;
+    final isLoading = state.isLoadingAlternatives;
+
+    if (isLoading) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 12),
+        child: Row(
+          children: [
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Text('Načítám alternativní titulky...', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      );
+    }
+
+    if (alternatives == null || alternatives.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(padding: EdgeInsets.only(top: 12, bottom: 8), child: Divider()),
+        Row(
+          children: [
+            const Icon(Icons.list_alt, size: 18, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text(
+              'Alternativní titulky (${alternatives.length})',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...alternatives.take(5).map((alt) => _buildDesktopAlternativeTile(alt)),
+        if (alternatives.length > 5)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('... a ${alternatives.length - 5} dalších', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopAlternativeTile(Subtitle subtitle) {
+    return InkWell(
+      onTap: () {
+        context.read<SubtitleBloc>().add(FetchAlternativeSubtitles(subtitle));
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        margin: const EdgeInsets.only(bottom: 4),
+        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.blue.shade100,
+              radius: 12,
+              child: Text(subtitle.language.toUpperCase(), style: const TextStyle(fontSize: 8, color: Colors.blue)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subtitle.title,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (subtitle.uploader != null || subtitle.details != null)
+                    Text(
+                      [if (subtitle.uploader != null) subtitle.uploader, if (subtitle.details != null) subtitle.details].join(' • '),
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.download, size: 18, color: Colors.blue),
+              onPressed: () => _downloadSubtitle(subtitle),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSubtitleBottomSheet(Subtitle subtitle, bool isRelevant, SubtitleSearchResults state) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(subtitle.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              if (subtitle.movieName != null) Text('🎬 Film: ${subtitle.movieName}'),
-              if (subtitle.uploader != null) Text('👤 Nahrál: ${subtitle.uploader}'),
-              if (subtitle.downloadCount != null) Text('⬇️ Staženo: ${subtitle.downloadCount}×'),
-              Text('📄 Formát: ${subtitle.format.toUpperCase()}'),
-              Text('🌍 Jazyk: ${subtitle.language.toUpperCase()}'),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _downloadSubtitle(subtitle);
-                  },
-                  icon: const Icon(Icons.download),
-                  label: Text('subtitle.download_button'.tr()),
-                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+      isScrollControlled: true,
+      builder: (bottomSheetContext) => BlocBuilder<SubtitleBloc, SubtitleState>(
+        builder: (context, currentState) {
+          final alternatives = currentState is SubtitleSearchResults ? currentState.alternativeSubtitles : null;
+          final isLoadingAlternatives = currentState is SubtitleSearchResults ? currentState.isLoadingAlternatives : false;
+
+          return SafeArea(
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.5,
+              minChildSize: 0.3,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (context, scrollController) => SingleChildScrollView(
+                controller: scrollController,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Handle bar
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                        ),
+                      ),
+                      Text(subtitle.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      if (subtitle.movieName != null) Text('🎬 Film: ${subtitle.movieName}'),
+                      if (subtitle.uploader != null) Text('👤 Nahrál: ${subtitle.uploader}'),
+                      if (subtitle.downloadCount != null) Text('⬇️ Staženo: ${subtitle.downloadCount}×'),
+                      Text('📄 Formát: ${subtitle.format.toUpperCase()}'),
+                      Text('🌍 Jazyk: ${subtitle.language.toUpperCase()}'),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _downloadSubtitle(subtitle);
+                          },
+                          icon: const Icon(Icons.download),
+                          label: Text('subtitle.download_button'.tr()),
+                          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                        ),
+                      ),
+                      // Alternative subtitles section
+                      const SizedBox(height: 24),
+                      if (isLoadingAlternatives) ...[
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        const Row(
+                          children: [
+                            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                            SizedBox(width: 8),
+                            Text('Načítám alternativní titulky...', style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      ] else if (alternatives != null && alternatives.isNotEmpty) ...[
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.list_alt, size: 20, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Alternativní titulky (${alternatives.length})',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ...alternatives.map((alt) => _buildAlternativeSubtitleTile(alt, bottomSheetContext)),
+                      ],
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAlternativeSubtitleTile(Subtitle subtitle, BuildContext bottomSheetContext) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.blue.shade100,
+          radius: 16,
+          child: Text(subtitle.language.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.blue)),
         ),
+        title: Text(subtitle.title, style: const TextStyle(fontSize: 14), maxLines: 2, overflow: TextOverflow.ellipsis),
+        subtitle: subtitle.uploader != null || subtitle.details != null
+            ? Text(
+                [if (subtitle.uploader != null) subtitle.uploader, if (subtitle.details != null) subtitle.details].join(' • '),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              )
+            : null,
+        trailing: IconButton(
+          icon: const Icon(Icons.download, color: Colors.blue),
+          onPressed: () {
+            Navigator.pop(bottomSheetContext);
+            _downloadSubtitle(subtitle);
+          },
+        ),
+        onTap: () {
+          // Switch to this alternative and fetch its alternatives
+          Navigator.pop(bottomSheetContext);
+          context.read<SubtitleBloc>().add(FetchAlternativeSubtitles(subtitle));
+          // Show the bottom sheet for this new subtitle
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              final currentState = context.read<SubtitleBloc>().state;
+              if (currentState is SubtitleSearchResults) {
+                _showSubtitleBottomSheet(subtitle, false, currentState);
+              }
+            }
+          });
+        },
       ),
     );
   }

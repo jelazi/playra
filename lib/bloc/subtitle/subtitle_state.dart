@@ -51,6 +51,8 @@ class SubtitleSearchResults extends SubtitleState {
   final int currentPage;
   final bool hasMore;
   final bool isLoadingMore;
+  final List<Subtitle>? alternativeSubtitles;
+  final bool isLoadingAlternatives;
 
   SubtitleSearchResults({
     required this.videoInfo,
@@ -62,6 +64,8 @@ class SubtitleSearchResults extends SubtitleState {
     this.currentPage = 1,
     this.hasMore = false,
     this.isLoadingMore = false,
+    this.alternativeSubtitles,
+    this.isLoadingAlternatives = false,
   });
 
   /// Returns subtitles to display (relevant + others if shown)
@@ -87,6 +91,9 @@ class SubtitleSearchResults extends SubtitleState {
     int? currentPage,
     bool? hasMore,
     bool? isLoadingMore,
+    List<Subtitle>? alternativeSubtitles,
+    bool? isLoadingAlternatives,
+    bool clearAlternatives = false,
   }) {
     return SubtitleSearchResults(
       videoInfo: videoInfo ?? this.videoInfo,
@@ -98,11 +105,25 @@ class SubtitleSearchResults extends SubtitleState {
       currentPage: currentPage ?? this.currentPage,
       hasMore: hasMore ?? this.hasMore,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      alternativeSubtitles: clearAlternatives ? null : (alternativeSubtitles ?? this.alternativeSubtitles),
+      isLoadingAlternatives: isLoadingAlternatives ?? this.isLoadingAlternatives,
     );
   }
 
   @override
-  List<Object?> get props => [videoInfo, subtitles, selectedSubtitle, sortedSubtitles, showOthers, searchQuery, currentPage, hasMore, isLoadingMore];
+  List<Object?> get props => [
+    videoInfo,
+    subtitles,
+    selectedSubtitle,
+    sortedSubtitles,
+    showOthers,
+    searchQuery,
+    currentPage,
+    hasMore,
+    isLoadingMore,
+    alternativeSubtitles,
+    isLoadingAlternatives,
+  ];
 }
 
 class SubtitleDownloading extends SubtitleState {

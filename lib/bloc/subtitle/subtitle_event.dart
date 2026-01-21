@@ -68,3 +68,13 @@ class LogoutFromTitulky extends SubtitleEvent {}
 
 /// Toggles display of other (less relevant) subtitles
 class ToggleShowOtherSubtitles extends SubtitleEvent {}
+
+/// Fetch alternative subtitles for a selected subtitle
+class FetchAlternativeSubtitles extends SubtitleEvent {
+  final Subtitle subtitle;
+
+  FetchAlternativeSubtitles(this.subtitle);
+
+  @override
+  List<Object> get props => [subtitle];
+}

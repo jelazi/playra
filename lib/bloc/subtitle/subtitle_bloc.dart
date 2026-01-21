@@ -20,6 +20,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     on<DownloadSubtitle>(_onDownloadSubtitle);
     on<LogoutFromTitulky>(_onLogoutFromTitulky);
     on<ToggleShowOtherSubtitles>(_onToggleShowOtherSubtitles);
+    on<FetchAlternativeSubtitles>(_onFetchAlternativeSubtitles);
   }
 
   Future<void> _onLoginToTitulky(LoginToTitulky event, Emitter<SubtitleState> emit) async {
@@ -221,11 +222,16 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       final path = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
 
       if (path != null) {
+        // Save the information that subtitles were downloaded for this video
+        await SettingsService.markVideoWithSubtitles(event.videoInfo.path);
+        print('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
+
         emit(SubtitleDownloaded(event.subtitle, path));
       } else {
         emit(SubtitleError('subtitle.download_error'));
       }
     } catch (e) {
+      print('🔴 SubtitleBloc: Download error: $e');
       emit(SubtitleError('subtitle.download_error'));
     }
   }
@@ -241,6 +247,50 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     if (state is SubtitleSearchResults) {
       final currentState = state as SubtitleSearchResults;
       emit(currentState.copyWith(showOthers: !currentState.showOthers));
+    }
+  }
+
+  /// Fetch alternative subtitles for a selected subtitle
+  Future<void> _onFetchAlternativeSubtitles(FetchAlternativeSubtitles event, Emitter<SubtitleState> emit) async {
+    if (state is! SubtitleSearchResults) return;
+
+    final currentState = state as SubtitleSearchResults;
+
+    // Set loading state and select the subtitle
+    emit(currentState.copyWith(selectedSubtitle: event.subtitle, isLoadingAlternatives: true, clearAlternatives: true));
+
+    try {
+      print('🔵 Fetching alternative subtitles for: ${event.subtitle.title}');
+
+      final alternatives = await _repository.getAlternativeSubtitles(event.subtitle);
+
+      if (alternatives.isNotEmpty) {
+        print('🔵 Found ${alternatives.length} alternative subtitles');
+
+        // Filter out duplicates that are already in the main list
+        final existingIds = currentState.subtitles.map((s) => s.id).toSet();
+        final newAlternatives = alternatives.where((alt) => !existingIds.contains(alt.id)).toList();
+
+        print('🔵 New alternatives (not in main list): ${newAlternatives.length}');
+
+        // Get current state again in case it changed
+        if (state is SubtitleSearchResults) {
+          final updatedState = state as SubtitleSearchResults;
+          emit(updatedState.copyWith(alternativeSubtitles: newAlternatives, isLoadingAlternatives: false));
+        }
+      } else {
+        print('🔵 No alternative subtitles found');
+        if (state is SubtitleSearchResults) {
+          final updatedState = state as SubtitleSearchResults;
+          emit(updatedState.copyWith(alternativeSubtitles: [], isLoadingAlternatives: false));
+        }
+      }
+    } catch (e) {
+      print('🔴 Error fetching alternative subtitles: $e');
+      if (state is SubtitleSearchResults) {
+        final updatedState = state as SubtitleSearchResults;
+        emit(updatedState.copyWith(isLoadingAlternatives: false));
+      }
     }
   }
 }
