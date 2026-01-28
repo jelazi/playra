@@ -2,16 +2,25 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart' hide TextDirection;
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../bloc/subtitle/subtitle_bloc.dart';
+import '../bloc/subtitle/subtitle_event.dart';
+import '../bloc/subtitle/subtitle_state.dart';
+import '../models/subtitle.dart';
 import '../models/video_info.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final VideoInfo videoInfo;
   final String? subtitlePath;
+  final List<Subtitle>? availableSubtitles;
+  final List<Subtitle>? alternativeSubtitles;
+  final Subtitle? currentSubtitle;
+  final Subtitle? selectedSubtitle;
 
-  const VideoPlayerScreen({super.key, required this.videoInfo, this.subtitlePath});
+  const VideoPlayerScreen({super.key, required this.videoInfo, this.subtitlePath, this.availableSubtitles, this.alternativeSubtitles, this.currentSubtitle, this.selectedSubtitle});
 
   @override
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
@@ -23,10 +32,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   Duration _duration = Duration.zero;
+  bool _showSubtitleSelector = false;
+  String? _currentSubtitlePath;
+  Subtitle? _currentSubtitle;
 
   @override
   void initState() {
     super.initState();
+    _currentSubtitlePath = widget.subtitlePath;
+    _currentSubtitle = widget.currentSubtitle;
+    print('🎬 VideoPlayerScreen: Available subtitles: ${widget.availableSubtitles?.length ?? 0}');
+    print('🎬 VideoPlayerScreen: Alternative subtitles: ${widget.alternativeSubtitles?.length ?? 0}');
+    print('🎬 VideoPlayerScreen: Current subtitle: ${widget.currentSubtitle?.title}');
+    print('🎬 VideoPlayerScreen: Selected subtitle: ${widget.selectedSubtitle?.title}');
     _initializeVideo();
   }
 
@@ -122,8 +140,26 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasSubtitlesToSelect =
+        (widget.availableSubtitles != null && widget.availableSubtitles!.isNotEmpty) || (widget.alternativeSubtitles != null && widget.alternativeSubtitles!.isNotEmpty);
+
     return Scaffold(
-      appBar: AppBar(title: Text('player.title'.tr()), backgroundColor: Theme.of(context).colorScheme.inversePrimary),
+      appBar: AppBar(
+        title: Text('player.title'.tr()),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          if (hasSubtitlesToSelect)
+            IconButton(
+              icon: const Icon(Icons.subtitles),
+              tooltip: 'Vybrat titulky',
+              onPressed: () {
+                setState(() {
+                  _showSubtitleSelector = !_showSubtitleSelector;
+                });
+              },
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -161,7 +197,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     return Column(
       children: [
         // Info panel
-        if (widget.subtitlePath != null)
+        if (_currentSubtitlePath != null)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -171,12 +207,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
               children: [
                 SelectableText('player.testing_subtitles'.tr(), style: const TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                SelectableText(widget.subtitlePath!.split('/').last),
+                SelectableText(_currentSubtitle?.title ?? _currentSubtitlePath!.split('/').last),
                 const SizedBox(height: 4),
                 SelectableText('player.check_timing'.tr(), style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
               ],
             ),
           ),
+
+        // Subtitle selector panel
+        if (_showSubtitleSelector) _buildSubtitleSelectorPanel(),
 
         // Video player
         Expanded(
@@ -273,6 +312,174 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSubtitleSelectorPanel() {
+    // Combine all subtitles and alternatives
+    final allSubtitles = <Subtitle>[];
+    if (widget.availableSubtitles != null) {
+      allSubtitles.addAll(widget.availableSubtitles!);
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 300),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Vybrat titulky', style: TextStyle(fontWeight: FontWeight.bold)),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _showSubtitleSelector = false;
+                    });
+                  },
+                  child: const Text('Zavřít'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              children: [
+                // Main subtitles section
+                if (widget.availableSubtitles != null && widget.availableSubtitles!.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Text(
+                      'Hlavní titulky',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+                    ),
+                  ),
+                  ...widget.availableSubtitles!.map((subtitle) => _buildSubtitleTile(subtitle)),
+                ],
+
+                // Alternative subtitles section
+                if (widget.alternativeSubtitles != null && widget.alternativeSubtitles!.isNotEmpty) ...[
+                  const Divider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.list_alt, size: 16, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Alternativní titulky (${widget.alternativeSubtitles!.length})',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ...widget.alternativeSubtitles!.map((subtitle) => _buildSubtitleTile(subtitle)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubtitleTile(Subtitle subtitle) {
+    final isSelected = _currentSubtitle?.id == subtitle.id;
+    final isOriginallySelected = widget.selectedSubtitle?.id == subtitle.id;
+
+    return ListTile(
+      selected: isSelected,
+      leading: Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: isOriginallySelected ? Colors.blue.shade300 : null),
+      title: Text(subtitle.title, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : (isOriginallySelected ? FontWeight.w500 : FontWeight.normal))),
+      subtitle: Text('${subtitle.format.toUpperCase()} • ${subtitle.language.toUpperCase()}', style: const TextStyle(fontSize: 12)),
+      trailing: isOriginallySelected && !isSelected ? const Icon(Icons.check_circle_outline, size: 20, color: Colors.grey) : null,
+      onTap: () => _loadSubtitle(subtitle),
+    );
+  }
+
+  Future<void> _loadSubtitle(Subtitle subtitle) async {
+    // Save current playback position
+    final currentPosition = _player?.state.position ?? Duration.zero;
+    final wasPlaying = _player?.state.playing ?? false;
+
+    // Show loading
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Download the subtitle
+      context.read<SubtitleBloc>().add(DownloadSubtitle(subtitle, widget.videoInfo));
+
+      // Listen for download completion
+      await for (final state in context.read<SubtitleBloc>().stream) {
+        if (state is SubtitleDownloaded) {
+          // Update subtitle in player
+          await _reloadWithNewSubtitle(state.path, subtitle, currentPosition, wasPlaying);
+          break;
+        } else if (state is SubtitleError) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
+          }
+          setState(() {
+            _isLoading = false;
+          });
+          break;
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při načítání titulků: $e'), backgroundColor: Colors.red));
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _reloadWithNewSubtitle(String newSubtitlePath, Subtitle subtitle, Duration position, bool shouldPlay) async {
+    try {
+      // Remove current subtitle track
+      await _player?.setSubtitleTrack(SubtitleTrack.no());
+
+      // Set new subtitle track
+      final subtitleUri = newSubtitlePath.startsWith('file://') ? newSubtitlePath : 'file://$newSubtitlePath';
+      await _player?.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
+
+      // Restore playback position
+      await _player?.seek(position);
+
+      // Resume playback if it was playing
+      if (shouldPlay) {
+        await _player?.play();
+      }
+
+      // Update state
+      setState(() {
+        _currentSubtitlePath = newSubtitlePath;
+        _currentSubtitle = subtitle;
+        _isLoading = false;
+        _showSubtitleSelector = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Titulky změněny: ${subtitle.title}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
+      }
+    } catch (e) {
+      print('🔴 Error reloading subtitle: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při přepnutí titulků'), backgroundColor: Colors.red));
+      }
+    }
   }
 
   String _formatDuration(Duration duration) {

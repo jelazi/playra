@@ -22,6 +22,14 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isManualSearch = false;
 
+  // Store subtitle data before download to pass to player
+  List<Subtitle>? _cachedAvailableSubtitles;
+  List<Subtitle>? _cachedAlternativeSubtitles;
+  Subtitle? _cachedSelectedSubtitle;
+
+  // Flag to prevent opening player when already navigated
+  bool _hasNavigatedToPlayer = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,20 +56,50 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
           Expanded(
             child: BlocConsumer<SubtitleBloc, SubtitleState>(
               listener: (context, state) {
+                // Cache subtitle data when in SubtitleSearchResults state
+                if (state is SubtitleSearchResults) {
+                  _cachedAvailableSubtitles = state.subtitles;
+                  _cachedAlternativeSubtitles = state.alternativeSubtitles;
+                  _cachedSelectedSubtitle = state.selectedSubtitle;
+                }
+
                 if (state is SubtitleError) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
-                } else if (state is SubtitleDownloaded) {
+                } else if (state is SubtitleDownloaded && !_hasNavigatedToPlayer) {
+                  _hasNavigatedToPlayer = true;
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
-                  // After download, open player with subtitles - use push instead of pushReplacement
-                  // so user can go back to subtitle selection
+                  // Use cached data from before download
+                  print('🔍 Opening player with cached data:');
+                  print('   - Available subtitles: ${_cachedAvailableSubtitles?.length ?? 0}');
+                  print('   - Alternative subtitles: ${_cachedAlternativeSubtitles?.length ?? 0}');
+                  print('   - Selected subtitle: ${_cachedSelectedSubtitle?.title}');
+                  print('   - Current subtitle: ${state.subtitle.title}');
+
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => VideoPlayerScreen(videoInfo: widget.videoInfo, subtitlePath: state.path),
+                      builder: (context) => VideoPlayerScreen(
+                        videoInfo: widget.videoInfo,
+                        subtitlePath: state.path,
+                        availableSubtitles: _cachedAvailableSubtitles,
+                        alternativeSubtitles: _cachedAlternativeSubtitles,
+                        currentSubtitle: state.subtitle,
+                        selectedSubtitle: _cachedSelectedSubtitle,
+                      ),
                     ),
-                  );
+                  ).then((_) {
+                    // Reset flag when returning from player
+                    _hasNavigatedToPlayer = false;
+                    // When returning from player, log current state
+                    final returnState = context.read<SubtitleBloc>().state;
+                    if (returnState is SubtitleSearchResults) {
+                      print('🔙 Returned from player:');
+                      print('   - Selected subtitle: ${returnState.selectedSubtitle?.title}');
+                      print('   - Alternative subtitles: ${returnState.alternativeSubtitles?.length ?? 0}');
+                    }
+                  });
                 }
               },
               builder: (context, state) {
@@ -280,6 +318,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
 
               final subtitle = displayedSubtitles[index];
               final isSelected = state.selectedSubtitle?.id == subtitle.id;
+              final isCurrentlyDownloaded = _cachedSelectedSubtitle?.id == subtitle.id;
 
               // Determine if subtitle is relevant
               final isRelevant = state.sortedSubtitles?.relevant.contains(subtitle) ?? true;
@@ -289,10 +328,11 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
-                color: isSelected ? Colors.blue.shade50 : (!isRelevant ? Colors.grey.shade100 : null),
+                color: isCurrentlyDownloaded ? Colors.green.shade50 : (isSelected ? Colors.blue.shade50 : (!isRelevant ? Colors.grey.shade100 : null)),
                 child: InkWell(
                   onTap: () {
-                    // Fetch alternative subtitles when selecting a subtitle
+                    // Select subtitle and fetch alternative subtitles when selecting a subtitle
+                    context.read<SubtitleBloc>().add(SelectSubtitle(subtitle));
                     context.read<SubtitleBloc>().add(FetchAlternativeSubtitles(subtitle));
                     if (isPhone) {
                       _showSubtitleBottomSheet(subtitle, isRelevant, state);
@@ -338,7 +378,17 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  if (isRelevant && index == 0)
+                                  if (isCurrentlyDownloaded)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(12)),
+                                      child: const Text(
+                                        'STAŽENO',
+                                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  if (isRelevant && index == 0 && !isCurrentlyDownloaded)
                                     Container(
                                       margin: const EdgeInsets.only(top: 4),
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -443,7 +493,9 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
   Widget _buildDesktopAlternativeTile(Subtitle subtitle) {
     return InkWell(
       onTap: () {
-        context.read<SubtitleBloc>().add(FetchAlternativeSubtitles(subtitle));
+        // When clicking alternative, select it and download it (don't close the card)
+        context.read<SubtitleBloc>().add(SelectSubtitle(subtitle));
+        _downloadSubtitle(subtitle);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),

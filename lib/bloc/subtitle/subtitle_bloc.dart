@@ -217,6 +217,9 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   }
 
   Future<void> _onDownloadSubtitle(DownloadSubtitle event, Emitter<SubtitleState> emit) async {
+    // Save previous state to restore after download
+    final previousState = state is SubtitleSearchResults ? state as SubtitleSearchResults : null;
+    
     emit(SubtitleDownloading(event.subtitle));
     try {
       final path = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
@@ -227,6 +230,14 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         print('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
 
         emit(SubtitleDownloaded(event.subtitle, path));
+        
+        // Restore previous SubtitleSearchResults state after a brief delay
+        // This preserves the selection and alternatives when returning from player
+        if (previousState != null) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          emit(previousState.copyWith(selectedSubtitle: event.subtitle));
+          print('🔵 SubtitleBloc: Restored SubtitleSearchResults state with selection preserved');
+        }
       } else {
         emit(SubtitleError('subtitle.download_error'));
       }

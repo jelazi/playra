@@ -346,15 +346,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           itemBuilder: (context, index) {
                             final video = _videos[index];
                             final isSelected = _selectedVideo == video;
-                            
+
                             return ListTile(
                               selected: isSelected,
                               leading: Stack(
                                 children: [
-                                  Icon(
-                                    Icons.movie,
-                                    color: video.hasAnySubtitles ? Colors.green : null,
-                                  ),
+                                  Icon(Icons.movie, color: video.hasAnySubtitles ? Colors.green : null),
                                   // Subtitle indicator
                                   if (video.hasAnySubtitles)
                                     Positioned(
@@ -362,15 +359,8 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                       bottom: -2,
                                       child: Container(
                                         padding: const EdgeInsets.all(2),
-                                        decoration: BoxDecoration(
-                                          color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.subtitles,
-                                          color: Colors.white,
-                                          size: 10,
-                                        ),
+                                        decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                        child: Icon(Icons.subtitles, color: Colors.white, size: 10),
                                       ),
                                     ),
                                 ],
@@ -383,22 +373,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                   if (video.hasAnySubtitles)
                                     Row(
                                       children: [
-                                        Icon(
-                                          Icons.subtitles,
-                                          size: 12,
-                                          color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
-                                        ),
+                                        Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
                                         const SizedBox(width: 4),
                                         Expanded(
                                           child: Text(
-                                            video.hasPhysicalSubtitles 
-                                                ? 'Soubory titulků (${video.subtitleFiles.length})'
-                                                : 'Stažené přes aplikaci',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                            video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
+                                            style: TextStyle(fontSize: 11, color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w500),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -432,15 +412,30 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(onPressed: _pickVideos, icon: const Icon(Icons.add), label: Text('video.add_videos'.tr())),
+                      child: OutlinedButton.icon(
+                        onPressed: _pickVideos,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: FittedBox(fit: BoxFit.scaleDown, child: Text('video.add_videos'.tr())),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8)),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: OutlinedButton.icon(onPressed: _videos.isNotEmpty ? _refreshSubtitleStates : null, icon: const Icon(Icons.refresh), label: const Text('Aktualizovat titulky')),
+                      child: OutlinedButton.icon(
+                        onPressed: _videos.isNotEmpty ? _refreshSubtitleStates : null,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Aktualizovat titulky')),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8)),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: OutlinedButton.icon(onPressed: _videos.isNotEmpty ? _clearAll : null, icon: const Icon(Icons.clear_all), label: Text('video.clear_all'.tr())),
+                      child: OutlinedButton.icon(
+                        onPressed: _videos.isNotEmpty ? _clearAll : null,
+                        icon: const Icon(Icons.clear_all, size: 18),
+                        label: FittedBox(fit: BoxFit.scaleDown, child: Text('video.clear_all'.tr())),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8)),
+                      ),
                     ),
                   ],
                 ),
@@ -854,10 +849,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     // Vytvořit upravené VideoInfo s názvem z TMDB
     final videoInfo = VideoInfo(path: _selectedVideo!.path, name: _selectedMediaInfo!.title, directory: _selectedVideo!.directory);
 
-    Navigator.push(
-      context, 
-      MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo))
-    ).then((_) {
+    Navigator.push(context, MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo))).then((_) {
       // Refresh subtitle states after returning from subtitle search
       _refreshSubtitleStates();
     });
