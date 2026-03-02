@@ -142,9 +142,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
           isFromCache: _isFromCache,
           onPlay: () => _playVideo(video),
           onSearchSubtitles: _searchSubtitles,
-          onEditSubtitles: video.hasAnySubtitles && video.subtitleFiles.isNotEmpty
-              ? () => _openSubtitleEditor(video)
-              : null,
+          onEditSubtitles: video.hasAnySubtitles && video.subtitleFiles.isNotEmpty ? () => _openSubtitleEditor(video) : null,
           onEditMediaInfo: () => _editMediaInfo(video),
           onSearchAgain: () => _searchMediaInfo(video),
         ),
@@ -273,11 +271,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                       onPressed: () => _openSubtitleEditor(_selectedVideo!),
                       icon: const Icon(Icons.edit),
                       label: Text('player.edit_subtitles'.tr()),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                      ),
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.orange, foregroundColor: Colors.white),
                     ),
                   ),
                 ],
@@ -885,17 +879,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
   void _openSubtitleEditor(VideoInfo video) {
     // Find the first subtitle file for this video
-    final subtitlePath = video.subtitleFiles.isNotEmpty
-        ? video.subtitleFiles.first
-        : SubtitleFileService.getExpectedSubtitlePath(video);
+    final subtitlePath = video.subtitleFiles.isNotEmpty ? video.subtitleFiles.first : SubtitleFileService.getExpectedSubtitlePath(video);
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SubtitleEditorScreen(
-          videoPath: video.path,
-          subtitlePath: subtitlePath,
-        ),
+        builder: (_) => SubtitleEditorScreen(videoPath: video.path, subtitlePath: subtitlePath),
       ),
     ).then((_) {
       _refreshSubtitleStates();
@@ -1039,11 +1028,7 @@ class _VideoDetailScreen extends StatelessWidget {
                     onPressed: onEditSubtitles,
                     icon: const Icon(Icons.edit),
                     label: Text('player.edit_subtitles'.tr()),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
+                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.orange, foregroundColor: Colors.white),
                   ),
                 ),
               ],
