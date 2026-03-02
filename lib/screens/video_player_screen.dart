@@ -11,6 +11,7 @@ import '../bloc/subtitle/subtitle_event.dart';
 import '../bloc/subtitle/subtitle_state.dart';
 import '../models/subtitle.dart';
 import '../models/video_info.dart';
+import 'subtitle_editor_screen.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final VideoInfo videoInfo;
@@ -202,14 +203,42 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             color: Colors.blue.shade50,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                SelectableText('player.testing_subtitles'.tr(), style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                SelectableText(_currentSubtitle?.title ?? _currentSubtitlePath!.split('/').last),
-                const SizedBox(height: 4),
-                SelectableText('player.check_timing'.tr(), style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SelectableText('player.testing_subtitles'.tr(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      SelectableText(_currentSubtitle?.title ?? _currentSubtitlePath!.split('/').last),
+                      const SizedBox(height: 4),
+                      SelectableText('player.check_timing'.tr(), style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Pause video before navigating
+                    _pause();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SubtitleEditorScreen(
+                          videoPath: widget.videoInfo.path,
+                          subtitlePath: _currentSubtitlePath!,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: Text('player.edit_subtitles'.tr()),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
               ],
             ),
           ),

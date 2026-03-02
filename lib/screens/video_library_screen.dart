@@ -15,6 +15,7 @@ import '../services/settings_service.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/video_name_parser.dart';
+import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
 import 'video_player_screen.dart';
 import 'video_selection_screen.dart';
@@ -141,6 +142,9 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
           isFromCache: _isFromCache,
           onPlay: () => _playVideo(video),
           onSearchSubtitles: _searchSubtitles,
+          onEditSubtitles: video.hasAnySubtitles && video.subtitleFiles.isNotEmpty
+              ? () => _openSubtitleEditor(video)
+              : null,
           onEditMediaInfo: () => _editMediaInfo(video),
           onSearchAgain: () => _searchMediaInfo(video),
         ),
@@ -262,6 +266,21 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                     style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   ),
                 ),
+                if (_selectedVideo!.hasAnySubtitles && _selectedVideo!.subtitleFiles.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _openSubtitleEditor(_selectedVideo!),
+                      icon: const Icon(Icons.edit),
+                      label: Text('player.edit_subtitles'.tr()),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
@@ -478,6 +497,15 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                 _selectVideo(video);
               },
             ),
+            if (video.hasAnySubtitles && video.subtitleFiles.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.orange),
+                title: Text('player.edit_subtitles'.tr()),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openSubtitleEditor(video);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.delete),
               title: Text('video.remove'.tr()),
@@ -854,6 +882,25 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       _refreshSubtitleStates();
     });
   }
+
+  void _openSubtitleEditor(VideoInfo video) {
+    // Find the first subtitle file for this video
+    final subtitlePath = video.subtitleFiles.isNotEmpty
+        ? video.subtitleFiles.first
+        : SubtitleFileService.getExpectedSubtitlePath(video);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SubtitleEditorScreen(
+          videoPath: video.path,
+          subtitlePath: subtitlePath,
+        ),
+      ),
+    ).then((_) {
+      _refreshSubtitleStates();
+    });
+  }
 }
 
 // Obrazovka detailu videa pro telefon
@@ -864,6 +911,7 @@ class _VideoDetailScreen extends StatelessWidget {
   final bool isFromCache;
   final VoidCallback onPlay;
   final VoidCallback onSearchSubtitles;
+  final VoidCallback? onEditSubtitles;
   final VoidCallback onEditMediaInfo;
   final VoidCallback onSearchAgain;
 
@@ -874,6 +922,7 @@ class _VideoDetailScreen extends StatelessWidget {
     required this.isFromCache,
     required this.onPlay,
     required this.onSearchSubtitles,
+    this.onEditSubtitles,
     required this.onEditMediaInfo,
     required this.onSearchAgain,
   });
@@ -982,6 +1031,22 @@ class _VideoDetailScreen extends StatelessWidget {
                   style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                 ),
               ),
+              if (onEditSubtitles != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: onEditSubtitles,
+                    icon: const Icon(Icons.edit),
+                    label: Text('player.edit_subtitles'.tr()),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               // Info o cache
               if (isFromCache)
