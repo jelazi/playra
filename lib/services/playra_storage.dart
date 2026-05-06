@@ -25,6 +25,7 @@ class PlayraStorage {
   static const String _trackPrefsKey = 'track_prefs';
   static const String _recentPosterByVideoKey = 'recent_posters_by_video';
   static const String _recentPosterBySeriesKey = 'recent_posters_by_series';
+  static const String _lastOpenedDirectoryKey = 'last_opened_directory';
 
   static const int _maxRecents = 20;
 
@@ -125,6 +126,12 @@ class PlayraStorage {
 
   static Future<void> clearRecent() async {
     await _player?.delete(_recentsKey);
+  }
+
+  static Future<void> removeRecent(String videoId) async {
+    final list = getRecent().toList();
+    list.removeWhere((v) => v.id == videoId);
+    await _player?.put(_recentsKey, jsonEncode(list.map((v) => v.toJson()).toList()));
   }
 
   // --- Track preferences (videoId -> audio/subtitle track key) ---
@@ -244,6 +251,18 @@ class PlayraStorage {
     }
 
     return null;
+  }
+
+  // --- Last opened file directory ---
+  static String? getLastOpenedDirectory() {
+    final value = _player?.get(_lastOpenedDirectoryKey);
+    if (value == null || value.isEmpty) return null;
+    return value;
+  }
+
+  static Future<void> setLastOpenedDirectory(String? directory) async {
+    if (directory == null || directory.isEmpty) return;
+    await _player?.put(_lastOpenedDirectoryKey, directory);
   }
 
   // --- Servers ---

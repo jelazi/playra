@@ -16,6 +16,30 @@ class PlayerLauncher {
   final SmbProxyServer _proxy;
 
   Future<void> launch(BuildContext context, VideoItem video) async {
+    final url = await _resolvePlayUrl(context, video);
+    if (url == null) return;
+
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
+      ),
+    );
+  }
+
+  Future<void> launchReplacement(BuildContext context, VideoItem video) async {
+    final url = await _resolvePlayUrl(context, video);
+    if (url == null) return;
+
+    if (!context.mounted) return;
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
+      ),
+    );
+  }
+
+  Future<String?> _resolvePlayUrl(BuildContext context, VideoItem video) async {
     String url;
     switch (video.source) {
       case VideoSource.local:
@@ -29,20 +53,15 @@ class PlayerLauncher {
         final parsed = _parseSmbUri(video.uri);
         if (parsed == null) {
           _showError(context, 'Invalid SMB URI: ${video.uri}');
-          return;
+          return null;
         }
         final server = PlayraStorage.getServers().firstWhere(
           (s) => s.id == parsed.$1,
-          orElse: () => ServerConnection(
-            id: '',
-            name: '',
-            type: ServerType.smb,
-            host: '',
-          ),
+          orElse: () => ServerConnection(id: '', name: '', type: ServerType.smb, host: ''),
         );
         if (server.id.isEmpty) {
           _showError(context, 'Server not found');
-          return;
+          return null;
         }
         await _proxy.start();
         _proxy.register(server);
@@ -50,12 +69,7 @@ class PlayerLauncher {
         break;
     }
 
-    if (!context.mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
-      ),
-    );
+    return url;
   }
 
   (String, String)? _parseSmbUri(String uri) {

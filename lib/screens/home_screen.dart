@@ -4,10 +4,12 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:path/path.dart' as p;
 
 import '../bloc/library/library_cubit.dart';
 import '../models/video_item.dart';
 import '../services/playra_storage.dart';
+import '../services/video_name_parser.dart';
 import 'media_info_screen.dart';
 import 'player_launcher.dart';
 import 'servers_screen.dart';
@@ -23,6 +25,52 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<VideoItem> _recents = [];
+
+  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode) {
+    if (mode == 'flat') {
+      final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return sorted.map((v) => _LibraryEntry.video(v)).toList();
+    }
+
+    if (mode == 'smart') {
+      final groups = <String, List<VideoItem>>{};
+      final labels = <String, String>{};
+      for (final v in videos) {
+        final parsed = VideoNameParser.parse(v.uri);
+        final key = parsed.isTV ? 'tv:${parsed.cleanName.toLowerCase()}' : 'dir:${p.dirname(v.uri).toLowerCase()}';
+        labels[key] = parsed.isTV ? parsed.cleanName : (v.folder ?? p.basename(p.dirname(v.uri)));
+        groups.putIfAbsent(key, () => []).add(v);
+      }
+
+      final keys = groups.keys.toList()..sort((a, b) => (labels[a] ?? a).toLowerCase().compareTo((labels[b] ?? b).toLowerCase()));
+
+      final out = <_LibraryEntry>[];
+      for (final k in keys) {
+        final items = groups[k]!;
+        items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        out.add(_LibraryEntry.header(labels[k] ?? k, items.length));
+        out.addAll(items.map(_LibraryEntry.video));
+      }
+      return out;
+    }
+
+    // structured
+    final byDir = <String, List<VideoItem>>{};
+    for (final v in videos) {
+      final dir = p.dirname(v.uri);
+      byDir.putIfAbsent(dir, () => []).add(v);
+    }
+    final dirs = byDir.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final out = <_LibraryEntry>[];
+    for (final dir in dirs) {
+      final items = byDir[dir]!;
+      items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      out.add(_LibraryEntry.header(p.basename(dir), items.length));
+      out.addAll(items.map(_LibraryEntry.video));
+    }
+    return out;
+  }
 
   @override
   void initState() {
@@ -51,10 +99,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openSingleFile() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.video, allowMultiple: false);
+    final initialDir = PlayraStorage.getLastOpenedDirectory();
+    final result = await FilePicker.platform.pickFiles(type: FileType.video, allowMultiple: false, initialDirectory: initialDir);
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     if (file.path == null) return;
+    await PlayraStorage.setLastOpenedDirectory(File(file.path!).parent.path);
     final v = VideoItem(id: file.path!, name: file.name, uri: file.path!, source: VideoSource.local);
     await _openVideo(v);
   }
@@ -85,6 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final hasLibrary = state.folders.isNotEmpty && state.videos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
+          final libraryMode = PlayraStorage.getPlayerSettings().libraryViewMode;
+          final libraryEntries = _buildLibraryEntries(state.videos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
             if (state.folders.isEmpty) {
@@ -154,11 +206,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 // --- Library items ---
                 if (hasLibrary)
-                  SliverList.separated(
-                    itemCount: state.videos.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                  SliverList.builder(
+                    itemCount: libraryEntries.length,
                     itemBuilder: (context, i) {
-                      final v = state.videos[i];
+                      final entry = libraryEntries[i];
+                      if (entry.isHeader) {
+                        return Container(
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.folder_open, size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text('${entry.headerTitle} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final v = entry.video!;
                       final resume = PlayraStorage.getResume(v.id);
                       return ListTile(
                         leading: const Icon(Icons.movie),
@@ -188,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final posterPath = PlayraStorage.getRecentPosterPath(v);
     return GestureDetector(
       onTap: () => _openVideo(v),
+      onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
       child: Container(
         width: 100,
         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -225,6 +294,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showRecentContextMenu(VideoItem v, Offset globalPosition) async {
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
+      items: [PopupMenuItem<String>(value: 'remove_recent', child: Text('home.remove_from_recent'.tr()))],
+    );
+    if (selected == 'remove_recent') {
+      await PlayraStorage.removeRecent(v.id);
+      _loadRecents();
+    }
   }
 
   Widget _emptyState({required IconData icon, required String title, required String subtitle}) {
@@ -296,6 +377,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
+}
+
+class _LibraryEntry {
+  final String? headerTitle;
+  final int count;
+  final VideoItem? video;
+
+  bool get isHeader => headerTitle != null;
+
+  const _LibraryEntry.header(this.headerTitle, this.count) : video = null;
+  const _LibraryEntry.video(this.video) : headerTitle = null, count = 0;
 }
 
 /// Main Playra home screen — the local video library.

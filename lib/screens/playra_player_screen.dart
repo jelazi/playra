@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,6 +15,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../bloc/settings/playra_settings_cubit.dart';
+import '../models/player_settings.dart';
 import '../models/subtitle_style_settings.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
@@ -41,6 +43,7 @@ class PlayraPlayerScreen extends StatefulWidget {
 class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   late final Player _player;
   late final VideoController _controller;
+  late final FocusNode _keyboardFocusNode;
 
   bool _showControls = true;
   bool _isReady = false;
@@ -60,11 +63,14 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   VideoItem? _nextEpisode;
   bool _nextEpisodePromptShown = false;
 
+  bool get _isDesktopPlatform => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
   @override
   void initState() {
     super.initState();
     _player = Player();
     _controller = VideoController(_player);
+    _keyboardFocusNode = FocusNode();
 
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -89,6 +95,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     _open();
     _startHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isDesktopPlatform) {
+        _keyboardFocusNode.requestFocus();
+      }
+    });
   }
 
   Future<void> _open() async {
@@ -211,7 +222,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     if (next == null) return;
     await PlayraStorage.addRecent(next);
     if (!mounted) return;
-    await context.read<PlayerLauncher>().launch(context, next);
+    await _player.pause();
+    await _player.stop();
+    if (!mounted) return;
+    await context.read<PlayerLauncher>().launchReplacement(context, next);
   }
 
   Future<void> _persistResume() async {
@@ -228,6 +242,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   @override
   void dispose() {
+    _keyboardFocusNode.dispose();
     _hideTimer?.cancel();
     _overlayTimer?.cancel();
     _resumeSaveTimer?.cancel();
@@ -269,6 +284,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   Future<void> _onDoubleTapToggleFullscreen() async {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final settings = PlayraStorage.getPlayerSettings();
+      if (!_isModifierPressed(settings.desktopDoubleClickModifier)) {
+        return;
+      }
       final isFullscreen = await windowManager.isFullScreen();
       await windowManager.setFullScreen(!isFullscreen);
       _flashOverlay(!isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, !isFullscreen ? 'Fullscreen' : 'Windowed');
@@ -279,9 +298,125 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _toggleFullscreenFit();
   }
 
+  LogicalKeyboardKey? _keyFromSetting(String key) {
+    switch (key) {
+      case 'Space':
+        return LogicalKeyboardKey.space;
+      case 'KeyF':
+        return LogicalKeyboardKey.keyF;
+      case 'Enter':
+        return LogicalKeyboardKey.enter;
+      case 'ArrowLeft':
+        return LogicalKeyboardKey.arrowLeft;
+      case 'ArrowRight':
+        return LogicalKeyboardKey.arrowRight;
+      case 'KeyJ':
+        return LogicalKeyboardKey.keyJ;
+      case 'KeyK':
+        return LogicalKeyboardKey.keyK;
+      case 'KeyL':
+        return LogicalKeyboardKey.keyL;
+      case 'KeyA':
+        return LogicalKeyboardKey.keyA;
+      case 'KeyS':
+        return LogicalKeyboardKey.keyS;
+      case 'KeyD':
+        return LogicalKeyboardKey.keyD;
+      default:
+        return null;
+    }
+  }
+
+  bool _isModifierPressed(String modifier) {
+    switch (modifier) {
+      case 'none':
+        return true;
+      case 'ctrl':
+        return HardwareKeyboard.instance.isControlPressed;
+      case 'alt':
+        return HardwareKeyboard.instance.isAltPressed;
+      case 'shift':
+        return HardwareKeyboard.instance.isShiftPressed;
+      case 'meta':
+        return HardwareKeyboard.instance.isMetaPressed;
+      default:
+        return true;
+    }
+  }
+
+  KeyEventResult _handleDesktopKeyEvent(KeyEvent event, PlayerSettings settings) {
+    if (!_isDesktopPlatform || !settings.desktopShortcutsEnabled) {
+      return KeyEventResult.ignored;
+    }
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!_isModifierPressed(settings.desktopShortcutModifier)) {
+      return KeyEventResult.ignored;
+    }
+
+    final key = event.logicalKey;
+    final playPause = _keyFromSetting(settings.desktopPlayPauseKey);
+    final fullscreen = _keyFromSetting(settings.desktopFullscreenKey);
+    final seekBack = _keyFromSetting(settings.desktopSeekBackwardKey);
+    final seekForward = _keyFromSetting(settings.desktopSeekForwardKey);
+
+    if (playPause != null && key == playPause) {
+      _playing ? _player.pause() : _player.play();
+      _startHideTimer();
+      return KeyEventResult.handled;
+    }
+    if (fullscreen != null && key == fullscreen) {
+      _onDoubleTapToggleFullscreen();
+      return KeyEventResult.handled;
+    }
+    if (seekBack != null && key == seekBack) {
+      _seekRelative(Duration(seconds: -settings.seekStepSeconds.toInt()));
+      return KeyEventResult.handled;
+    }
+    if (seekForward != null && key == seekForward) {
+      _seekRelative(Duration(seconds: settings.seekStepSeconds.toInt()));
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _onDesktopPointerSignal(PointerSignalEvent signal, PlayerSettings settings) async {
+    if (!_isDesktopPlatform || !settings.desktopShortcutsEnabled) return;
+    if (signal is! PointerScrollEvent) return;
+
+    final dir = signal.scrollDelta.dy > 0 ? -1.0 : 1.0;
+    final action = settings.desktopWheelAction;
+
+    if (action == 'none') return;
+
+    if (action == 'seek') {
+      await _seekRelative(Duration(seconds: (dir * settings.desktopWheelStep).round()));
+      return;
+    }
+
+    if (action == 'volume') {
+      final current = await FlutterVolumeController.getVolume() ?? 0.5;
+      final delta = settings.desktopWheelStep / 100.0;
+      final next = (current + (dir * delta)).clamp(0.0, 1.0);
+      await FlutterVolumeController.setVolume(next);
+      _flashOverlay(Icons.volume_up, '${(next * 100).round()}%');
+      return;
+    }
+
+    if (action == 'brightness') {
+      try {
+        final current = await ScreenBrightness().current;
+        final delta = settings.desktopWheelStep / 100.0;
+        final next = (current + (dir * delta)).clamp(0.0, 1.0);
+        await ScreenBrightness().setScreenBrightness(next);
+        _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
+      } catch (_) {}
+    }
+  }
+
   Future<void> _onVerticalDrag(DragUpdateDetails d, bool isLeft) async {
     final settings = PlayraStorage.getPlayerSettings();
-    if (!settings.gesturesEnabled) return;
+    if (_isDesktopPlatform || !settings.gesturesEnabled) return;
     final size = MediaQuery.of(context).size;
     final delta = -d.delta.dy / (size.height * 0.6); // full swipe = ~60% of screen height
     if (isLeft) {
@@ -328,69 +463,78 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
       builder: (context, settings) {
+        final touchGesturesEnabled = !_isDesktopPlatform && settings.player.gesturesEnabled;
         return Scaffold(
           backgroundColor: Colors.black,
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: Video(
-                  controller: _controller,
-                  controls: NoVideoControls,
-                  fit: _isFullscreenFit ? BoxFit.cover : BoxFit.contain,
-                  subtitleViewConfiguration: _subtitleConfig(settings.subtitleStyle),
-                ),
-              ),
-
-              // Tap & gesture layer
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _toggleControls,
-                        onDoubleTap: _onDoubleTapToggleFullscreen,
-                        onVerticalDragUpdate: (d) => _onVerticalDrag(d, true),
-                        onHorizontalDragUpdate: _onHorizontalDrag,
-                      ),
+          body: Focus(
+            focusNode: _keyboardFocusNode,
+            autofocus: _isDesktopPlatform,
+            onKeyEvent: (node, event) => _handleDesktopKeyEvent(event, settings.player),
+            child: Listener(
+              onPointerSignal: (signal) => _onDesktopPointerSignal(signal, settings.player),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Video(
+                      controller: _controller,
+                      controls: NoVideoControls,
+                      fit: _isFullscreenFit ? BoxFit.cover : BoxFit.contain,
+                      subtitleViewConfiguration: _subtitleConfig(settings.subtitleStyle),
                     ),
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _toggleControls,
-                        onDoubleTap: _onDoubleTapToggleFullscreen,
-                        onVerticalDragUpdate: (d) => _onVerticalDrag(d, false),
-                        onHorizontalDragUpdate: _onHorizontalDrag,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  ),
 
-              // Centered overlay flash (volume / brightness / seek)
-              if (_overlayText != null)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+                  // Tap & gesture layer
+                  Positioned.fill(
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_overlayIcon != null) ...[Icon(_overlayIcon, color: Colors.white, size: 28), const SizedBox(width: 10)],
-                        Text(_overlayText!, style: const TextStyle(color: Colors.white, fontSize: 18)),
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
+                            onDoubleTap: _onDoubleTapToggleFullscreen,
+                            onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, true) : null,
+                            onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
+                            onDoubleTap: _onDoubleTapToggleFullscreen,
+                            onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, false) : null,
+                            onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ),
 
-              // Top bar
-              if (_showControls) Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
+                  // Centered overlay flash (volume / brightness / seek)
+                  if (_overlayText != null)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_overlayIcon != null) ...[Icon(_overlayIcon, color: Colors.white, size: 28), const SizedBox(width: 10)],
+                            Text(_overlayText!, style: const TextStyle(color: Colors.white, fontSize: 18)),
+                          ],
+                        ),
+                      ),
+                    ),
 
-              // Bottom controls
-              if (_showControls) Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar(mediaSize)),
+                  // Top bar
+                  if (_showControls) Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
 
-              if (!_isReady) const Center(child: CircularProgressIndicator(color: Colors.white)),
-            ],
+                  // Bottom controls
+                  if (_showControls) Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar(mediaSize)),
+
+                  if (!_isReady) const Center(child: CircularProgressIndicator(color: Colors.white)),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -685,8 +829,8 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                 title: Text('settings.subtitle_size'.tr(), style: const TextStyle(color: Colors.white)),
                 subtitle: Slider(
                   min: 10,
-                  max: 48,
-                  divisions: 38,
+                  max: 96,
+                  divisions: 86,
                   value: s.fontSize,
                   label: s.fontSize.toStringAsFixed(0),
                   onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontSize: v)),

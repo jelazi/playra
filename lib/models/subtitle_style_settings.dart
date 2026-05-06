@@ -13,7 +13,7 @@ class SubtitleStyleSettings {
 
   const SubtitleStyleSettings({
     this.enabled = true,
-    this.fontSize = 22,
+    this.fontSize = 30,
     this.fontFamily = 'Roboto',
     this.textColor = 0xFFFFFFFF,
     this.backgroundColor = 0x80000000,
@@ -55,7 +55,7 @@ class SubtitleStyleSettings {
 
   factory SubtitleStyleSettings.fromJson(Map<String, dynamic> j) => SubtitleStyleSettings(
     enabled: j['enabled'] as bool? ?? true,
-    fontSize: (j['fontSize'] as num?)?.toDouble() ?? 22,
+    fontSize: (j['fontSize'] as num?)?.toDouble() ?? 30,
     fontFamily: j['fontFamily'] as String? ?? 'Roboto',
     textColor: j['textColor'] as int? ?? 0xFFFFFFFF,
     backgroundColor: j['backgroundColor'] as int? ?? 0x80000000,

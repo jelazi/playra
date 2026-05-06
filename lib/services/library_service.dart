@@ -6,6 +6,8 @@ import '../models/video_item.dart';
 
 /// Scans configured local folders for video files.
 class LibraryService {
+  static const int _minVideoBytes = 256 * 1024;
+
   /// List videos in a single directory (non-recursive by default; set [recursive] to walk subtree).
   Future<List<VideoItem>> listFolder(String folderPath, {bool recursive = false}) async {
     final dir = Directory(folderPath);
@@ -15,8 +17,12 @@ class LibraryService {
     try {
       await for (final entity in dir.list(recursive: recursive, followLinks: false)) {
         if (entity is File) {
+          final base = p.basename(entity.path);
+          if (base.startsWith('.')) continue;
           final ext = p.extension(entity.path).toLowerCase().replaceFirst('.', '');
           if (kSupportedVideoExtensions.contains(ext)) {
+            final stat = await entity.stat();
+            if (stat.size < _minVideoBytes) continue;
             files.add(entity);
           }
         }
