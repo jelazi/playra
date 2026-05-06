@@ -71,7 +71,11 @@
         "back": "Back",
         "edit_subtitles": "Edit Subtitles",
         "audio_track": "Audio track",
-        "subtitle_track": "Subtitles"
+        "subtitle_track": "Subtitles",
+        "load_subtitle_file": "Load subtitle file (.srt, .ass, .vtt)",
+        "download_subtitles": "Download subtitles",
+        "download_subtitles_hint": "Search and download from titulky.com",
+        "no_subtitle_tracks": "No embedded subtitle tracks"
     },
     "editor": {
         "title": "Subtitle Editor",
@@ -121,7 +125,11 @@
         "no_videos_subtitle": "No supported video files were found in the configured folders.",
         "resume_marker": "resume",
         "play": "Play",
-        "clear_resume": "Clear saved position"
+        "clear_resume": "Clear saved position",
+        "recently_played": "Recently played",
+        "clear_recent": "Clear",
+        "view_info": "View info",
+        "library": "Library"
     },
     "settings": {
         "title": "Settings",

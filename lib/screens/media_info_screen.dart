@@ -1,0 +1,534 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../models/media_info.dart';
+import '../models/video_item.dart';
+import '../services/media_lookup_service.dart';
+import '../services/playra_storage.dart';
+import '../services/tmdb_service.dart';
+import '../services/video_name_parser.dart';
+import 'player_launcher.dart';
+
+/// Full-screen view that shows TMDB info (poster, title, overview) for a
+/// [VideoItem] before the user decides to play it.
+///
+/// The lookup is done automatically on open. For TV episodes, the English
+/// episode synopsis is fetched from TMDB as well.
+class MediaInfoScreen extends StatefulWidget {
+  final VideoItem video;
+
+  const MediaInfoScreen({super.key, required this.video});
+
+  @override
+  State<MediaInfoScreen> createState() => _MediaInfoScreenState();
+}
+
+class _MediaInfoScreenState extends State<MediaInfoScreen> {
+  late final MediaLookupService _lookup;
+  bool _didInitialLookup = false;
+
+  MediaInfo? _media;
+  EpisodeInfo? _episode;
+  ParsedVideoName? _parsed;
+  bool _loading = true;
+  bool _notFound = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lookup = MediaLookupService(TmdbService());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitialLookup) return;
+    _didInitialLookup = true;
+    _startLookup();
+  }
+
+  Future<void> _startLookup() async {
+    setState(() {
+      _loading = true;
+      _notFound = false;
+    });
+
+    final language = context.locale.languageCode;
+    final result = await _lookup.lookupForFile(widget.video.uri, language);
+
+    if (!mounted) return;
+
+    if (result == null) {
+      setState(() {
+        _loading = false;
+        _notFound = true;
+        _parsed = VideoNameParser.parse(widget.video.uri);
+      });
+      return;
+    }
+
+    _media = result.mediaInfo;
+    _parsed = result.parsed;
+
+    // For TV episodes, also load the English episode synopsis.
+    if (result.mediaInfo.type == MediaType.tv &&
+        result.parsed.isTV &&
+        result.parsed.season != null &&
+        result.parsed.episode != null) {
+      final ep = await _lookup.fetchEpisodeInfo(
+        result.mediaInfo.id,
+        result.parsed.season!,
+        result.parsed.episode!,
+      );
+      if (mounted) _episode = ep;
+    }
+
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _play() async {
+    // Save to recent before navigating to player.
+    await PlayraStorage.addRecent(widget.video);
+    if (!mounted) return;
+    await context.read<PlayerLauncher>().launch(context, widget.video);
+    // Refresh parent (home) after returning so recents shows.
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _showManualSearch() async {
+    final picked = await _showSearchDialog();
+    if (picked == null || !mounted) return;
+    await _lookup.saveMapping(widget.video.uri, picked);
+    // Reload from cache.
+    await _startLookup();
+  }
+
+  Future<MediaInfo?> _showSearchDialog() async {
+    final controller = TextEditingController(
+      text: VideoNameParser.parse(widget.video.uri).cleanName,
+    );
+    List<MediaInfo> results = [];
+    bool searching = false;
+    MediaInfo? picked;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Text('video.manual_search'.tr()),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 480,
+            child: Column(
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: InputDecoration(
+                    hintText: 'video.manual_search_hint'.tr(),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.search),
+                      onPressed: () async {
+                        if (controller.text.trim().isEmpty) return;
+                        setS(() {
+                          searching = true;
+                          results = [];
+                        });
+                        final lang = ctx.locale.languageCode;
+                        final res = await _lookup.searchCandidates(
+                          controller.text.trim(),
+                          lang,
+                        );
+                        setS(() {
+                          results = res;
+                          searching = false;
+                        });
+                      },
+                    ),
+                  ),
+                  onSubmitted: (v) async {
+                    if (v.trim().isEmpty) return;
+                    setS(() {
+                      searching = true;
+                      results = [];
+                    });
+                    final lang = ctx.locale.languageCode;
+                    final res = await _lookup.searchCandidates(v.trim(), lang);
+                    setS(() {
+                      results = res;
+                      searching = false;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: searching
+                      ? const Center(child: CircularProgressIndicator())
+                      : results.isEmpty
+                          ? Center(
+                              child: Text(
+                                'video.manual_search_hint'.tr(),
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: results.length,
+                              itemBuilder: (_, i) {
+                                final m = results[i];
+                                final year = (m.releaseDate != null && m.releaseDate!.length >= 4)
+                                    ? m.releaseDate!.substring(0, 4)
+                                    : '?';
+                                return ListTile(
+                                  leading: m.posterPath != null
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Image.network(
+                                            m.posterUrl,
+                                            width: 36,
+                                            height: 54,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                const SizedBox(width: 36, height: 54),
+                                          ),
+                                        )
+                                      : const SizedBox(width: 36),
+                                  title: Text(m.title),
+                                  subtitle: Text(
+                                    '$year · '
+                                    '${m.type == MediaType.movie ? 'Film' : 'Seriál'} · '
+                                    '⭐ ${m.voteAverage?.toStringAsFixed(1) ?? '?'}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  onTap: () {
+                                    picked = m;
+                                    Navigator.of(ctx).pop();
+                                  },
+                                );
+                              },
+                            ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('common.cancel'.tr()),
+            ),
+          ],
+        ),
+      ),
+    );
+    return picked;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _notFound
+              ? _buildNotFound()
+              : _buildContent(),
+    );
+  }
+
+  Widget _buildNotFound() {
+    return CustomScrollView(
+      slivers: [
+        SliverAppBar(
+          floating: true,
+          title: Text(widget.video.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        SliverFillRemaining(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.movie_outlined, size: 72, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text(
+                    'video.media_not_found'.tr(),
+                    style: const TextStyle(fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.search),
+                        label: Text('video.manual_search'.tr()),
+                        onPressed: _showManualSearch,
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.play_arrow),
+                        label: Text('video.play'.tr()),
+                        onPressed: _play,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    final media = _media!;
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+
+    return CustomScrollView(
+      slivers: [
+        // Backdrop / AppBar
+        SliverAppBar(
+          expandedHeight: isPortrait ? 220 : 0,
+          pinned: true,
+          flexibleSpace: media.backdropUrl.isNotEmpty
+              ? FlexibleSpaceBar(
+                  background: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        media.backdropUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [Colors.black87, Colors.transparent],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : null,
+          title: Text(media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.edit),
+              tooltip: 'video.edit_media_info'.tr(),
+              onPressed: _showManualSearch,
+            ),
+          ],
+        ),
+
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Poster + basic info row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (media.posterUrl.isNotEmpty) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          media.posterUrl,
+                          width: 120,
+                          height: 180,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            media.title,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          if (media.originalTitle != media.title) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              media.originalTitle,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(fontStyle: FontStyle.italic, color: Colors.grey),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          if (media.voteAverage != null)
+                            Row(
+                              children: [
+                                const Icon(Icons.star, color: Colors.amber, size: 18),
+                                const SizedBox(width: 4),
+                                Text(
+                                  media.voteAverage!.toStringAsFixed(1),
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  ' / 10',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: 6),
+                          if (media.type == MediaType.movie && media.releaseDate != null)
+                            _infoChip(Icons.calendar_today,
+                                media.releaseDate!.length >= 4
+                                    ? media.releaseDate!.substring(0, 4)
+                                    : media.releaseDate!),
+                          if (media.type == MediaType.tv) ...[
+                            if (media.numberOfSeasons != null)
+                              _infoChip(Icons.tv,
+                                  '${media.numberOfSeasons} ${'video.seasons'.tr()}'),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Genres
+                if (media.genres.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: media.genres
+                        .map((g) => Chip(label: Text(g), visualDensity: VisualDensity.compact))
+                        .toList(),
+                  ),
+                ],
+
+                // Overview
+                if (media.overview != null && media.overview!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'video.overview'.tr(),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(media.overview!, style: const TextStyle(height: 1.5)),
+                ],
+
+                // Episode info (TV)
+                if (_episode != null) ...[
+                  const Divider(height: 32),
+                  Row(
+                    children: [
+                      const Icon(Icons.video_file, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'S${_parsed!.season!.toString().padLeft(2, '0')}'
+                          'E${_parsed!.episode!.toString().padLeft(2, '0')}'
+                          '${_episode!.name != null ? "  ${_episode!.name}" : ""}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_episode!.overview != null && _episode!.overview!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(_episode!.overview!, style: const TextStyle(height: 1.5)),
+                  ],
+                  if (_episode!.voteAverage != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(_episode!.voteAverage!.toStringAsFixed(1)),
+                      ],
+                    ),
+                  ],
+                ],
+
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoChip(IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.grey),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Play FAB overlay – always visible at the bottom
+// ---------------------------------------------------------------------------
+
+/// Wraps [MediaInfoScreen] and adds a sticky "Play" button at the bottom.
+class MediaInfoRoute extends StatelessWidget {
+  final VideoItem video;
+
+  const MediaInfoRoute({super.key, required this.video});
+
+  @override
+  Widget build(BuildContext context) {
+    return _MediaInfoRouteState(video: video);
+  }
+}
+
+class _MediaInfoRouteState extends StatelessWidget {
+  final VideoItem video;
+  const _MediaInfoRouteState({required this.video});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: MediaInfoScreen(video: video),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FilledButton.icon(
+            icon: const Icon(Icons.play_arrow),
+            label: Text('video.play'.tr()),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
+            onPressed: () async {
+              // Add to recent
+              await PlayraStorage.addRecent(video);
+              if (!context.mounted) return;
+              await context.read<PlayerLauncher>().launch(context, video);
+              // Pop after returning from player
+              if (context.mounted) Navigator.of(context).pop();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -102,4 +102,16 @@ class TmdbService {
       return null;
     }
   }
+
+  /// Fetch episode details including overview.
+  /// Always requests English so the episode synopsis is meaningful.
+  Future<EpisodeInfo?> getEpisodeDetails(int tvId, int season, int episode) async {
+    try {
+      final response = await _dio.get('/tv/$tvId/season/$season/episode/$episode', queryParameters: {'api_key': _apiKey, 'language': 'en-US'});
+      return EpisodeInfo.fromJson(response.data as Map<String, dynamic>, season, episode);
+    } catch (e) {
+      print('Get episode details error: $e');
+      return null;
+    }
+  }
 }

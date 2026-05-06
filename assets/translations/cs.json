@@ -71,7 +71,11 @@
         "back": "Zpět",
         "edit_subtitles": "Upravit titulky",
         "audio_track": "Zvuková stopa",
-        "subtitle_track": "Titulky"
+        "subtitle_track": "Titulky",
+        "load_subtitle_file": "Načíst soubor titulků (.srt, .ass, .vtt)",
+        "download_subtitles": "Stáhnout titulky",
+        "download_subtitles_hint": "Vyhledat a stáhnout z titulky.com",
+        "no_subtitle_tracks": "Video neobsahuje vestavěné titulky"
     },
     "editor": {
         "title": "Editor titulků",
@@ -121,7 +125,11 @@
         "no_videos_subtitle": "V nastavených složkách nebyla nalezena žádná podporovaná videa.",
         "resume_marker": "pokračovat",
         "play": "Přehrát",
-        "clear_resume": "Smázat uloženou pozici"
+        "clear_resume": "Smázat uloženou pozici",
+        "recently_played": "Naposledy přehrané",
+        "clear_recent": "Vymazat",
+        "view_info": "Zobrazit informace",
+        "library": "Knihovna"
     },
     "settings": {
         "title": "Nastavení",

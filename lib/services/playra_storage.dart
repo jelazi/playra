@@ -1,11 +1,14 @@
+import 'dart:convert';
+
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/player_settings.dart';
 import '../models/server_connection.dart';
 import '../models/subtitle_style_settings.dart';
+import '../models/video_item.dart';
 
 /// Centralised storage for the new Playra app data (player settings,
-/// resume positions, subtitle style, server list).
+/// resume positions, subtitle style, server list, recently played).
 ///
 /// Uses untyped JSON-string boxes to avoid relying on generated adapters.
 class PlayraStorage {
@@ -16,6 +19,9 @@ class PlayraStorage {
 
   static const String _playerKey = 'settings';
   static const String _styleKey = 'style';
+  static const String _recentsKey = 'recents';
+
+  static const int _maxRecents = 20;
 
   static Box<String>? _player;
   static Box<int>? _resume;
@@ -77,6 +83,43 @@ class PlayraStorage {
 
   static Future<void> clearAllResume() async {
     await _resume?.clear();
+  }
+
+  // --- Recently played ---
+
+  /// Reads the ordered list of recently played items (newest first).
+  static List<VideoItem> getRecent() {
+    final raw = _player?.get(_recentsKey);
+    if (raw == null) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .map((e) {
+            try {
+              return VideoItem.fromJson(e as Map<String, dynamic>);
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<VideoItem>()
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Adds [video] to the front of the recents list and trims to [_maxRecents].
+  static Future<void> addRecent(VideoItem video) async {
+    final list = getRecent().toList();
+    // Remove duplicate
+    list.removeWhere((v) => v.id == video.id);
+    list.insert(0, video);
+    if (list.length > _maxRecents) list.removeRange(_maxRecents, list.length);
+    await _player?.put(_recentsKey, jsonEncode(list.map((v) => v.toJson()).toList()));
+  }
+
+  static Future<void> clearRecent() async {
+    await _player?.delete(_recentsKey);
   }
 
   // --- Servers ---

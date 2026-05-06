@@ -59,3 +59,28 @@ class MediaInfo {
 }
 
 enum MediaType { movie, tv }
+
+/// Details of a single TV episode (overview always fetched in English).
+class EpisodeInfo {
+  final int season;
+  final int episode;
+  final String? name;
+  final String? overview;
+  final String? stillPath;
+  final double? voteAverage;
+  final String? airDate;
+
+  const EpisodeInfo({required this.season, required this.episode, this.name, this.overview, this.stillPath, this.voteAverage, this.airDate});
+
+  factory EpisodeInfo.fromJson(Map<String, dynamic> j, int season, int episode) => EpisodeInfo(
+    season: season,
+    episode: episode,
+    name: j['name'] as String?,
+    overview: j['overview'] as String?,
+    stillPath: j['still_path'] as String?,
+    voteAverage: (j['vote_average'] as num?)?.toDouble(),
+    airDate: j['air_date'] as String?,
+  );
+
+  String get stillUrl => stillPath != null ? 'https://image.tmdb.org/t/p/w300$stillPath' : '';
+}
