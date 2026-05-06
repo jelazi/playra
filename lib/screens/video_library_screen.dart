@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +13,7 @@ import '../bloc/subtitle/subtitle_state.dart';
 import '../models/media_info.dart';
 import '../models/video_info.dart';
 import '../services/media_cache_service.dart';
+import '../services/playra_storage.dart';
 import '../services/settings_service.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/tmdb_service.dart';
@@ -27,13 +30,46 @@ class VideoLibraryScreen extends StatefulWidget {
   State<VideoLibraryScreen> createState() => _VideoLibraryScreenState();
 }
 
+class _FolderEntry {
+  final String? sectionKey;
+  final String? title;
+  final int? count;
+  final bool? expanded;
+  final VideoInfo? video;
+  final int level;
+  final bool isRoot;
+
+  const _FolderEntry._({this.sectionKey, this.title, this.count, this.expanded, this.video, this.level = 0, this.isRoot = false});
+
+  const _FolderEntry.header({required String sectionKey, required String title, required int count, required bool expanded, required int level, required bool isRoot})
+    : this._(sectionKey: sectionKey, title: title, count: count, expanded: expanded, level: level, isRoot: isRoot);
+
+  const _FolderEntry.video(VideoInfo video, {required int level}) : this._(video: video, level: level);
+
+  bool get isHeader => video == null;
+}
+
+class _FolderNode {
+  final String name;
+  final String fullPath;
+  final Map<String, _FolderNode> children = <String, _FolderNode>{};
+  final List<VideoInfo> videos = <VideoInfo>[];
+
+  _FolderNode({required this.name, required this.fullPath});
+}
+
 class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
+  static const int _minVideoBytes = 256 * 1024;
+
+  static const Set<String> _supportedVideoExtensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp'};
+
   final List<VideoInfo> _videos = [];
   VideoInfo? _selectedVideo;
   MediaInfo? _selectedMediaInfo;
   bool _isSearching = false;
   bool _isDragging = false;
   bool _isFromCache = false; // Příznak, že info je z cache
+  Map<String, bool> _expandedSections = {};
 
   final TmdbService _tmdbService = TmdbService();
 
@@ -316,16 +352,92 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
   Widget _buildVideoList() {
     final isPhone = !_isTabletOrDesktop(context);
+    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders;
+    final entries = _buildFolderEntries();
 
     return Stack(
       children: [
         Column(
           children: [
+            if (libraryFolders.isNotEmpty)
+              Card(
+                margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.folder_open, size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text('Přidané adresáře', style: Theme.of(context).textTheme.labelLarge)),
+                          IconButton(tooltip: 'home.add_folder'.tr(), onPressed: _addLibraryFolder, icon: const Icon(Icons.add_circle_outline, size: 18)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: libraryFolders
+                            .map(
+                              (folder) => ActionChip(
+                                avatar: const Icon(Icons.folder, size: 14),
+                                label: Text(path.basename(folder)),
+                                tooltip: folder,
+                                onPressed: () => _addVideosFromDirectory(folder),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              child: DropTarget(
+                onDragDone: (details) async {
+                  await _addVideosFromPaths(details.files.map((f) => f.path).toList());
+                },
+                onDragEntered: (details) {
+                  setState(() => _isDragging = true);
+                },
+                onDragExited: (details) {
+                  setState(() => _isDragging = false);
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _isDragging ? Colors.blue : Theme.of(context).dividerColor, width: _isDragging ? 2 : 1),
+                    color: _isDragging ? Colors.blue.withValues(alpha: 0.08) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isPhone ? 'video.tap_to_add'.tr() : 'video.drag_drop_hint'.tr(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
             // Drop zone
             Expanded(
               child: DropTarget(
-                onDragDone: (details) {
-                  _addVideosFromPaths(details.files.map((f) => f.path).toList());
+                onDragDone: (details) async {
+                  await _addVideosFromPaths(details.files.map((f) => f.path).toList());
                 },
                 onDragEntered: (details) {
                   setState(() => _isDragging = true);
@@ -355,9 +467,37 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           ),
                         )
                       : ListView.builder(
-                          itemCount: _videos.length,
+                          itemCount: entries.length,
                           itemBuilder: (context, index) {
-                            final video = _videos[index];
+                            final entry = entries[index];
+
+                            if (entry.isHeader) {
+                              final expanded = entry.expanded ?? false;
+                              return InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _expandedSections[entry.sectionKey!] = !expanded;
+                                  });
+                                },
+                                child: Container(
+                                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  padding: EdgeInsets.fromLTRB(10 + (entry.level * 16), 8, 10, 8),
+                                  child: Row(
+                                    children: [
+                                      Icon(expanded ? Icons.expand_more : Icons.chevron_right, size: 18),
+                                      const SizedBox(width: 6),
+                                      Icon(entry.isRoot ? Icons.folder_open : Icons.folder, size: 16),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text('${entry.title} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+
+                            final video = entry.video!;
                             final isSelected = _selectedVideo == video;
 
                             return GestureDetector(
@@ -373,14 +513,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                 child: ListTile(
                                   selected: isSelected,
                                   selectedTileColor: Colors.transparent,
-                                  contentPadding: const EdgeInsets.only(left: 12, right: 8, top: 2, bottom: 2),
+                                  contentPadding: EdgeInsets.only(left: 12 + (entry.level * 16), right: 8, top: 2, bottom: 2),
                                   leading: Stack(
                                     children: [
                                       Icon(
                                         Icons.movie,
-                                        color: isSelected
-                                            ? Theme.of(context).colorScheme.primary
-                                            : (video.hasAnySubtitles ? Colors.green : null),
+                                        color: isSelected ? Theme.of(context).colorScheme.primary : (video.hasAnySubtitles ? Colors.green : null),
                                         size: isSelected ? 28 : 24,
                                       ),
                                       // Subtitle indicator
@@ -400,9 +538,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                     video.name,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: isSelected
-                                        ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)
-                                        : null,
+                                    style: isSelected ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary) : null,
                                   ),
                                   subtitle: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -416,7 +552,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                             Expanded(
                                               child: Text(
                                                 video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
-                                                style: TextStyle(fontSize: 11, color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w500),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
@@ -559,12 +699,64 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
     if (result != null && result.files.isNotEmpty) {
       final paths = result.files.where((f) => f.path != null).map((f) => f.path!).toList();
-      _addVideosFromPaths(paths);
+      await _addVideosFromPaths(paths);
     }
   }
 
-  void _addVideosFromPaths(List<String> paths) {
+  Future<void> _addLibraryFolder() async {
+    final selected = await FilePicker.platform.getDirectoryPath();
+    if (selected == null || selected.isEmpty) return;
+
+    final settings = PlayraStorage.getPlayerSettings();
+    if (!settings.libraryFolders.contains(selected)) {
+      final updated = settings.copyWith(libraryFolders: [...settings.libraryFolders, selected]);
+      await PlayraStorage.savePlayerSettings(updated);
+    }
+
+    await _addVideosFromDirectory(selected);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _addVideosFromDirectory(String folderPath) async {
+    final dir = Directory(folderPath);
+    if (!await dir.exists()) return;
+
+    final paths = <String>[];
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is File && _isSupportedVideoFile(entity.path) && await _isValidVideoFile(entity.path)) {
+        paths.add(entity.path);
+      }
+    }
+
+    if (paths.isNotEmpty) {
+      await _addVideosFromPaths(paths);
+    }
+  }
+
+  bool _isSupportedVideoFile(String filePath) {
+    final ext = path.extension(filePath).toLowerCase();
+    return _supportedVideoExtensions.contains(ext);
+  }
+
+  Future<bool> _isValidVideoFile(String filePath) async {
+    final base = path.basename(filePath);
+    if (base.startsWith('.')) return false;
+
+    try {
+      final stat = await File(filePath).stat();
+      if (stat.type != FileSystemEntityType.file) return false;
+      if (stat.size < _minVideoBytes) return false;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _addVideosFromPaths(List<String> paths) async {
     for (final filePath in paths) {
+      if (!_isSupportedVideoFile(filePath)) continue;
+      if (!await _isValidVideoFile(filePath)) continue;
+
       // Kontrola, zda už video není v seznamu
       if (_videos.any((v) => v.path == filePath)) continue;
 
@@ -575,6 +767,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       var videoInfo = VideoInfo(path: filePath, name: fileName, directory: fileDir);
       videoInfo = SubtitleFileService.updateVideoInfoWithSubtitles(videoInfo);
 
+      if (!mounted) return;
       setState(() {
         _videos.add(videoInfo);
       });
@@ -608,7 +801,87 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       _videos.clear();
       _selectedVideo = null;
       _selectedMediaInfo = null;
+      _expandedSections.clear();
     });
+  }
+
+  List<_FolderEntry> _buildFolderEntries() {
+    final rootNodes = <String, _FolderNode>{};
+    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders.toList()..sort((a, b) => b.length.compareTo(a.length));
+
+    for (final v in _videos) {
+      final rootPath = _resolveLibraryRootForPath(v.path, libraryFolders) ?? path.dirname(v.path);
+      final rootNode = rootNodes.putIfAbsent(rootPath, () => _FolderNode(name: path.basename(rootPath), fullPath: rootPath));
+
+      final videoDir = path.dirname(v.path);
+      final relativeDir = path.relative(videoDir, from: rootPath);
+
+      var node = rootNode;
+      if (relativeDir != '.' && relativeDir.isNotEmpty && !relativeDir.startsWith('..')) {
+        for (final segment in path.split(relativeDir)) {
+          if (segment.isEmpty || segment == '.') continue;
+          final childFullPath = path.join(node.fullPath, segment);
+          node = node.children.putIfAbsent(segment, () => _FolderNode(name: segment, fullPath: childFullPath));
+        }
+      }
+
+      node.videos.add(v);
+    }
+
+    final roots = rootNodes.values.toList()..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final out = <_FolderEntry>[];
+
+    for (final root in roots) {
+      _appendNodeEntries(out, root, level: 0, isRoot: true);
+    }
+
+    return out;
+  }
+
+  void _appendNodeEntries(List<_FolderEntry> out, _FolderNode node, {required int level, required bool isRoot}) {
+    final key = 'dir:${node.fullPath}';
+    final expanded = _expandedSections[key] ?? false;
+    final totalCount = _countVideos(node);
+
+    out.add(_FolderEntry.header(sectionKey: key, title: node.name, count: totalCount, expanded: expanded, level: level, isRoot: isRoot));
+
+    if (!expanded) return;
+
+    final children = node.children.values.toList()..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    for (final child in children) {
+      _appendNodeEntries(out, child, level: level + 1, isRoot: false);
+    }
+
+    node.videos.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    for (final video in node.videos) {
+      out.add(_FolderEntry.video(video, level: level + 1));
+    }
+  }
+
+  int _countVideos(_FolderNode node) {
+    var count = node.videos.length;
+    for (final child in node.children.values) {
+      count += _countVideos(child);
+    }
+    return count;
+  }
+
+  String? _resolveLibraryRootForPath(String filePath, List<String> libraryFolders) {
+    for (final folder in libraryFolders) {
+      final normalizedFolder = path.normalize(folder);
+      final normalizedFile = path.normalize(filePath);
+
+      if (normalizedFile == normalizedFolder) {
+        return folder;
+      }
+
+      final folderWithSeparator = normalizedFolder.endsWith(path.separator) ? normalizedFolder : '$normalizedFolder${path.separator}';
+
+      if (normalizedFile.startsWith(folderWithSeparator)) {
+        return folder;
+      }
+    }
+    return null;
   }
 
   void _selectVideo(VideoInfo video) {
@@ -913,11 +1186,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
     // Use TMDB title if available (and media info belongs to the target video), else raw name
     final useMediaTitle = _selectedMediaInfo != null && _selectedVideo == targetVideo;
-    final videoInfo = VideoInfo(
-      path: targetVideo.path,
-      name: useMediaTitle ? _selectedMediaInfo!.title : targetVideo.name,
-      directory: targetVideo.directory,
-    );
+    final videoInfo = VideoInfo(path: targetVideo.path, name: useMediaTitle ? _selectedMediaInfo!.title : targetVideo.name, directory: targetVideo.directory);
 
     Navigator.push(context, MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo))).then((_) {
       // Refresh subtitle states after returning from subtitle search

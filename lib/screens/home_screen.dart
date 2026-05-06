@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -30,8 +31,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const Set<String> _supportedVideoExtensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp'};
+
   List<VideoItem> _recents = [];
   Map<String, bool> _expandedSections = {};
+  bool _isHomeDragging = false;
 
   @override
   void initState() {
@@ -108,6 +112,59 @@ class _HomeScreenState extends State<HomeScreen> {
     await context.read<LibraryCubit>().refresh();
     _loadRecents();
     _loadExpandedSections();
+  }
+
+  bool _isSupportedVideoPath(String filePath) {
+    return _supportedVideoExtensions.contains(p.extension(filePath).toLowerCase());
+  }
+
+  Future<void> _handleHomeDrop(List<String> droppedPaths) async {
+    String? firstVideoPath;
+
+    for (final dropped in droppedPaths) {
+      final type = FileSystemEntity.typeSync(dropped);
+      if (type == FileSystemEntityType.directory) {
+        await context.read<LibraryCubit>().addFolder(dropped);
+      } else if (type == FileSystemEntityType.file && _isSupportedVideoPath(dropped)) {
+        firstVideoPath ??= dropped;
+      }
+    }
+
+    if (firstVideoPath != null && mounted) {
+      final v = VideoItem(id: firstVideoPath, name: p.basename(firstVideoPath), uri: firstVideoPath, source: VideoSource.local);
+      await _openVideo(v);
+    }
+  }
+
+  Widget _buildMiniDropZone() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      child: DropTarget(
+        onDragEntered: (_) => setState(() => _isHomeDragging = true),
+        onDragExited: (_) => setState(() => _isHomeDragging = false),
+        onDragDone: (details) async {
+          setState(() => _isHomeDragging = false);
+          await _handleHomeDrop(details.files.map((f) => f.path).toList());
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: _isHomeDragging
+                ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45)
+                : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _isHomeDragging ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor, width: _isHomeDragging ? 2 : 1),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Přetáhněte sem video nebo složku', style: Theme.of(context).textTheme.bodySmall)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   VideoInfo _toVideoInfo(VideoItem v) {
@@ -518,14 +575,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
           if (!hasLibrary && !showRecents) {
             if (state.folders.isEmpty) {
-              return _emptyState(icon: Icons.folder_open, title: 'home.empty_title'.tr(), subtitle: 'home.empty_subtitle'.tr());
+              return Column(
+                children: [
+                  _buildMiniDropZone(),
+                  Expanded(
+                    child: _emptyState(icon: Icons.folder_open, title: 'home.empty_title'.tr(), subtitle: 'home.empty_subtitle'.tr()),
+                  ),
+                ],
+              );
             }
-            return _emptyState(
-              icon: Icons.movie_outlined,
-              title: 'home.no_videos_title'.tr(),
-              subtitle: 'home.no_videos_subtitle'.tr(),
-              actionLabel: 'home.refresh_library'.tr(),
-              onAction: _refreshLibrary,
+            return Column(
+              children: [
+                _buildMiniDropZone(),
+                Expanded(
+                  child: _emptyState(
+                    icon: Icons.movie_outlined,
+                    title: 'home.no_videos_title'.tr(),
+                    subtitle: 'home.no_videos_subtitle'.tr(),
+                    actionLabel: 'home.refresh_library'.tr(),
+                    onAction: _refreshLibrary,
+                  ),
+                ),
+              ],
             );
           }
 
@@ -535,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: CustomScrollView(
               slivers: [
+                SliverToBoxAdapter(child: _buildMiniDropZone()),
                 if (showRecents) ...[
                   SliverToBoxAdapter(
                     child: Padding(
