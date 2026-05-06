@@ -18,25 +18,25 @@ class PlayerLauncher {
   Future<void> launch(BuildContext context, VideoItem video) async {
     final url = await _resolvePlayUrl(context, video);
     if (url == null) return;
+    final playbackVideo = _toPlaybackVideo(video, url);
 
     if (!context.mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
-      ),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => PlayraPlayerScreen(video: playbackVideo)));
   }
 
   Future<void> launchReplacement(BuildContext context, VideoItem video) async {
     final url = await _resolvePlayUrl(context, video);
     if (url == null) return;
+    final playbackVideo = _toPlaybackVideo(video, url);
 
     if (!context.mounted) return;
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
-      ),
-    );
+    await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => PlayraPlayerScreen(video: playbackVideo)));
+  }
+
+  VideoItem _toPlaybackVideo(VideoItem original, String resolvedUrl) {
+    if (original.uri == resolvedUrl) return original;
+    final source = resolvedUrl.startsWith('http') ? VideoSource.http : original.source;
+    return VideoItem(id: original.id, name: original.name, uri: resolvedUrl, source: source, sizeBytes: original.sizeBytes, modified: original.modified, folder: original.folder);
   }
 
   Future<String?> _resolvePlayUrl(BuildContext context, VideoItem video) async {

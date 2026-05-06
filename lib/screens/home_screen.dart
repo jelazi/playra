@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 
 import '../bloc/library/library_cubit.dart';
+import '../models/player_settings.dart';
 import '../models/video_item.dart';
 import '../services/playra_storage.dart';
 import '../services/video_name_parser.dart';
@@ -25,52 +26,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<VideoItem> _recents = [];
-
-  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode) {
-    if (mode == 'flat') {
-      final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
-      return sorted.map((v) => _LibraryEntry.video(v)).toList();
-    }
-
-    if (mode == 'smart') {
-      final groups = <String, List<VideoItem>>{};
-      final labels = <String, String>{};
-      for (final v in videos) {
-        final parsed = VideoNameParser.parse(v.uri);
-        final key = parsed.isTV ? 'tv:${parsed.cleanName.toLowerCase()}' : 'dir:${p.dirname(v.uri).toLowerCase()}';
-        labels[key] = parsed.isTV ? parsed.cleanName : (v.folder ?? p.basename(p.dirname(v.uri)));
-        groups.putIfAbsent(key, () => []).add(v);
-      }
-
-      final keys = groups.keys.toList()..sort((a, b) => (labels[a] ?? a).toLowerCase().compareTo((labels[b] ?? b).toLowerCase()));
-
-      final out = <_LibraryEntry>[];
-      for (final k in keys) {
-        final items = groups[k]!;
-        items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-        out.add(_LibraryEntry.header(labels[k] ?? k, items.length));
-        out.addAll(items.map(_LibraryEntry.video));
-      }
-      return out;
-    }
-
-    // structured
-    final byDir = <String, List<VideoItem>>{};
-    for (final v in videos) {
-      final dir = p.dirname(v.uri);
-      byDir.putIfAbsent(dir, () => []).add(v);
-    }
-    final dirs = byDir.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    final out = <_LibraryEntry>[];
-    for (final dir in dirs) {
-      final items = byDir[dir]!;
-      items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      out.add(_LibraryEntry.header(p.basename(dir), items.length));
-      out.addAll(items.map(_LibraryEntry.video));
-    }
-    return out;
-  }
+  Map<String, bool> _expandedSections = {};
 
   @override
   void initState() {
@@ -78,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<LibraryCubit>().load();
       _loadRecents();
+      _loadExpandedSections();
     });
   }
 
@@ -85,15 +42,34 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => _recents = PlayraStorage.getRecent());
   }
 
+  void _loadExpandedSections() {
+    if (mounted) {
+      setState(() {
+        _expandedSections = PlayraStorage.getLibrarySectionExpandedMap();
+      });
+    }
+  }
+
+  Future<void> _setSectionExpanded(String sectionKey, bool expanded) async {
+    final updated = Map<String, bool>.from(_expandedSections);
+    updated[sectionKey] = expanded;
+    await PlayraStorage.setLibrarySectionExpandedMap(updated);
+    if (mounted) {
+      setState(() {
+        _expandedSections = updated;
+      });
+    }
+  }
+
   Future<void> _openVideo(VideoItem v) async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => MediaInfoRoute(video: v)));
-    // Refresh recents when returning.
     _loadRecents();
   }
 
   Future<void> _addFolder() async {
     final selected = await FilePicker.platform.getDirectoryPath();
     if (selected != null) {
+      if (!mounted) return;
       await context.read<LibraryCubit>().addFolder(selected);
     }
   }
@@ -109,12 +85,126 @@ class _HomeScreenState extends State<HomeScreen> {
     await _openVideo(v);
   }
 
+  Future<void> _updatePlayerSettings(PlayerSettings Function(PlayerSettings) updater) async {
+    final current = PlayraStorage.getPlayerSettings();
+    final updated = updater(current);
+    await PlayraStorage.savePlayerSettings(updated);
+    if (mounted) setState(() {});
+  }
+
+  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode) {
+    if (mode == 'flat') {
+      final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return sorted.map((v) => _LibraryEntry.video(v)).toList();
+    }
+
+    if (mode == 'smart') {
+      final groups = <String, List<VideoItem>>{};
+      final labels = <String, String>{};
+
+      for (final v in videos) {
+        final parsed = VideoNameParser.parse(v.uri);
+        final key = parsed.isTV ? 'smart-tv:${parsed.cleanName.toLowerCase()}' : 'smart-dir:${p.dirname(v.uri).toLowerCase()}';
+        labels[key] = parsed.isTV ? parsed.cleanName : (v.folder ?? p.basename(p.dirname(v.uri)));
+        groups.putIfAbsent(key, () => []).add(v);
+      }
+
+      final keys = groups.keys.toList()..sort((a, b) => (labels[a] ?? a).toLowerCase().compareTo((labels[b] ?? b).toLowerCase()));
+
+      final out = <_LibraryEntry>[];
+      for (final key in keys) {
+        final items = groups[key]!;
+        items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        final expanded = _expandedSections[key] ?? false;
+        final headerPoster = items.map((v) => PlayraStorage.getRecentPosterPath(v)).firstWhere((p) => p != null, orElse: () => null);
+        out.add(_LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster));
+        if (expanded) {
+          out.addAll(items.map(_LibraryEntry.video));
+        }
+      }
+      return out;
+    }
+
+    // structured
+    final byDir = <String, List<VideoItem>>{};
+    for (final v in videos) {
+      final dir = p.dirname(v.uri);
+      byDir.putIfAbsent(dir, () => []).add(v);
+    }
+
+    final dirs = byDir.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final out = <_LibraryEntry>[];
+    for (final dir in dirs) {
+      final items = byDir[dir]!;
+      items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      final key = 'dir:$dir';
+      final expanded = _expandedSections[key] ?? false;
+      out.add(_LibraryEntry.header(sectionKey: key, title: p.basename(dir), count: items.length, expanded: expanded, smartGroup: false));
+      if (expanded) {
+        out.addAll(items.map(_LibraryEntry.video));
+      }
+    }
+    return out;
+  }
+
+  List<VideoItem> _gridVideosForMode(List<VideoItem> videos, String mode) {
+    if (mode == 'flat') {
+      final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return sorted;
+    }
+
+    if (mode == 'smart') {
+      final byKey = <String, VideoItem>{};
+      for (final v in videos) {
+        final parsed = VideoNameParser.parse(v.uri);
+        final key = parsed.isTV ? 'tv:${parsed.cleanName.toLowerCase()}' : 'dir:${p.dirname(v.uri).toLowerCase()}';
+        byKey.putIfAbsent(key, () => v);
+      }
+      final values = byKey.values.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return values;
+    }
+
+    final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    return sorted;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final playerSettings = PlayraStorage.getPlayerSettings();
+    final libraryMode = playerSettings.libraryViewMode;
+    final visualMode = playerSettings.libraryVisualMode;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'home.display_options'.tr(),
+            icon: const Icon(Icons.view_compact_alt),
+            onSelected: (value) {
+              if (value.startsWith('view:')) {
+                final view = value.substring(5);
+                _updatePlayerSettings((s) => s.copyWith(libraryVisualMode: view));
+                return;
+              }
+              if (value.startsWith('group:')) {
+                final group = value.substring(6);
+                _updatePlayerSettings((s) => s.copyWith(libraryViewMode: group));
+                return;
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(enabled: false, child: Text('home.display_mode'.tr())),
+              CheckedPopupMenuItem(value: 'view:list', checked: visualMode == 'list', child: Text('home.view_list'.tr())),
+              CheckedPopupMenuItem(value: 'view:iconsSmall', checked: visualMode == 'iconsSmall', child: Text('home.view_icons_small'.tr())),
+              CheckedPopupMenuItem(value: 'view:iconsLarge', checked: visualMode == 'iconsLarge', child: Text('home.view_icons_large'.tr())),
+              const PopupMenuDivider(),
+              PopupMenuItem(enabled: false, child: Text('home.group_mode'.tr())),
+              CheckedPopupMenuItem(value: 'group:structured', checked: libraryMode == 'structured', child: Text('settings.library_mode_structured'.tr())),
+              CheckedPopupMenuItem(value: 'group:flat', checked: libraryMode == 'flat', child: Text('settings.library_mode_flat'.tr())),
+              CheckedPopupMenuItem(value: 'group:smart', checked: libraryMode == 'smart', child: Text('settings.library_mode_smart'.tr())),
+            ],
+          ),
           IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file), onPressed: _openSingleFile),
           IconButton(
             tooltip: 'home.servers'.tr(),
@@ -135,8 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final hasLibrary = state.folders.isNotEmpty && state.videos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
-          final libraryMode = PlayraStorage.getPlayerSettings().libraryViewMode;
           final libraryEntries = _buildLibraryEntries(state.videos, libraryMode);
+          final gridVideos = _gridVideosForMode(state.videos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
             if (state.folders.isEmpty) {
@@ -149,10 +239,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: () async {
               await context.read<LibraryCubit>().load();
               _loadRecents();
+              _loadExpandedSections();
             },
             child: CustomScrollView(
               slivers: [
-                // --- Recently played section ---
                 if (showRecents) ...[
                   SliverToBoxAdapter(
                     child: Padding(
@@ -188,8 +278,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SliverToBoxAdapter(child: Divider(height: 24)),
                 ],
-
-                // --- Library header ---
                 if (hasLibrary)
                   SliverToBoxAdapter(
                     child: Padding(
@@ -203,33 +291,54 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-
-                // --- Library items ---
-                if (hasLibrary)
+                if (hasLibrary && visualMode == 'list')
                   SliverList.builder(
                     itemCount: libraryEntries.length,
                     itemBuilder: (context, i) {
                       final entry = libraryEntries[i];
                       if (entry.isHeader) {
-                        return Container(
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.folder_open, size: 16),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text('${entry.headerTitle} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
-                              ),
-                            ],
+                        return InkWell(
+                          onTap: () => _setSectionExpanded(entry.sectionKey!, !(entry.expanded ?? false)),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            child: Row(
+                              children: [
+                                Icon((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right, size: 18),
+                                const SizedBox(width: 6),
+                                if (entry.posterPath != null)
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Image.file(File(entry.posterPath!), width: 20, height: 28, fit: BoxFit.cover),
+                                  )
+                                else
+                                  Icon(entry.smartGroup == true ? Icons.auto_awesome : Icons.folder_open, size: 16),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text('${entry.title} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       }
 
                       final v = entry.video!;
                       final resume = PlayraStorage.getResume(v.id);
+                      final posterPath = PlayraStorage.getRecentPosterPath(v);
                       return ListTile(
-                        leading: const Icon(Icons.movie),
+                        leading: posterPath != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: Image.file(
+                                  File(posterPath),
+                                  width: 28,
+                                  height: 42,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.movie),
+                                ),
+                              )
+                            : const Icon(Icons.movie),
                         title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
                         subtitle: Text(
                           [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
@@ -242,7 +351,57 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
-
+                if (hasLibrary && visualMode != 'list')
+                  SliverPadding(
+                    padding: const EdgeInsets.all(12),
+                    sliver: SliverGrid.builder(
+                      itemCount: gridVideos.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: visualMode == 'iconsLarge' ? 4 : 7,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: visualMode == 'iconsLarge' ? 0.64 : 0.74,
+                      ),
+                      itemBuilder: (context, i) {
+                        final v = gridVideos[i];
+                        final posterPath = PlayraStorage.getRecentPosterPath(v);
+                        return InkWell(
+                          onTap: () => _openVideo(v),
+                          onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: posterPath != null
+                                      ? Image.file(
+                                          File(posterPath),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) => Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(Icons.movie, size: 32, color: Colors.grey),
+                                          ),
+                                        )
+                                      : Container(
+                                          color: Colors.grey[300],
+                                          child: const Icon(Icons.movie, size: 32, color: Colors.grey),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                v.displayName,
+                                maxLines: visualMode == 'iconsLarge' ? 2 : 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: visualMode == 'iconsLarge' ? 12 : 10),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 const SliverToBoxAdapter(child: SizedBox(height: 96)),
               ],
             ),
@@ -273,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Image.file(
                         File(posterPath),
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorBuilder: (context, error, stackTrace) => Container(
                           color: Colors.grey[300],
                           child: const Icon(Icons.movie, size: 40, color: Colors.grey),
                         ),
@@ -302,6 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
       position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
       items: [PopupMenuItem<String>(value: 'remove_recent', child: Text('home.remove_from_recent'.tr()))],
     );
+
     if (selected == 'remove_recent') {
       await PlayraStorage.removeRecent(v.id);
       _loadRecents();
@@ -349,9 +509,11 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: const Icon(Icons.play_arrow),
               title: Text('home.play'.tr()),
               onTap: () async {
+                final launcher = context.read<PlayerLauncher>();
                 Navigator.of(ctx).pop();
                 await PlayraStorage.addRecent(v);
-                if (ctx.mounted) await context.read<PlayerLauncher>().launch(context, v);
+                if (!mounted) return;
+                await launcher.launch(context, v);
                 _loadRecents();
               },
             ),
@@ -380,14 +542,18 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _LibraryEntry {
-  final String? headerTitle;
+  final String? sectionKey;
+  final String? title;
   final int count;
+  final bool? expanded;
+  final bool? smartGroup;
+  final String? posterPath;
   final VideoItem? video;
 
-  bool get isHeader => headerTitle != null;
+  bool get isHeader => sectionKey != null;
 
-  const _LibraryEntry.header(this.headerTitle, this.count) : video = null;
-  const _LibraryEntry.video(this.video) : headerTitle = null, count = 0;
+  const _LibraryEntry.header({required this.sectionKey, required this.title, required this.count, required this.expanded, required this.smartGroup, this.posterPath})
+    : video = null;
+
+  const _LibraryEntry.video(this.video) : sectionKey = null, title = null, count = 0, expanded = null, smartGroup = null, posterPath = null;
 }
-
-/// Main Playra home screen — the local video library.

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +12,6 @@ import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness/screen_brightness.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../bloc/settings/playra_settings_cubit.dart';
@@ -24,17 +24,10 @@ import '../services/playra_storage.dart';
 import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
 
-String _audioTrackKey(AudioTrack t) => '${t.id}|${t.title ?? ''}|${t.language ?? ''}';
-
-String _subtitleTrackKey(SubtitleTrack t) => '${t.id}|${t.title ?? ''}|${t.language ?? ''}';
-
-/// Main video player screen. Receives a [VideoItem] and a fully-prepared
-/// playback URL (already passed through SMB proxy if needed).
 class PlayraPlayerScreen extends StatefulWidget {
   final VideoItem video;
-  final String playUrl;
 
-  const PlayraPlayerScreen({super.key, required this.video, required this.playUrl});
+  const PlayraPlayerScreen({super.key, required this.video});
 
   @override
   State<PlayraPlayerScreen> createState() => _PlayraPlayerScreenState();
@@ -42,179 +35,199 @@ class PlayraPlayerScreen extends StatefulWidget {
 
 class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   late final Player _player;
-  late final VideoController _controller;
-  late final FocusNode _keyboardFocusNode;
+  late final VideoController _videoController;
+
+  final FocusNode _keyboardFocusNode = FocusNode();
 
   bool _showControls = true;
+  bool _showOverlay = false;
+  IconData? _overlayIcon;
+  String? _overlayText;
+  bool _playing = false;
   bool _isReady = false;
   bool _isFullscreenFit = false;
+
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
-  bool _playing = false;
+
   Timer? _hideTimer;
-  Timer? _resumeSaveTimer;
-
-  // Gesture overlay
-  String? _overlayText;
-  IconData? _overlayIcon;
   Timer? _overlayTimer;
-  double _gestureStartBrightness = 0.5;
-  double _gestureStartVolume = 0.5;
-  VideoItem? _nextEpisode;
-  bool _nextEpisodePromptShown = false;
 
-  bool get _isDesktopPlatform => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<String>? _errorSub;
+
+  VideoItem? _nextEpisode;
+
+  bool get _isDesktopPlatform {
+    if (kIsWeb) return false;
+    return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  }
 
   @override
   void initState() {
     super.initState();
-    _player = Player();
-    _controller = VideoController(_player);
-    _keyboardFocusNode = FocusNode();
 
-    WakelockPlus.enable();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _player = Player(configuration: const PlayerConfiguration(title: 'Playra'));
+    _videoController = VideoController(_player);
 
-    _player.stream.position.listen((p) {
-      if (mounted) {
-        setState(() => _position = p);
-        _maybePromptNextEpisode();
+    _bindPlayerStreams();
+    _openMedia();
+  }
+
+  @override
+  void dispose() {
+    _playingSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _errorSub?.cancel();
+    _hideTimer?.cancel();
+    _overlayTimer?.cancel();
+    _keyboardFocusNode.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  void _bindPlayerStreams() {
+    _playingSub = _player.stream.playing.listen((p) {
+      if (!mounted) return;
+      setState(() => _playing = p);
+    });
+
+    _positionSub = _player.stream.position.listen((pos) async {
+      if (!mounted) return;
+      setState(() => _position = pos);
+      if (_duration.inMilliseconds > 0) {
+        await PlayraStorage.setResume(widget.video.id, pos.inMilliseconds);
       }
     });
-    _player.stream.duration.listen((d) {
-      if (mounted) setState(() => _duration = d);
-    });
-    _player.stream.playing.listen((p) {
-      if (mounted) setState(() => _playing = p);
-    });
-    _player.stream.buffer.listen((_) {
-      if (!_isReady && mounted) setState(() => _isReady = true);
+
+    _durationSub = _player.stream.duration.listen((dur) {
+      if (!mounted) return;
+      setState(() => _duration = dur);
     });
 
-    _resumeSaveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _persistResume());
-
-    _open();
-    _startHideTimer();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _isDesktopPlatform) {
-        _keyboardFocusNode.requestFocus();
-      }
+    _errorSub = _player.stream.error.listen((e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Player error: $e')));
     });
   }
 
-  Future<void> _open() async {
+  Future<void> _openMedia() async {
     final settings = PlayraStorage.getPlayerSettings();
-    final resumeMs = settings.resumePlayback ? PlayraStorage.getResume(widget.video.id) : null;
 
-    await _player.open(Media(widget.playUrl));
+    await _player.open(Media(widget.video.uri));
 
-    await _applyRememberedTrackPreferences();
+    await _restorePreferredTracks();
 
-    _nextEpisode = await EpisodeContinuationService.findNextEpisode(widget.video);
-    if (mounted) setState(() {});
-
-    if (resumeMs != null && resumeMs > 5000) {
-      // wait briefly for duration to be known
-      var attempts = 0;
-      while (_duration == Duration.zero && attempts < 20) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        attempts++;
-      }
-      if (resumeMs < (_duration.inMilliseconds - 5000)) {
-        await _player.seek(Duration(milliseconds: resumeMs));
+    final resume = PlayraStorage.getResume(widget.video.id);
+    if (settings.resumePlayback && resume != null && resume > 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      final target = Duration(milliseconds: resume);
+      if (target > Duration.zero) {
+        await _player.seek(target);
       }
     }
 
-    // remember initial brightness/volume for gesture deltas
-    try {
-      _gestureStartBrightness = await ScreenBrightness().current;
-    } catch (_) {}
-    try {
-      _gestureStartVolume = await FlutterVolumeController.getVolume() ?? 0.5;
-    } catch (_) {}
+    final next = await EpisodeContinuationService.findNextEpisode(widget.video);
+    if (mounted) {
+      setState(() {
+        _nextEpisode = next;
+        _isReady = true;
+      });
+    }
+
+    _startHideTimer();
   }
 
-  Future<void> _applyRememberedTrackPreferences() async {
-    final wantedAudio = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
-    final wantedSubtitle = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
-    if (wantedAudio == null && wantedSubtitle == null) return;
+  Future<void> _restorePreferredTracks() async {
+    final audioPref = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+    final subPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
 
-    var audioApplied = wantedAudio == null;
-    var subtitleApplied = wantedSubtitle == null;
-
-    for (var i = 0; i < 24; i++) {
-      if (!audioApplied && wantedAudio != null) {
-        final tracks = _player.state.tracks.audio;
-        AudioTrack? match;
-        for (final t in tracks) {
-          if (_audioTrackKey(t) == wantedAudio) {
-            match = t;
-            break;
-          }
-        }
-        if (match != null) {
-          await _player.setAudioTrack(match);
-          audioApplied = true;
+    if (audioPref != null) {
+      final tracks = _player.state.tracks.audio;
+      for (final t in tracks) {
+        if (_audioTrackKey(t) == audioPref) {
+          await _player.setAudioTrack(t);
+          break;
         }
       }
+    }
 
-      if (!subtitleApplied && wantedSubtitle != null) {
-        final tracks = _player.state.tracks.subtitle;
-        SubtitleTrack? match;
-        for (final t in tracks) {
-          if (_subtitleTrackKey(t) == wantedSubtitle) {
-            match = t;
-            break;
-          }
-        }
-        if (match != null) {
-          await _player.setSubtitleTrack(match);
-          subtitleApplied = true;
+    if (subPref != null) {
+      final tracks = _player.state.tracks.subtitle;
+      for (final t in tracks) {
+        if (_subtitleTrackKey(t) == subPref) {
+          await _player.setSubtitleTrack(t);
+          break;
         }
       }
-
-      if (audioApplied && subtitleApplied) break;
-      await Future.delayed(const Duration(milliseconds: 250));
     }
   }
 
-  void _maybePromptNextEpisode() {
-    if (_nextEpisode == null || _nextEpisodePromptShown) return;
-    if (_duration.inMilliseconds <= 0) return;
-    if (_position.inMilliseconds < 10000) return;
+  String _audioTrackKey(AudioTrack t) {
+    final title = (t.title ?? '').trim();
+    final lang = (t.language ?? '').trim();
+    return '$title|$lang|${t.id}';
+  }
 
-    final remainingMs = _duration.inMilliseconds - _position.inMilliseconds;
-    if (remainingMs > 2500) return;
+  String _subtitleTrackKey(SubtitleTrack t) {
+    final title = (t.title ?? '').trim();
+    final lang = (t.language ?? '').trim();
+    return '$title|$lang|${t.id}';
+  }
 
-    _nextEpisodePromptShown = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _showNextEpisodePrompt();
-      }
+  Future<void> _seekRelative(Duration delta) async {
+    final target = _position + delta;
+    final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
+    final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
+    await _player.seek(clamped);
+    _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
+  }
+
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    if (_showControls) {
+      _startHideTimer();
+    } else {
+      _hideTimer?.cancel();
+    }
+  }
+
+  void _startHideTimer() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() => _showControls = false);
     });
   }
 
-  Future<void> _showNextEpisodePrompt() async {
-    final next = _nextEpisode;
-    if (next == null || !mounted) return;
+  void _flashOverlay(IconData icon, String text) {
+    _overlayTimer?.cancel();
+    setState(() {
+      _showOverlay = true;
+      _overlayIcon = icon;
+      _overlayText = text;
+    });
+    _overlayTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() => _showOverlay = false);
+    });
+  }
 
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('video.continue_next_episode'.tr()),
-        content: Text(next.displayName),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await _playNextEpisode();
-            },
-            child: Text('video.play'.tr()),
-          ),
-        ],
-      ),
-    );
+  String _formatDuration(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    if (h > 0) return '$h:${two(m)}:${two(s)}';
+    return '$m:${two(s)}';
+  }
+
+  void _toggleFullscreenFit() {
+    setState(() => _isFullscreenFit = !_isFullscreenFit);
+    _flashOverlay(_isFullscreenFit ? Icons.fit_screen : Icons.fullscreen, _isFullscreenFit ? 'Fit' : 'Fill');
   }
 
   Future<void> _playNextEpisode() async {
@@ -222,70 +235,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     if (next == null) return;
     await PlayraStorage.addRecent(next);
     if (!mounted) return;
-    await _player.pause();
-    await _player.stop();
-    if (!mounted) return;
     await context.read<PlayerLauncher>().launchReplacement(context, next);
   }
 
-  Future<void> _persistResume() async {
-    if (_duration.inMilliseconds == 0) return;
-    final settings = PlayraStorage.getPlayerSettings();
-    if (!settings.resumePlayback) return;
-    // if near end, clear
-    if (_position.inMilliseconds > _duration.inMilliseconds - 10000) {
-      await PlayraStorage.clearResume(widget.video.id);
-    } else {
-      await PlayraStorage.setResume(widget.video.id, _position.inMilliseconds);
-    }
-  }
-
-  @override
-  void dispose() {
-    _keyboardFocusNode.dispose();
-    _hideTimer?.cancel();
-    _overlayTimer?.cancel();
-    _resumeSaveTimer?.cancel();
-    _persistResume();
-    _player.dispose();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    WakelockPlus.disable();
-    super.dispose();
-  }
-
-  void _startHideTimer() {
-    _hideTimer?.cancel();
-    _hideTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) setState(() => _showControls = false);
-    });
-  }
-
-  void _toggleControls() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) _startHideTimer();
-  }
-
-  void _flashOverlay(IconData icon, String text) {
-    setState(() {
-      _overlayIcon = icon;
-      _overlayText = text;
-    });
-    _overlayTimer?.cancel();
-    _overlayTimer = Timer(const Duration(milliseconds: 800), () {
-      if (mounted) setState(() => _overlayText = null);
-    });
-  }
-
-  void _toggleFullscreenFit() {
-    setState(() => _isFullscreenFit = !_isFullscreenFit);
-    _flashOverlay(_isFullscreenFit ? Icons.fullscreen_exit : Icons.fullscreen, _isFullscreenFit ? 'Fit screen' : 'Original fit');
-    _startHideTimer();
-  }
-
   Future<void> _onDoubleTapToggleFullscreen() async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (_isDesktopPlatform) {
       final settings = PlayraStorage.getPlayerSettings();
-      if (!_isModifierPressed(settings.desktopDoubleClickModifier)) {
+      if (!_doubleClickShortcutMatches(settings.desktopDoubleClickShortcut)) {
         return;
       }
       final isFullscreen = await windowManager.isFullScreen();
@@ -298,50 +254,98 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _toggleFullscreenFit();
   }
 
-  LogicalKeyboardKey? _keyFromSetting(String key) {
-    switch (key) {
-      case 'Space':
-        return LogicalKeyboardKey.space;
-      case 'KeyF':
-        return LogicalKeyboardKey.keyF;
-      case 'Enter':
-        return LogicalKeyboardKey.enter;
-      case 'ArrowLeft':
-        return LogicalKeyboardKey.arrowLeft;
-      case 'ArrowRight':
-        return LogicalKeyboardKey.arrowRight;
-      case 'KeyJ':
-        return LogicalKeyboardKey.keyJ;
-      case 'KeyK':
-        return LogicalKeyboardKey.keyK;
-      case 'KeyL':
-        return LogicalKeyboardKey.keyL;
-      case 'KeyA':
-        return LogicalKeyboardKey.keyA;
-      case 'KeyS':
-        return LogicalKeyboardKey.keyS;
-      case 'KeyD':
-        return LogicalKeyboardKey.keyD;
-      default:
-        return null;
+  String _formatShortcutFromKeyEvent(KeyEvent event) {
+    final parts = <String>[];
+    if (HardwareKeyboard.instance.isControlPressed) parts.add('Ctrl');
+    if (HardwareKeyboard.instance.isAltPressed) parts.add('Alt');
+    if (HardwareKeyboard.instance.isShiftPressed) parts.add('Shift');
+    if (HardwareKeyboard.instance.isMetaPressed) parts.add('Meta');
+
+    final key = event.logicalKey;
+    final label = key.keyLabel.trim();
+    if (label.isNotEmpty && label.length <= 2) {
+      parts.add(label.toUpperCase());
+      return parts.join('+');
     }
+
+    if (key == LogicalKeyboardKey.space) {
+      parts.add('Space');
+    } else if (key == LogicalKeyboardKey.enter) {
+      parts.add('Enter');
+    } else if (key == LogicalKeyboardKey.arrowLeft) {
+      parts.add('Arrow Left');
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      parts.add('Arrow Right');
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      parts.add('Arrow Up');
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      parts.add('Arrow Down');
+    } else {
+      final name = key.debugName ?? key.keyLabel;
+      parts.add(name.replaceFirst('Logical Keyboard Key ', ''));
+    }
+
+    return parts.join('+');
   }
 
-  bool _isModifierPressed(String modifier) {
-    switch (modifier) {
-      case 'none':
-        return true;
-      case 'ctrl':
-        return HardwareKeyboard.instance.isControlPressed;
-      case 'alt':
-        return HardwareKeyboard.instance.isAltPressed;
-      case 'shift':
-        return HardwareKeyboard.instance.isShiftPressed;
-      case 'meta':
-        return HardwareKeyboard.instance.isMetaPressed;
-      default:
-        return true;
+  bool _shortcutMatches(KeyEvent event, String shortcut) {
+    final normalizedTarget = shortcut.replaceAll(' ', '').toLowerCase();
+    final normalizedCurrent = _formatShortcutFromKeyEvent(event).replaceAll(' ', '').toLowerCase();
+    return normalizedTarget == normalizedCurrent;
+  }
+
+  bool _doubleClickShortcutMatches(String shortcut) {
+    final s = shortcut.toLowerCase();
+    if (!s.contains('double')) return true;
+
+    final needsCtrl = s.contains('ctrl');
+    final needsAlt = s.contains('alt');
+    final needsShift = s.contains('shift');
+    final needsMeta = s.contains('meta');
+
+    if (needsCtrl && !HardwareKeyboard.instance.isControlPressed) return false;
+    if (needsAlt && !HardwareKeyboard.instance.isAltPressed) return false;
+    if (needsShift && !HardwareKeyboard.instance.isShiftPressed) return false;
+    if (needsMeta && !HardwareKeyboard.instance.isMetaPressed) return false;
+
+    return true;
+  }
+
+  bool _hasAnyModifierPressed() {
+    return HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isAltPressed ||
+        HardwareKeyboard.instance.isShiftPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+  }
+
+  bool _shortcutRequiresNoModifier(String shortcut) {
+    final s = shortcut.toLowerCase();
+    return !s.contains('ctrl') && !s.contains('alt') && !s.contains('shift') && !s.contains('meta');
+  }
+
+  bool _shortcutAllowedInCurrentModifierState(String shortcut) {
+    if (_shortcutRequiresNoModifier(shortcut)) {
+      return !_hasAnyModifierPressed();
     }
+    return true;
+  }
+
+  bool _tryHandleShortcut(KeyEvent event, String shortcut, VoidCallback handler) {
+    if (shortcut.trim().isEmpty) return false;
+    if (!_shortcutAllowedInCurrentModifierState(shortcut)) return false;
+    if (_shortcutMatches(event, shortcut)) {
+      handler();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _toggleDesktopFullscreen() async {
+    if (!_isDesktopPlatform) return;
+    final isFullscreen = await windowManager.isFullScreen();
+    await windowManager.setFullScreen(!isFullscreen);
+    _flashOverlay(!isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, !isFullscreen ? 'Fullscreen' : 'Windowed');
+    _startHideTimer();
   }
 
   KeyEventResult _handleDesktopKeyEvent(KeyEvent event, PlayerSettings settings) {
@@ -349,31 +353,28 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       return KeyEventResult.ignored;
     }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    if (!_isModifierPressed(settings.desktopShortcutModifier)) {
-      return KeyEventResult.ignored;
-    }
 
-    final key = event.logicalKey;
-    final playPause = _keyFromSetting(settings.desktopPlayPauseKey);
-    final fullscreen = _keyFromSetting(settings.desktopFullscreenKey);
-    final seekBack = _keyFromSetting(settings.desktopSeekBackwardKey);
-    final seekForward = _keyFromSetting(settings.desktopSeekForwardKey);
-
-    if (playPause != null && key == playPause) {
+    if (_tryHandleShortcut(event, settings.desktopPlayPauseShortcut, () {
       _playing ? _player.pause() : _player.play();
       _startHideTimer();
+    })) {
       return KeyEventResult.handled;
     }
-    if (fullscreen != null && key == fullscreen) {
-      _onDoubleTapToggleFullscreen();
+
+    if (_shortcutMatches(event, settings.desktopFullscreenShortcut) && _shortcutAllowedInCurrentModifierState(settings.desktopFullscreenShortcut)) {
+      _toggleDesktopFullscreen();
       return KeyEventResult.handled;
     }
-    if (seekBack != null && key == seekBack) {
+
+    if (_tryHandleShortcut(event, settings.desktopSeekBackwardShortcut, () {
       _seekRelative(Duration(seconds: -settings.seekStepSeconds.toInt()));
+    })) {
       return KeyEventResult.handled;
     }
-    if (seekForward != null && key == seekForward) {
+
+    if (_tryHandleShortcut(event, settings.desktopSeekForwardShortcut, () {
       _seekRelative(Duration(seconds: settings.seekStepSeconds.toInt()));
+    })) {
       return KeyEventResult.handled;
     }
 
@@ -418,18 +419,18 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final settings = PlayraStorage.getPlayerSettings();
     if (_isDesktopPlatform || !settings.gesturesEnabled) return;
     final size = MediaQuery.of(context).size;
-    final delta = -d.delta.dy / (size.height * 0.6); // full swipe = ~60% of screen height
+    final delta = -d.delta.dy / (size.height * 0.6);
     if (isLeft) {
       try {
         final current = await ScreenBrightness().current;
-        var newVal = (current + delta).clamp(0.0, 1.0);
+        final newVal = (current + delta).clamp(0.0, 1.0);
         await ScreenBrightness().setScreenBrightness(newVal);
         _flashOverlay(Icons.brightness_6, '${(newVal * 100).round()}%');
       } catch (_) {}
     } else {
       try {
         final current = await FlutterVolumeController.getVolume() ?? 0.5;
-        var newVal = (current + delta).clamp(0.0, 1.0);
+        final newVal = (current + delta).clamp(0.0, 1.0);
         await FlutterVolumeController.setVolume(newVal);
         _flashOverlay(Icons.volume_up, '${(newVal * 100).round()}%');
       } catch (_) {}
@@ -444,95 +445,82 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
   }
 
-  Future<void> _seekRelative(Duration d) async {
-    final target = _position + d;
-    final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds));
-    await _player.seek(clamped);
-  }
-
-  String _formatDuration(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return h > 0 ? '$h:$m:$s' : '$m:$s';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final mediaSize = MediaQuery.of(context).size;
-
     return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
       builder: (context, settings) {
-        final touchGesturesEnabled = !_isDesktopPlatform && settings.player.gesturesEnabled;
-        return Scaffold(
-          backgroundColor: Colors.black,
-          body: Focus(
-            focusNode: _keyboardFocusNode,
-            autofocus: _isDesktopPlatform,
-            onKeyEvent: (node, event) => _handleDesktopKeyEvent(event, settings.player),
-            child: Listener(
-              onPointerSignal: (signal) => _onDesktopPointerSignal(signal, settings.player),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: Video(
-                      controller: _controller,
-                      controls: NoVideoControls,
-                      fit: _isFullscreenFit ? BoxFit.cover : BoxFit.contain,
-                      subtitleViewConfiguration: _subtitleConfig(settings.subtitleStyle),
-                    ),
-                  ),
+        final subtitleCfg = _subtitleConfig(settings.subtitleStyle);
+        final touchGesturesEnabled = settings.player.gesturesEnabled;
 
-                  // Tap & gesture layer
-                  Positioned.fill(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onTap: _toggleControls,
-                            onDoubleTap: _onDoubleTapToggleFullscreen,
-                            onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, true) : null,
-                            onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
-                          ),
-                        ),
-                        Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onTap: _toggleControls,
-                            onDoubleTap: _onDoubleTapToggleFullscreen,
-                            onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, false) : null,
-                            onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Centered overlay flash (volume / brightness / seek)
-                  if (_overlayText != null)
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_overlayIcon != null) ...[Icon(_overlayIcon, color: Colors.white, size: 28), const SizedBox(width: 10)],
-                            Text(_overlayText!, style: const TextStyle(color: Colors.white, fontSize: 18)),
-                          ],
-                        ),
+        return Focus(
+          focusNode: _keyboardFocusNode,
+          autofocus: _isDesktopPlatform,
+          onKeyEvent: (node, event) => _handleDesktopKeyEvent(event, settings.player),
+          child: Listener(
+            onPointerSignal: (signal) => _onDesktopPointerSignal(signal, settings.player),
+            child: Scaffold(
+              backgroundColor: Colors.black,
+              body: SafeArea(
+                top: false,
+                bottom: false,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned.fill(
+                      child: Video(
+                        controller: _videoController,
+                        fit: _isFullscreenFit ? BoxFit.contain : BoxFit.cover,
+                        controls: (_) => const SizedBox.shrink(),
+                        subtitleViewConfiguration: subtitleCfg,
                       ),
                     ),
 
-                  // Top bar
-                  if (_showControls) Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
+                    Positioned.fill(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: _toggleControls,
+                              onDoubleTap: _onDoubleTapToggleFullscreen,
+                              onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, true) : null,
+                              onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: _toggleControls,
+                              onDoubleTap: _onDoubleTapToggleFullscreen,
+                              onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, false) : null,
+                              onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
-                  // Bottom controls
-                  if (_showControls) Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar(mediaSize)),
+                    if (_showOverlay && _overlayText != null)
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(10)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_overlayIcon != null) ...[Icon(_overlayIcon, color: Colors.white, size: 28), const SizedBox(width: 10)],
+                              Text(_overlayText!, style: const TextStyle(color: Colors.white, fontSize: 18)),
+                            ],
+                          ),
+                        ),
+                      ),
 
-                  if (!_isReady) const Center(child: CircularProgressIndicator(color: Colors.white)),
-                ],
+                    if (_showControls) Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
+                    if (_showControls) Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar(MediaQuery.of(context).size)),
+
+                    if (!_isReady) const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  ],
+                ),
               ),
             ),
           ),
@@ -676,18 +664,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
   }
 
-  Future<void> _pickSubtitleTrack() async {
-    final tracks = _player.state.tracks.subtitle;
-    final current = _player.state.track.subtitle;
-    final picked = await _showTrackPicker<SubtitleTrack>(title: 'player.subtitle_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
-    if (picked != null) {
-      await _player.setSubtitleTrack(picked);
-      await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(picked));
-    }
-  }
-
-  /// Opens the full subtitle options bottom sheet (track selection, style
-  /// settings, download link).
   Future<void> _showSubtitleOptions() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -727,17 +703,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Subtitle Options Sheet
-// ---------------------------------------------------------------------------
-
-/// Bottom sheet shown when the subtitle icon button is tapped in the player.
-///
-/// Sections:
-///   1. Subtitle tracks (embedded in the video)
-///   2. Load external subtitle file
-///   3. Style settings (font size, outline, bold, font, colours)
-///   4. Download subtitles from titulky.com
 class _SubtitleOptionsSheet extends StatefulWidget {
   final Player player;
   final VideoItem video;
@@ -749,8 +714,8 @@ class _SubtitleOptionsSheet extends StatefulWidget {
 }
 
 class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
-  // Style palette reused from SettingsScreen
   static const List<int> _palette = [0xFFFFFFFF, 0xFFFFEB3B, 0xFFFF5252, 0xFF40C4FF, 0xFF69F0AE, 0xFFFFA726, 0xFFE040FB, 0xFFB0BEC5, 0xFF000000];
+
   static const List<int> _paletteWithTransparent = [
     0xFFFFFFFF,
     0xFFFFEB3B,
@@ -778,7 +743,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
             controller: scrollController,
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              // Handle
               Center(
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 12),
@@ -788,13 +752,11 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                 ),
               ),
 
-              // --- Embedded tracks ---
               _sectionHeader('player.subtitle_track'.tr()),
               ..._buildTrackTiles(s),
 
               const Divider(color: Colors.grey),
 
-              // --- Load external file ---
               ListTile(
                 leading: const Icon(Icons.folder_open, color: Colors.white),
                 title: Text('player.load_subtitle_file'.tr(), style: const TextStyle(color: Colors.white)),
@@ -816,7 +778,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
 
               const Divider(color: Colors.grey),
 
-              // --- Style settings ---
               _sectionHeader('settings.section_subtitles'.tr()),
               SwitchListTile(
                 tileColor: Colors.transparent,
@@ -824,7 +785,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                 value: s.enabled,
                 onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(enabled: v)),
               ),
-              // Font size
               ListTile(
                 title: Text('settings.subtitle_size'.tr(), style: const TextStyle(color: Colors.white)),
                 subtitle: Slider(
@@ -836,7 +796,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontSize: v)),
                 ),
               ),
-              // Outline width
               ListTile(
                 title: Text('settings.subtitle_outline'.tr(), style: const TextStyle(color: Colors.white)),
                 subtitle: Slider(
@@ -848,14 +807,12 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineWidth: v)),
                 ),
               ),
-              // Bold
               SwitchListTile(
                 tileColor: Colors.transparent,
                 title: Text('settings.subtitle_bold'.tr(), style: const TextStyle(color: Colors.white)),
                 value: s.bold,
                 onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(bold: v)),
               ),
-              // Font family
               ListTile(
                 title: Text('settings.subtitle_font'.tr(), style: const TextStyle(color: Colors.white)),
                 trailing: DropdownButton<String>(
@@ -870,9 +827,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   },
                 ),
               ),
-              // Text colour
               _colourTile(context, 'settings.subtitle_text_color'.tr(), s.textColor, _palette, (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(textColor: c))),
-              // Background colour
               _colourTile(
                 context,
                 'settings.subtitle_bg_color'.tr(),
@@ -880,7 +835,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                 _paletteWithTransparent,
                 (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(backgroundColor: c)),
               ),
-              // Outline colour
               _colourTile(
                 context,
                 'settings.subtitle_outline_color'.tr(),
@@ -891,7 +845,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
 
               const Divider(color: Colors.grey),
 
-              // --- Download subtitles ---
               if (widget.video.source == VideoSource.local)
                 ListTile(
                   leading: const Icon(Icons.cloud_download, color: Colors.white),
@@ -899,7 +852,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   subtitle: Text('player.download_subtitles_hint'.tr(), style: const TextStyle(color: Colors.grey)),
                   trailing: const Icon(Icons.chevron_right, color: Colors.white),
                   onTap: () {
-                    Navigator.of(context).pop(); // close sheet
+                    Navigator.of(context).pop();
                     final videoInfo = VideoInfo(path: widget.video.uri, name: widget.video.name, directory: _dirOf(widget.video.uri));
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => SubtitleSearchScreen(videoInfo: videoInfo)));
                   },
@@ -909,6 +862,12 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
         );
       },
     );
+  }
+
+  String _subtitleTrackKey(SubtitleTrack t) {
+    final title = (t.title ?? '').trim();
+    final lang = (t.language ?? '').trim();
+    return '$title|$lang|${t.id}';
   }
 
   List<Widget> _buildTrackTiles(SubtitleStyleSettings s) {
@@ -922,6 +881,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
         ),
       ];
     }
+
     return tracks.map((t) {
       final label = t.title ?? t.language ?? t.id;
       return ListTile(
@@ -930,7 +890,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
         onTap: () async {
           await widget.player.setSubtitleTrack(t);
           await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(t));
-          if (mounted) setState(() {}); // refresh the check-mark
+          if (mounted) setState(() {});
         },
       );
     }).toList();

@@ -26,6 +26,7 @@ class PlayraStorage {
   static const String _recentPosterByVideoKey = 'recent_posters_by_video';
   static const String _recentPosterBySeriesKey = 'recent_posters_by_series';
   static const String _lastOpenedDirectoryKey = 'last_opened_directory';
+  static const String _librarySectionExpandedKey = 'library_section_expanded';
 
   static const int _maxRecents = 20;
 
@@ -263,6 +264,23 @@ class PlayraStorage {
   static Future<void> setLastOpenedDirectory(String? directory) async {
     if (directory == null || directory.isEmpty) return;
     await _player?.put(_lastOpenedDirectoryKey, directory);
+  }
+
+  // --- Library section expand/collapse state ---
+  static Map<String, bool> getLibrarySectionExpandedMap() {
+    final raw = _player?.get(_librarySectionExpandedKey);
+    if (raw == null) return <String, bool>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, bool>{};
+      return decoded.map((k, v) => MapEntry(k.toString(), v == true));
+    } catch (_) {
+      return <String, bool>{};
+    }
+  }
+
+  static Future<void> setLibrarySectionExpandedMap(Map<String, bool> map) async {
+    await _player?.put(_librarySectionExpandedKey, jsonEncode(map));
   }
 
   // --- Servers ---

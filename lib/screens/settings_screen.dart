@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/library/library_cubit.dart';
@@ -15,6 +16,97 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   bool get _isDesktop => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  String _formatShortcut(KeyEvent event) {
+    final parts = <String>[];
+    if (HardwareKeyboard.instance.isControlPressed) parts.add('Ctrl');
+    if (HardwareKeyboard.instance.isAltPressed) parts.add('Alt');
+    if (HardwareKeyboard.instance.isShiftPressed) parts.add('Shift');
+    if (HardwareKeyboard.instance.isMetaPressed) parts.add('Meta');
+
+    final key = event.logicalKey;
+    final label = key.keyLabel.trim();
+    if (label.isNotEmpty && label.length <= 2) {
+      parts.add(label.toUpperCase());
+    } else {
+      switch (key) {
+        case LogicalKeyboardKey.space:
+          parts.add('Space');
+          break;
+        case LogicalKeyboardKey.enter:
+          parts.add('Enter');
+          break;
+        case LogicalKeyboardKey.arrowLeft:
+          parts.add('Arrow Left');
+          break;
+        case LogicalKeyboardKey.arrowRight:
+          parts.add('Arrow Right');
+          break;
+        case LogicalKeyboardKey.arrowUp:
+          parts.add('Arrow Up');
+          break;
+        case LogicalKeyboardKey.arrowDown:
+          parts.add('Arrow Down');
+          break;
+        default:
+          final name = key.debugName ?? key.keyLabel;
+          parts.add(name.replaceFirst('Logical Keyboard Key ', ''));
+      }
+    }
+    return parts.join('+');
+  }
+
+  Future<String?> _captureShortcutDialog(BuildContext context, String title, {bool forDoubleClick = false}) async {
+    final focusNode = FocusNode();
+    String? captured;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: Text(title),
+          content: KeyboardListener(
+            focusNode: focusNode,
+            autofocus: true,
+            onKeyEvent: (event) {
+              if (event is KeyDownEvent) {
+                final formatted = _formatShortcut(event);
+                if (formatted.isNotEmpty) {
+                  if (forDoubleClick) {
+                    final mods = <String>[];
+                    if (HardwareKeyboard.instance.isControlPressed) mods.add('Ctrl');
+                    if (HardwareKeyboard.instance.isAltPressed) mods.add('Alt');
+                    if (HardwareKeyboard.instance.isShiftPressed) mods.add('Shift');
+                    if (HardwareKeyboard.instance.isMetaPressed) mods.add('Meta');
+                    captured = mods.isEmpty ? 'Double Click' : '${mods.join('+')}+Double Click';
+                  } else {
+                    captured = formatted;
+                  }
+                  setStateDialog(() {});
+                }
+              }
+            },
+            child: Container(
+              width: 420,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Theme.of(ctx).colorScheme.outline),
+              ),
+              child: Text(captured ?? 'settings.press_shortcut'.tr(), style: Theme.of(ctx).textTheme.titleMedium),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
+            FilledButton(onPressed: captured == null ? null : () => Navigator.of(ctx).pop(captured), child: Text('common.save'.tr())),
+          ],
+        ),
+      ),
+    );
+
+    focusNode.dispose();
+    return result ?? captured;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,48 +172,65 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 ListTile(
                   title: Text('settings.desktop_key_play_pause'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopPlayPauseKey,
-                    items: kDesktopShortcutKeyOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopPlayPauseKey: v));
+                  subtitle: Text(p.desktopPlayPauseShortcut),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () async {
+                      final value = await _captureShortcutDialog(context, 'settings.desktop_key_play_pause'.tr());
+                      if (value != null && context.mounted) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopPlayPauseShortcut: value));
                       }
                     },
                   ),
                 ),
                 ListTile(
                   title: Text('settings.desktop_key_fullscreen'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopFullscreenKey,
-                    items: kDesktopShortcutKeyOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopFullscreenKey: v));
+                  subtitle: Text(p.desktopFullscreenShortcut),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () async {
+                      final value = await _captureShortcutDialog(context, 'settings.desktop_key_fullscreen'.tr());
+                      if (value != null && context.mounted) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopFullscreenShortcut: value));
                       }
                     },
                   ),
                 ),
                 ListTile(
                   title: Text('settings.desktop_key_seek_back'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopSeekBackwardKey,
-                    items: kDesktopShortcutKeyOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopSeekBackwardKey: v));
+                  subtitle: Text(p.desktopSeekBackwardShortcut),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () async {
+                      final value = await _captureShortcutDialog(context, 'settings.desktop_key_seek_back'.tr());
+                      if (value != null && context.mounted) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopSeekBackwardShortcut: value));
                       }
                     },
                   ),
                 ),
                 ListTile(
                   title: Text('settings.desktop_key_seek_forward'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopSeekForwardKey,
-                    items: kDesktopShortcutKeyOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopSeekForwardKey: v));
+                  subtitle: Text(p.desktopSeekForwardShortcut),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () async {
+                      final value = await _captureShortcutDialog(context, 'settings.desktop_key_seek_forward'.tr());
+                      if (value != null && context.mounted) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopSeekForwardShortcut: value));
+                      }
+                    },
+                  ),
+                ),
+                ListTile(
+                  title: Text('settings.desktop_double_click_shortcut'.tr()),
+                  subtitle: Text(p.desktopDoubleClickShortcut),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () async {
+                      final value = await _captureShortcutDialog(context, 'settings.desktop_double_click_shortcut'.tr(), forDoubleClick: true);
+                      if (value != null && context.mounted) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopDoubleClickShortcut: value));
                       }
                     },
                   ),
@@ -139,30 +248,6 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
                 ListTile(
-                  title: Text('settings.desktop_shortcut_modifier'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopShortcutModifier,
-                    items: kDesktopModifierOptions.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopShortcutModifier: v));
-                      }
-                    },
-                  ),
-                ),
-                ListTile(
-                  title: Text('settings.desktop_double_click_modifier'.tr()),
-                  trailing: DropdownButton<String>(
-                    value: p.desktopDoubleClickModifier,
-                    items: kDesktopModifierOptions.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopDoubleClickModifier: v));
-                      }
-                    },
-                  ),
-                ),
-                ListTile(
                   title: Text('settings.desktop_wheel_step'.tr()),
                   subtitle: Slider(
                     min: 1,
@@ -175,18 +260,6 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
               _section(context, 'settings.section_library'.tr()),
-              ListTile(
-                title: Text('settings.library_view_mode'.tr()),
-                trailing: DropdownButton<String>(
-                  value: p.libraryViewMode,
-                  items: kLibraryViewModeOptions.map((m) => DropdownMenuItem(value: m, child: Text('settings.library_mode_$m'.tr()))).toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(libraryViewMode: v));
-                    }
-                  },
-                ),
-              ),
               ...currentFolders.map(
                 (f) => ListTile(
                   leading: const Icon(Icons.folder),

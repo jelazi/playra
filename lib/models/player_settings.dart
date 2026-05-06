@@ -1,10 +1,8 @@
 import 'dart:convert';
 
-const List<String> kDesktopShortcutKeyOptions = ['Space', 'KeyF', 'Enter', 'ArrowLeft', 'ArrowRight', 'KeyJ', 'KeyK', 'KeyL', 'KeyA', 'KeyS', 'KeyD'];
-
 const List<String> kDesktopWheelActionOptions = ['none', 'seek', 'volume', 'brightness'];
-const List<String> kDesktopModifierOptions = ['none', 'ctrl', 'alt', 'shift', 'meta'];
 const List<String> kLibraryViewModeOptions = ['structured', 'flat', 'smart'];
+const List<String> kLibraryVisualModeOptions = ['list', 'iconsSmall', 'iconsLarge'];
 
 /// Player-related settings.
 class PlayerSettings {
@@ -14,15 +12,15 @@ class PlayerSettings {
   final double seekStepSeconds; // double-tap seek step
   final List<String> libraryFolders; // local folders scanned for videos
   final bool desktopShortcutsEnabled;
-  final String desktopPlayPauseKey;
-  final String desktopFullscreenKey;
-  final String desktopSeekBackwardKey;
-  final String desktopSeekForwardKey;
+  final String desktopPlayPauseShortcut;
+  final String desktopFullscreenShortcut;
+  final String desktopSeekBackwardShortcut;
+  final String desktopSeekForwardShortcut;
+  final String desktopDoubleClickShortcut;
   final String desktopWheelAction;
   final double desktopWheelStep;
-  final String desktopShortcutModifier;
-  final String desktopDoubleClickModifier;
   final String libraryViewMode;
+  final String libraryVisualMode;
 
   const PlayerSettings({
     this.resumePlayback = true,
@@ -31,15 +29,15 @@ class PlayerSettings {
     this.seekStepSeconds = 10,
     this.libraryFolders = const [],
     this.desktopShortcutsEnabled = true,
-    this.desktopPlayPauseKey = 'Space',
-    this.desktopFullscreenKey = 'KeyF',
-    this.desktopSeekBackwardKey = 'ArrowLeft',
-    this.desktopSeekForwardKey = 'ArrowRight',
+    this.desktopPlayPauseShortcut = 'Space',
+    this.desktopFullscreenShortcut = 'F',
+    this.desktopSeekBackwardShortcut = 'Arrow Left',
+    this.desktopSeekForwardShortcut = 'Arrow Right',
+    this.desktopDoubleClickShortcut = 'Double Click',
     this.desktopWheelAction = 'seek',
     this.desktopWheelStep = 10,
-    this.desktopShortcutModifier = 'none',
-    this.desktopDoubleClickModifier = 'none',
     this.libraryViewMode = 'structured',
+    this.libraryVisualMode = 'list',
   });
 
   PlayerSettings copyWith({
@@ -49,15 +47,15 @@ class PlayerSettings {
     double? seekStepSeconds,
     List<String>? libraryFolders,
     bool? desktopShortcutsEnabled,
-    String? desktopPlayPauseKey,
-    String? desktopFullscreenKey,
-    String? desktopSeekBackwardKey,
-    String? desktopSeekForwardKey,
+    String? desktopPlayPauseShortcut,
+    String? desktopFullscreenShortcut,
+    String? desktopSeekBackwardShortcut,
+    String? desktopSeekForwardShortcut,
+    String? desktopDoubleClickShortcut,
     String? desktopWheelAction,
     double? desktopWheelStep,
-    String? desktopShortcutModifier,
-    String? desktopDoubleClickModifier,
     String? libraryViewMode,
+    String? libraryVisualMode,
   }) => PlayerSettings(
     resumePlayback: resumePlayback ?? this.resumePlayback,
     gesturesEnabled: gesturesEnabled ?? this.gesturesEnabled,
@@ -65,15 +63,15 @@ class PlayerSettings {
     seekStepSeconds: seekStepSeconds ?? this.seekStepSeconds,
     libraryFolders: libraryFolders ?? this.libraryFolders,
     desktopShortcutsEnabled: desktopShortcutsEnabled ?? this.desktopShortcutsEnabled,
-    desktopPlayPauseKey: desktopPlayPauseKey ?? this.desktopPlayPauseKey,
-    desktopFullscreenKey: desktopFullscreenKey ?? this.desktopFullscreenKey,
-    desktopSeekBackwardKey: desktopSeekBackwardKey ?? this.desktopSeekBackwardKey,
-    desktopSeekForwardKey: desktopSeekForwardKey ?? this.desktopSeekForwardKey,
+    desktopPlayPauseShortcut: desktopPlayPauseShortcut ?? this.desktopPlayPauseShortcut,
+    desktopFullscreenShortcut: desktopFullscreenShortcut ?? this.desktopFullscreenShortcut,
+    desktopSeekBackwardShortcut: desktopSeekBackwardShortcut ?? this.desktopSeekBackwardShortcut,
+    desktopSeekForwardShortcut: desktopSeekForwardShortcut ?? this.desktopSeekForwardShortcut,
+    desktopDoubleClickShortcut: desktopDoubleClickShortcut ?? this.desktopDoubleClickShortcut,
     desktopWheelAction: desktopWheelAction ?? this.desktopWheelAction,
     desktopWheelStep: desktopWheelStep ?? this.desktopWheelStep,
-    desktopShortcutModifier: desktopShortcutModifier ?? this.desktopShortcutModifier,
-    desktopDoubleClickModifier: desktopDoubleClickModifier ?? this.desktopDoubleClickModifier,
     libraryViewMode: libraryViewMode ?? this.libraryViewMode,
+    libraryVisualMode: libraryVisualMode ?? this.libraryVisualMode,
   );
 
   Map<String, dynamic> toJson() => {
@@ -83,15 +81,15 @@ class PlayerSettings {
     'seekStepSeconds': seekStepSeconds,
     'libraryFolders': libraryFolders,
     'desktopShortcutsEnabled': desktopShortcutsEnabled,
-    'desktopPlayPauseKey': desktopPlayPauseKey,
-    'desktopFullscreenKey': desktopFullscreenKey,
-    'desktopSeekBackwardKey': desktopSeekBackwardKey,
-    'desktopSeekForwardKey': desktopSeekForwardKey,
+    'desktopPlayPauseShortcut': desktopPlayPauseShortcut,
+    'desktopFullscreenShortcut': desktopFullscreenShortcut,
+    'desktopSeekBackwardShortcut': desktopSeekBackwardShortcut,
+    'desktopSeekForwardShortcut': desktopSeekForwardShortcut,
+    'desktopDoubleClickShortcut': desktopDoubleClickShortcut,
     'desktopWheelAction': desktopWheelAction,
     'desktopWheelStep': desktopWheelStep,
-    'desktopShortcutModifier': desktopShortcutModifier,
-    'desktopDoubleClickModifier': desktopDoubleClickModifier,
     'libraryViewMode': libraryViewMode,
+    'libraryVisualMode': libraryVisualMode,
   };
 
   factory PlayerSettings.fromJson(Map<String, dynamic> j) => PlayerSettings(
@@ -101,15 +99,15 @@ class PlayerSettings {
     seekStepSeconds: (j['seekStepSeconds'] as num?)?.toDouble() ?? 10,
     libraryFolders: (j['libraryFolders'] as List?)?.map((e) => e.toString()).toList() ?? const [],
     desktopShortcutsEnabled: j['desktopShortcutsEnabled'] as bool? ?? true,
-    desktopPlayPauseKey: (j['desktopPlayPauseKey'] as String?) ?? 'Space',
-    desktopFullscreenKey: (j['desktopFullscreenKey'] as String?) ?? 'KeyF',
-    desktopSeekBackwardKey: (j['desktopSeekBackwardKey'] as String?) ?? 'ArrowLeft',
-    desktopSeekForwardKey: (j['desktopSeekForwardKey'] as String?) ?? 'ArrowRight',
+    desktopPlayPauseShortcut: (j['desktopPlayPauseShortcut'] as String?) ?? (j['desktopPlayPauseKey'] as String?) ?? 'Space',
+    desktopFullscreenShortcut: (j['desktopFullscreenShortcut'] as String?) ?? (j['desktopFullscreenKey'] as String?) ?? 'F',
+    desktopSeekBackwardShortcut: (j['desktopSeekBackwardShortcut'] as String?) ?? (j['desktopSeekBackwardKey'] as String?) ?? 'Arrow Left',
+    desktopSeekForwardShortcut: (j['desktopSeekForwardShortcut'] as String?) ?? (j['desktopSeekForwardKey'] as String?) ?? 'Arrow Right',
+    desktopDoubleClickShortcut: (j['desktopDoubleClickShortcut'] as String?) ?? 'Double Click',
     desktopWheelAction: (j['desktopWheelAction'] as String?) ?? 'seek',
     desktopWheelStep: (j['desktopWheelStep'] as num?)?.toDouble() ?? 10,
-    desktopShortcutModifier: (j['desktopShortcutModifier'] as String?) ?? 'none',
-    desktopDoubleClickModifier: (j['desktopDoubleClickModifier'] as String?) ?? 'none',
     libraryViewMode: (j['libraryViewMode'] as String?) ?? 'structured',
+    libraryVisualMode: (j['libraryVisualMode'] as String?) ?? 'list',
   );
 
   String encode() => jsonEncode(toJson());
