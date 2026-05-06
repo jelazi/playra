@@ -4,8 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../models/media_info.dart';
 import '../models/video_item.dart';
+import '../services/episode_continuation_service.dart';
 import '../services/media_lookup_service.dart';
 import '../services/playra_storage.dart';
+import '../services/poster_cache_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/video_name_parser.dart';
 import 'player_launcher.dart';
@@ -31,6 +33,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   MediaInfo? _media;
   EpisodeInfo? _episode;
   ParsedVideoName? _parsed;
+  VideoItem? _nextEpisode;
   bool _loading = true;
   bool _notFound = false;
 
@@ -71,6 +74,15 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     _media = result.mediaInfo;
     _parsed = result.parsed;
 
+    // Keep a local small poster for recents cards.
+    final posterPath = await PosterCacheService.cacheSmallPoster(result.mediaInfo);
+    if (posterPath != null) {
+      await PlayraStorage.saveRecentPosterPath(widget.video, posterPath);
+    }
+
+    // Pre-compute next episode suggestion for local TV files.
+    _nextEpisode = await EpisodeContinuationService.findNextEpisode(widget.video);
+
     // For TV episodes, also load the English episode synopsis.
     if (result.mediaInfo.type == MediaType.tv &&
         result.parsed.isTV &&
@@ -96,6 +108,14 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _playNextEpisode() async {
+    final next = _nextEpisode;
+    if (next == null) return;
+    await PlayraStorage.addRecent(next);
+    if (!mounted) return;
+    await context.read<PlayerLauncher>().launch(context, next);
+  }
+
   void _showManualSearch() async {
     final picked = await _showSearchDialog();
     if (picked == null || !mounted) return;
@@ -104,9 +124,45 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     await _startLookup();
   }
 
-  Future<MediaInfo?> _showSearchDialog() async {
+  void _showRenameSearch() async {
+    final initial = _parsed?.cleanName.isNotEmpty == true
+        ? _parsed!.cleanName
+        : VideoNameParser.parse(widget.video.uri).cleanName;
+    final controller = TextEditingController(text: initial);
+
+    final customQuery = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('video.change_search_name'.tr()),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(hintText: 'video.manual_search_hint'.tr()),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('common.cancel'.tr()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: Text('common.ok'.tr()),
+          ),
+        ],
+      ),
+    );
+
+    if (customQuery == null || customQuery.trim().isEmpty) return;
+    final picked = await _showSearchDialog(initialQuery: customQuery.trim());
+    if (picked == null || !mounted) return;
+    await _lookup.saveMapping(widget.video.uri, picked);
+    await _startLookup();
+  }
+
+  Future<MediaInfo?> _showSearchDialog({String? initialQuery}) async {
     final controller = TextEditingController(
-      text: VideoNameParser.parse(widget.video.uri).cleanName,
+      text: initialQuery ?? VideoNameParser.parse(widget.video.uri).cleanName,
     );
     List<MediaInfo> results = [];
     bool searching = false;
@@ -264,6 +320,12 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                         onPressed: _showManualSearch,
                       ),
                       const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.edit),
+                        label: Text('video.change_search_name'.tr()),
+                        onPressed: _showRenameSearch,
+                      ),
+                      const SizedBox(width: 12),
                       FilledButton.icon(
                         icon: const Icon(Icons.play_arrow),
                         label: Text('video.play'.tr()),
@@ -319,6 +381,11 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
               icon: const Icon(Icons.edit),
               tooltip: 'video.edit_media_info'.tr(),
               onPressed: _showManualSearch,
+            ),
+            IconButton(
+              icon: const Icon(Icons.drive_file_rename_outline),
+              tooltip: 'video.change_search_name'.tr(),
+              onPressed: _showRenameSearch,
             ),
           ],
         ),
@@ -459,6 +526,20 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                       ],
                     ),
                   ],
+                ],
+
+                if (_nextEpisode != null) ...[
+                  const Divider(height: 32),
+                  FilledButton.tonalIcon(
+                    onPressed: _playNextEpisode,
+                    icon: const Icon(Icons.skip_next),
+                    label: Text('video.continue_next_episode'.tr()),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _nextEpisode!.displayName,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[400]),
+                  ),
                 ],
 
                 const SizedBox(height: 32),

@@ -29,6 +29,7 @@
         "no_media_info": "Could not find movie/series information",
         "select_media": "Select the correct movie/series",
         "manual_search": "Manual Search",
+        "change_search_name": "Change Search Name",
         "manual_search_hint": "Enter movie or series name",
         "edit_media_info": "Change Assignment",
         "cached_info": "Loaded from previous assignment",
@@ -40,6 +41,7 @@
         "episodes": "Episodes",
         "overview": "Overview",
         "play": "Play",
+        "continue_next_episode": "Continue with next episode",
         "tap_to_add": "Tap button to add videos",
         "remove": "Remove",
         "play_video": "Play video"

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -183,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRecentCard(VideoItem v) {
-    final resume = PlayraStorage.getResume(v.id);
+    final posterPath = PlayraStorage.getRecentPosterPath(v);
     return GestureDetector(
       onTap: () => _openVideo(v),
       child: Container(
@@ -198,11 +200,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.movie, size: 40, color: Colors.grey),
-                    ),
-                    if (resume != null) Positioned(bottom: 0, left: 0, right: 0, child: LinearProgressIndicator(value: null, minHeight: 3, backgroundColor: Colors.transparent)),
+                    if (posterPath != null)
+                      Image.file(
+                        File(posterPath),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                        ),
+                      )
+                    else
+                      Container(
+                        color: Colors.grey[300],
+                        child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                      ),
                     const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 22)),
                   ],
                 ),

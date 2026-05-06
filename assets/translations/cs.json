@@ -29,6 +29,7 @@
         "no_media_info": "Nepodařilo se najít informace o filmu/seriálu",
         "select_media": "Vyberte správný film/seriál",
         "manual_search": "Vyhledat ručně",
+        "change_search_name": "Změnit název hledání",
         "manual_search_hint": "Zadejte název filmu nebo seriálu",
         "edit_media_info": "Změnit přiřazení",
         "cached_info": "Uloženo z předchozího přiřazení",
@@ -40,6 +41,7 @@
         "episodes": "Epizody",
         "overview": "Popis",
         "play": "Přehrát",
+        "continue_next_episode": "Pokračovat dalším dílem",
         "tap_to_add": "Klepněte na tlačítko pro přidání videí",
         "remove": "Odstranit",
         "play_video": "Přehrát video"

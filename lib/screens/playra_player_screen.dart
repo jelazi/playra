@@ -11,13 +11,20 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/subtitle_style_settings.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
+import '../services/episode_continuation_service.dart';
 import '../services/playra_storage.dart';
+import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
+
+String _audioTrackKey(AudioTrack t) => '${t.id}|${t.title ?? ''}|${t.language ?? ''}';
+
+String _subtitleTrackKey(SubtitleTrack t) => '${t.id}|${t.title ?? ''}|${t.language ?? ''}';
 
 /// Main video player screen. Receives a [VideoItem] and a fully-prepared
 /// playback URL (already passed through SMB proxy if needed).
@@ -37,6 +44,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   bool _showControls = true;
   bool _isReady = false;
+  bool _isFullscreenFit = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _playing = false;
@@ -49,6 +57,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Timer? _overlayTimer;
   double _gestureStartBrightness = 0.5;
   double _gestureStartVolume = 0.5;
+  VideoItem? _nextEpisode;
+  bool _nextEpisodePromptShown = false;
 
   @override
   void initState() {
@@ -60,7 +70,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     _player.stream.position.listen((p) {
-      if (mounted) setState(() => _position = p);
+      if (mounted) {
+        setState(() => _position = p);
+        _maybePromptNextEpisode();
+      }
     });
     _player.stream.duration.listen((d) {
       if (mounted) setState(() => _duration = d);
@@ -84,6 +97,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     await _player.open(Media(widget.playUrl));
 
+    await _applyRememberedTrackPreferences();
+
+    _nextEpisode = await EpisodeContinuationService.findNextEpisode(widget.video);
+    if (mounted) setState(() {});
+
     if (resumeMs != null && resumeMs > 5000) {
       // wait briefly for duration to be known
       var attempts = 0;
@@ -103,6 +121,97 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     try {
       _gestureStartVolume = await FlutterVolumeController.getVolume() ?? 0.5;
     } catch (_) {}
+  }
+
+  Future<void> _applyRememberedTrackPreferences() async {
+    final wantedAudio = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+    final wantedSubtitle = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    if (wantedAudio == null && wantedSubtitle == null) return;
+
+    var audioApplied = wantedAudio == null;
+    var subtitleApplied = wantedSubtitle == null;
+
+    for (var i = 0; i < 24; i++) {
+      if (!audioApplied && wantedAudio != null) {
+        final tracks = _player.state.tracks.audio;
+        AudioTrack? match;
+        for (final t in tracks) {
+          if (_audioTrackKey(t) == wantedAudio) {
+            match = t;
+            break;
+          }
+        }
+        if (match != null) {
+          await _player.setAudioTrack(match);
+          audioApplied = true;
+        }
+      }
+
+      if (!subtitleApplied && wantedSubtitle != null) {
+        final tracks = _player.state.tracks.subtitle;
+        SubtitleTrack? match;
+        for (final t in tracks) {
+          if (_subtitleTrackKey(t) == wantedSubtitle) {
+            match = t;
+            break;
+          }
+        }
+        if (match != null) {
+          await _player.setSubtitleTrack(match);
+          subtitleApplied = true;
+        }
+      }
+
+      if (audioApplied && subtitleApplied) break;
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  void _maybePromptNextEpisode() {
+    if (_nextEpisode == null || _nextEpisodePromptShown) return;
+    if (_duration.inMilliseconds <= 0) return;
+    if (_position.inMilliseconds < 10000) return;
+
+    final remainingMs = _duration.inMilliseconds - _position.inMilliseconds;
+    if (remainingMs > 2500) return;
+
+    _nextEpisodePromptShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _showNextEpisodePrompt();
+      }
+    });
+  }
+
+  Future<void> _showNextEpisodePrompt() async {
+    final next = _nextEpisode;
+    if (next == null || !mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('video.continue_next_episode'.tr()),
+        content: Text(next.displayName),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _playNextEpisode();
+            },
+            child: Text('video.play'.tr()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _playNextEpisode() async {
+    final next = _nextEpisode;
+    if (next == null) return;
+    await PlayraStorage.addRecent(next);
+    if (!mounted) return;
+    await context.read<PlayerLauncher>().launch(context, next);
   }
 
   Future<void> _persistResume() async {
@@ -150,6 +259,24 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _overlayTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _overlayText = null);
     });
+  }
+
+  void _toggleFullscreenFit() {
+    setState(() => _isFullscreenFit = !_isFullscreenFit);
+    _flashOverlay(_isFullscreenFit ? Icons.fullscreen_exit : Icons.fullscreen, _isFullscreenFit ? 'Fit screen' : 'Original fit');
+    _startHideTimer();
+  }
+
+  Future<void> _onDoubleTapToggleFullscreen() async {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final isFullscreen = await windowManager.isFullScreen();
+      await windowManager.setFullScreen(!isFullscreen);
+      _flashOverlay(!isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, !isFullscreen ? 'Fullscreen' : 'Windowed');
+      _startHideTimer();
+      return;
+    }
+
+    _toggleFullscreenFit();
   }
 
   Future<void> _onVerticalDrag(DragUpdateDetails d, bool isLeft) async {
@@ -206,7 +333,12 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
           body: Stack(
             children: [
               Positioned.fill(
-                child: Video(controller: _controller, controls: NoVideoControls, subtitleViewConfiguration: _subtitleConfig(settings.subtitleStyle)),
+                child: Video(
+                  controller: _controller,
+                  controls: NoVideoControls,
+                  fit: _isFullscreenFit ? BoxFit.cover : BoxFit.contain,
+                  subtitleViewConfiguration: _subtitleConfig(settings.subtitleStyle),
+                ),
               ),
 
               // Tap & gesture layer
@@ -217,7 +349,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onTap: _toggleControls,
-                        onDoubleTap: () => _seekRelative(Duration(seconds: -PlayraStorage.getPlayerSettings().seekStepSeconds.toInt())),
+                        onDoubleTap: _onDoubleTapToggleFullscreen,
                         onVerticalDragUpdate: (d) => _onVerticalDrag(d, true),
                         onHorizontalDragUpdate: _onHorizontalDrag,
                       ),
@@ -226,7 +358,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onTap: _toggleControls,
-                        onDoubleTap: () => _seekRelative(Duration(seconds: PlayraStorage.getPlayerSettings().seekStepSeconds.toInt())),
+                        onDoubleTap: _onDoubleTapToggleFullscreen,
                         onVerticalDragUpdate: (d) => _onVerticalDrag(d, false),
                         onHorizontalDragUpdate: _onHorizontalDrag,
                       ),
@@ -321,6 +453,12 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
             tooltip: 'player.audio_track'.tr(),
             onPressed: _pickAudioTrack,
           ),
+          if (_nextEpisode != null)
+            IconButton(
+              icon: const Icon(Icons.skip_next, color: Colors.white),
+              tooltip: 'video.continue_next_episode'.tr(),
+              onPressed: _playNextEpisode,
+            ),
         ],
       ),
     );
@@ -388,14 +526,20 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final tracks = _player.state.tracks.audio;
     final current = _player.state.track.audio;
     final picked = await _showTrackPicker<AudioTrack>(title: 'player.audio_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
-    if (picked != null) await _player.setAudioTrack(picked);
+    if (picked != null) {
+      await _player.setAudioTrack(picked);
+      await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(picked));
+    }
   }
 
   Future<void> _pickSubtitleTrack() async {
     final tracks = _player.state.tracks.subtitle;
     final current = _player.state.track.subtitle;
     final picked = await _showTrackPicker<SubtitleTrack>(title: 'player.subtitle_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
-    if (picked != null) await _player.setSubtitleTrack(picked);
+    if (picked != null) {
+      await _player.setSubtitleTrack(picked);
+      await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(picked));
+    }
   }
 
   /// Opens the full subtitle options bottom sheet (track selection, style
@@ -518,7 +662,9 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   );
                   if (res != null && res.files.isNotEmpty && res.files.first.path != null) {
                     final path = res.files.first.path!;
-                    await widget.player.setSubtitleTrack(SubtitleTrack.uri(Uri.file(path).toString(), title: res.files.first.name));
+                    final track = SubtitleTrack.uri(Uri.file(path).toString(), title: res.files.first.name);
+                    await widget.player.setSubtitleTrack(track);
+                    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
                     if (context.mounted) Navigator.of(context).pop();
                   }
                 },
@@ -639,6 +785,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
         title: Text(label, style: const TextStyle(color: Colors.white)),
         onTap: () async {
           await widget.player.setSubtitleTrack(t);
+          await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(t));
           if (mounted) setState(() {}); // refresh the check-mark
         },
       );
