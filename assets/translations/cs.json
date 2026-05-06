@@ -49,7 +49,12 @@
     "subtitle": {
         "search_title": "Výběr titulků",
         "searching": "Vyhledávání titulků...",
-        "no_results": "Nebyly nalezeny žádné titulky",
+        "searching_for": "Právě hledám: {}",
+        "stop_search": "Zastavit hledání",
+        "no_results": "Nebyly nalezeny žádné titulky. Zkuste upravit název hledání nebo použijte ruční vyhledání.",
+        "no_results_after_fallback": "Nebyly nalezeny žádné titulky ani po postupném zkracování názvu. Zkuste ruční vyhledání.",
+        "search_stopped": "Vyhledávání bylo zastaveno.",
+        "login_required_for_search": "Pro vyhledávání titulků je potřeba přihlášení k titulky.com. Otevřete přihlášení a zkuste to znovu.",
         "search_error": "Chyba při vyhledávání titulků: {}",
         "uploader": "Nahrál: {}",
         "format": "Formát: {}",

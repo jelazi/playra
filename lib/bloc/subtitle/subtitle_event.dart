@@ -42,6 +42,8 @@ class SearchSubtitlesManual extends SubtitleEvent {
   List<Object> get props => [videoInfo, query];
 }
 
+class CancelSubtitleSearch extends SubtitleEvent {}
+
 /// Load next page of results
 class LoadMoreSubtitles extends SubtitleEvent {}
 

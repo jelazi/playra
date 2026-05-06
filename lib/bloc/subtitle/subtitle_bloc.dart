@@ -1,7 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/subtitle.dart';
+import '../../models/video_info.dart';
 import '../../repositories/titulky_repository.dart';
+import '../../services/media_cache_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/subtitle_relevance_service.dart';
 import '../../services/video_name_parser.dart';
@@ -10,6 +12,7 @@ import 'subtitle_state.dart';
 
 class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   final TitulkyRepository _repository;
+  int _searchToken = 0;
 
   SubtitleBloc({required TitulkyRepository repository}) : _repository = repository, super(SubtitleInitial()) {
     on<LoginToTitulky>(_onLoginToTitulky);
@@ -22,6 +25,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     on<LogoutFromTitulky>(_onLogoutFromTitulky);
     on<ToggleShowOtherSubtitles>(_onToggleShowOtherSubtitles);
     on<FetchAlternativeSubtitles>(_onFetchAlternativeSubtitles);
+    on<CancelSubtitleSearch>(_onCancelSubtitleSearch);
   }
 
   Future<void> _onLoginToTitulky(LoginToTitulky event, Emitter<SubtitleState> emit) async {
@@ -81,30 +85,35 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   }
 
   Future<void> _onSearchSubtitles(SearchSubtitles event, Emitter<SubtitleState> emit) async {
+    final token = _beginNewSearch();
+
     // Parse video name to extract season/episode
     final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
     print('🔵 Parsed video: ${parsedVideo.cleanName}, isTV: ${parsedVideo.isTV}, S${parsedVideo.season}E${parsedVideo.episode}');
 
-    // Build search query - add season/episode if exists
-    String searchQuery = parsedVideo.cleanName;
-    if (parsedVideo.isTV && parsedVideo.season != null && parsedVideo.episode != null) {
-      final seasonStr = parsedVideo.season.toString().padLeft(2, '0');
-      final episodeStr = parsedVideo.episode.toString().padLeft(2, '0');
-      searchQuery = '${parsedVideo.cleanName} S${seasonStr}E$episodeStr';
-    }
-    print('🔵 Search query: $searchQuery');
+    final preferredTitle = _resolvePreferredSearchTitle(parsedVideo.cleanName);
+    final searchQueries = _buildProgressiveQueries(baseTitle: preferredTitle, parsedVideo: parsedVideo);
 
-    emit(SubtitleSearching(event.videoInfo, searchQuery: searchQuery));
+    final firstQuery = searchQueries.isNotEmpty ? searchQueries.first : preferredTitle;
+    print('🔵 Search queries (${searchQueries.length}): $searchQueries');
+
+    emit(SubtitleSearching(event.videoInfo, searchQuery: firstQuery));
     try {
+      await _ensureAuthenticated();
+
       // Get preferred language from settings
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
       final normalizedLang = languageFilter == 'all' ? null : languageFilter;
 
-      final subtitles = await _fetchSubtitlesWithFallback(searchQuery, normalizedLang);
+      final result = await _searchWithProgressiveFallback(event.videoInfo, searchQueries, normalizedLang, token, emit);
+      _throwIfSearchCancelled(token);
+
+      final subtitles = result.subtitles;
+      final effectiveQuery = result.query;
 
       if (subtitles.isEmpty) {
-        emit(SubtitleError('subtitle.no_results'));
+        emit(SubtitleError('subtitle.no_results_after_fallback'));
       } else {
         // Sort subtitles by relevance
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
@@ -119,7 +128,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
             subtitles: subtitles,
             sortedSubtitles: sortedSubtitles,
             showOthers: false,
-            searchQuery: searchQuery,
+            searchQuery: effectiveQuery,
             currentPage: 1,
             hasMore: hasMore,
           ),
@@ -128,29 +137,40 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         // Flatten alternatives into the main list in the background
         await _enrichWithFlatAlternatives(emit, parsedVideo);
       }
+    } on _SearchCancelledException {
+      // Ignore; explicit cancel handler already emitted a user-facing state.
     } catch (e) {
       print('🔴 SubtitleBloc: Search error: $e');
-      emit(SubtitleError('subtitle.search_error'));
+      emit(SubtitleError(_mapSearchErrorToMessageKey(e)));
     }
   }
 
   /// Manual search with custom query
   Future<void> _onSearchSubtitlesManual(SearchSubtitlesManual event, Emitter<SubtitleState> emit) async {
+    final token = _beginNewSearch();
     final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
-    final searchQuery = event.query.trim();
+    final manualQuery = event.query.trim();
+    final searchQueries = _buildProgressiveQueries(baseTitle: manualQuery, parsedVideo: parsedVideo);
+    final firstQuery = searchQueries.isNotEmpty ? searchQueries.first : manualQuery;
 
-    print('🔵 Manual search query: $searchQuery');
-    emit(SubtitleSearching(event.videoInfo, searchQuery: searchQuery));
+    print('🔵 Manual search queries (${searchQueries.length}): $searchQueries');
+    emit(SubtitleSearching(event.videoInfo, searchQuery: firstQuery));
 
     try {
+      await _ensureAuthenticated();
+
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
       final normalizedLang = languageFilter == 'all' ? null : languageFilter;
 
-      final subtitles = await _fetchSubtitlesWithFallback(searchQuery, normalizedLang);
+      final result = await _searchWithProgressiveFallback(event.videoInfo, searchQueries, normalizedLang, token, emit);
+      _throwIfSearchCancelled(token);
+
+      final subtitles = result.subtitles;
+      final effectiveQuery = result.query;
 
       if (subtitles.isEmpty) {
-        emit(SubtitleError('subtitle.no_results'));
+        emit(SubtitleError('subtitle.no_results_after_fallback'));
       } else {
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
         print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
@@ -163,7 +183,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
             subtitles: subtitles,
             sortedSubtitles: sortedSubtitles,
             showOthers: false,
-            searchQuery: searchQuery,
+            searchQuery: effectiveQuery,
             currentPage: 1,
             hasMore: hasMore,
           ),
@@ -171,10 +191,30 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
         await _enrichWithFlatAlternatives(emit, parsedVideo);
       }
+    } on _SearchCancelledException {
+      // Ignore; explicit cancel handler already emitted a user-facing state.
     } catch (e) {
       print('🔴 SubtitleBloc: Manual search error: $e');
-      emit(SubtitleError('subtitle.search_error'));
+      emit(SubtitleError(_mapSearchErrorToMessageKey(e)));
     }
+  }
+
+  Future<_SearchResultWithQuery> _searchWithProgressiveFallback(VideoInfo videoInfo, List<String> queries, String? languageFilter, int token, Emitter<SubtitleState> emit) async {
+    if (queries.isEmpty) {
+      return const _SearchResultWithQuery([], '');
+    }
+
+    for (final query in queries) {
+      _throwIfSearchCancelled(token);
+      emit(SubtitleSearching(videoInfo, searchQuery: query));
+      final subtitles = await _fetchSubtitlesWithFallback(query, languageFilter);
+      _throwIfSearchCancelled(token);
+      if (subtitles.isNotEmpty) {
+        return _SearchResultWithQuery(subtitles, query);
+      }
+    }
+
+    return _SearchResultWithQuery(const [], queries.last);
   }
 
   /// Runs primary search and, if results are scarce, transparently appends the
@@ -262,6 +302,8 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     emit(currentState.copyWith(isLoadingMore: true));
 
     try {
+      await _ensureAuthenticated();
+
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
       final nextPage = currentState.currentPage + 1;
@@ -290,6 +332,87 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       print('🔴 SubtitleBloc: Load more error: $e');
       emit(currentState.copyWith(isLoadingMore: false));
     }
+  }
+
+  Future<void> _ensureAuthenticated() async {
+    if (_repository.isLoggedIn) return;
+
+    final settings = SettingsService.getSettings();
+    final username = settings.username;
+    final password = settings.password;
+
+    if (username == null || username.isEmpty || password == null || password.isEmpty) {
+      throw Exception('Missing saved titulky.com credentials');
+    }
+
+    final success = await _repository.login(username, password);
+    if (!success) {
+      throw Exception('Auto-login failed');
+    }
+  }
+
+  void _onCancelSubtitleSearch(CancelSubtitleSearch event, Emitter<SubtitleState> emit) {
+    _cancelCurrentSearch();
+    if (state is SubtitleSearching) {
+      emit(SubtitleError('subtitle.search_stopped'));
+    }
+  }
+
+  int _beginNewSearch() {
+    _searchToken += 1;
+    return _searchToken;
+  }
+
+  void _cancelCurrentSearch() {
+    _searchToken += 1;
+  }
+
+  void _throwIfSearchCancelled(int token) {
+    if (token != _searchToken) {
+      throw const _SearchCancelledException();
+    }
+  }
+
+  String _resolvePreferredSearchTitle(String cleanName) {
+    final cached = MediaCacheService.getMapping(cleanName);
+    final preferred = cached?.title.trim();
+    if (preferred != null && preferred.isNotEmpty) {
+      return preferred;
+    }
+    return cleanName;
+  }
+
+  List<String> _buildProgressiveQueries({required String baseTitle, required ParsedVideoName parsedVideo}) {
+    final normalized = baseTitle.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) return const [];
+
+    String? suffix;
+    if (parsedVideo.isTV && parsedVideo.season != null && parsedVideo.episode != null) {
+      final seasonStr = parsedVideo.season.toString().padLeft(2, '0');
+      final episodeStr = parsedVideo.episode.toString().padLeft(2, '0');
+      suffix = 'S${seasonStr}E$episodeStr';
+    }
+
+    final words = normalized.split(' ');
+    final queries = <String>[];
+    for (var count = words.length; count >= 1; count--) {
+      final core = words.take(count).join(' ').trim();
+      if (core.isEmpty) continue;
+      final q = suffix == null ? core : '$core $suffix';
+      if (!queries.contains(q)) {
+        queries.add(q);
+      }
+    }
+
+    return queries;
+  }
+
+  String _mapSearchErrorToMessageKey(Object error) {
+    final raw = error.toString().toLowerCase();
+    if (raw.contains('missing saved titulky.com credentials') || raw.contains('auto-login failed')) {
+      return 'subtitle.login_required_for_search';
+    }
+    return 'subtitle.search_error';
   }
 
   Future<void> _onSelectSubtitle(SelectSubtitle event, Emitter<SubtitleState> emit) async {
@@ -380,4 +503,15 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       }
     }
   }
+}
+
+class _SearchResultWithQuery {
+  final List<Subtitle> subtitles;
+  final String query;
+
+  const _SearchResultWithQuery(this.subtitles, this.query);
+}
+
+class _SearchCancelledException implements Exception {
+  const _SearchCancelledException();
 }

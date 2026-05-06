@@ -69,7 +69,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                 }
 
                 if (state is SubtitleError) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message.tr()), backgroundColor: Colors.red));
                 } else if (state is SubtitleDownloaded && !_hasNavigatedToPlayer) {
                   _hasNavigatedToPlayer = true;
                   ScaffoldMessenger.of(
@@ -109,8 +109,52 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
               },
               builder: (context, state) {
                 if (state is SubtitleSearching) {
-                  return const Center(
-                    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('subtitle.searching')]),
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text('subtitle.searching'.tr()),
+                          if (state.searchQuery != null && state.searchQuery!.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'subtitle.searching_for'.tr(args: [state.searchQuery!]),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 13, color: Colors.grey),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => context.read<SubtitleBloc>().add(CancelSubtitleSearch()),
+                            icon: const Icon(Icons.stop_circle_outlined),
+                            label: Text('subtitle.stop_search'.tr()),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                } else if (state is SubtitleError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.subtitles_off, size: 56, color: Colors.grey),
+                          const SizedBox(height: 12),
+                          Text(state.message.tr(), textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () => context.read<SubtitleBloc>().add(SearchSubtitles(widget.videoInfo)),
+                            icon: const Icon(Icons.refresh),
+                            label: Text('common.retry'.tr()),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 } else if (state is SubtitleSearchResults) {
                   print('✅ Found ${state.subtitles.length} primary + ${state.alternativeSubtitles?.length ?? 0} alternative subtitles');
@@ -242,6 +286,9 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
     return BlocBuilder<SubtitleBloc, SubtitleState>(
       buildWhen: (previous, current) {
         // Update when searchQuery changes
+        if (current is SubtitleSearching && previous is SubtitleSearching) {
+          return current.searchQuery != previous.searchQuery;
+        }
         if (current is SubtitleSearching && previous is! SubtitleSearching) return true;
         if (current is SubtitleSearchResults) return true;
         return false;
@@ -303,7 +350,19 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
     final displayedSubtitles = state.displayedSubtitles;
 
     if (displayedSubtitles.isEmpty) {
-      return Center(child: Text('subtitle.no_results'.tr()));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off, size: 56, color: Colors.grey),
+              const SizedBox(height: 12),
+              Text('subtitle.no_results'.tr(), textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      );
     }
 
     return Column(

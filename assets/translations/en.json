@@ -49,7 +49,12 @@
     "subtitle": {
         "search_title": "Select Subtitles",
         "searching": "Searching for subtitles...",
-        "no_results": "No subtitles found",
+        "searching_for": "Currently searching: {}",
+        "stop_search": "Stop search",
+        "no_results": "No subtitles were found. Try adjusting the search title or use manual search.",
+        "no_results_after_fallback": "No subtitles were found even after progressively shortening the query. Try manual search.",
+        "search_stopped": "Search was stopped.",
+        "login_required_for_search": "You need to be logged in to titulky.com before searching subtitles. Open login and try again.",
         "search_error": "Error searching for subtitles: {}",
         "uploader": "Uploaded by: {}",
         "format": "Format: {}",
