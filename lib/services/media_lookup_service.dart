@@ -66,8 +66,8 @@ class MediaLookupService {
     return _tmdb.search(query: query, language: language, searchMovies: movies, searchTV: tv);
   }
 
-  /// Fetches English episode synopsis for a TV episode.
-  Future<EpisodeInfo?> fetchEpisodeInfo(int tvId, int season, int episode) => _tmdb.getEpisodeDetails(tvId, season, episode);
+  /// Fetches localized episode info for a TV episode.
+  Future<EpisodeInfo?> fetchEpisodeInfo(int tvId, int season, int episode, String language) => _tmdb.getEpisodeDetails(tvId, season, episode, language: language);
 
   /// Persists a user-selected [mediaInfo] for [filePath] to the local cache.
   Future<void> saveMapping(String filePath, MediaInfo mediaInfo) async {

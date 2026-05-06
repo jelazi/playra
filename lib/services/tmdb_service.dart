@@ -1,14 +1,16 @@
 import 'package:dio/dio.dart';
 
 import '../models/media_info.dart';
+import 'translation_service.dart';
 
 /// Služba pro vyhledávání filmů a seriálů v TMDB databázi
 class TmdbService {
   final Dio _dio;
+  final TranslationService _translator;
   static const String _apiKey = '***REMOVED***'; // Bude potřeba získat API klíč
   static const String _baseUrl = 'https://api.themoviedb.org/3';
 
-  TmdbService({Dio? dio}) : _dio = dio ?? Dio() {
+  TmdbService({Dio? dio, TranslationService? translator}) : _dio = dio ?? Dio(), _translator = translator ?? TranslationService() {
     _dio.options.baseUrl = _baseUrl;
     _dio.options.connectTimeout = const Duration(seconds: 10);
     _dio.options.receiveTimeout = const Duration(seconds: 10);
@@ -103,15 +105,55 @@ class TmdbService {
     }
   }
 
-  /// Fetch episode details including overview.
-  /// Always requests English so the episode synopsis is meaningful.
-  Future<EpisodeInfo?> getEpisodeDetails(int tvId, int season, int episode) async {
+  /// Fetch episode details including localized episode metadata.
+  /// Falls back to English and machine translation when the localized TMDB
+  /// episode text is missing.
+  Future<EpisodeInfo?> getEpisodeDetails(int tvId, int season, int episode, {String language = 'en-US'}) async {
     try {
-      final response = await _dio.get('/tv/$tvId/season/$season/episode/$episode', queryParameters: {'api_key': _apiKey, 'language': 'en-US'});
-      return EpisodeInfo.fromJson(response.data as Map<String, dynamic>, season, episode);
+      final localizedResponse = await _dio.get('/tv/$tvId/season/$season/episode/$episode', queryParameters: {'api_key': _apiKey, 'language': language});
+      final localized = EpisodeInfo.fromJson(localizedResponse.data as Map<String, dynamic>, season, episode);
+
+      if (language.toLowerCase().startsWith('en')) {
+        return localized;
+      }
+
+      final needsNameTranslation = (localized.name == null || localized.name!.trim().isEmpty);
+      final needsOverviewTranslation = (localized.overview == null || localized.overview!.trim().isEmpty);
+
+      if (!needsNameTranslation && !needsOverviewTranslation) {
+        return localized;
+      }
+
+      final englishResponse = await _dio.get('/tv/$tvId/season/$season/episode/$episode', queryParameters: {'api_key': _apiKey, 'language': 'en-US'});
+      final english = EpisodeInfo.fromJson(englishResponse.data as Map<String, dynamic>, season, episode);
+
+      final translatedName = needsNameTranslation && english.name != null
+          ? await _translator.translateText(english.name!, targetLanguage: _normalizeLanguage(language), sourceLanguage: 'en')
+          : null;
+      final translatedOverview = needsOverviewTranslation && english.overview != null
+          ? await _translator.translateText(english.overview!, targetLanguage: _normalizeLanguage(language), sourceLanguage: 'en')
+          : null;
+
+      return localized.copyWith(
+        name: localized.name?.trim().isNotEmpty == true ? localized.name : translatedName ?? english.name,
+        overview: localized.overview?.trim().isNotEmpty == true ? localized.overview : translatedOverview ?? english.overview,
+        stillPath: localized.stillPath ?? english.stillPath,
+        voteAverage: localized.voteAverage ?? english.voteAverage,
+        airDate: localized.airDate ?? english.airDate,
+      );
     } catch (e) {
       print('Get episode details error: $e');
       return null;
     }
+  }
+
+  String _normalizeLanguage(String language) {
+    if (language.contains('-')) {
+      return language.split('-').first.toLowerCase();
+    }
+    if (language.contains('_')) {
+      return language.split('_').first.toLowerCase();
+    }
+    return language.toLowerCase();
   }
 }

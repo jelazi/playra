@@ -15,8 +15,8 @@ import 'player_launcher.dart';
 /// Full-screen view that shows TMDB info (poster, title, overview) for a
 /// [VideoItem] before the user decides to play it.
 ///
-/// The lookup is done automatically on open. For TV episodes, the English
-/// episode synopsis is fetched from TMDB as well.
+/// The lookup is done automatically on open. For TV episodes, localized
+/// episode text is fetched from TMDB and machine-translated when needed.
 class MediaInfoScreen extends StatefulWidget {
   final VideoItem video;
 
@@ -84,15 +84,8 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     _nextEpisode = await EpisodeContinuationService.findNextEpisode(widget.video);
 
     // For TV episodes, also load the English episode synopsis.
-    if (result.mediaInfo.type == MediaType.tv &&
-        result.parsed.isTV &&
-        result.parsed.season != null &&
-        result.parsed.episode != null) {
-      final ep = await _lookup.fetchEpisodeInfo(
-        result.mediaInfo.id,
-        result.parsed.season!,
-        result.parsed.episode!,
-      );
+    if (result.mediaInfo.type == MediaType.tv && result.parsed.isTV && result.parsed.season != null && result.parsed.episode != null) {
+      final ep = await _lookup.fetchEpisodeInfo(result.mediaInfo.id, result.parsed.season!, result.parsed.episode!, language);
       if (mounted) _episode = ep;
     }
 
@@ -125,9 +118,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   }
 
   void _showRenameSearch() async {
-    final initial = _parsed?.cleanName.isNotEmpty == true
-        ? _parsed!.cleanName
-        : VideoNameParser.parse(widget.video.uri).cleanName;
+    final initial = _parsed?.cleanName.isNotEmpty == true ? _parsed!.cleanName : VideoNameParser.parse(widget.video.uri).cleanName;
     final controller = TextEditingController(text: initial);
 
     final customQuery = await showDialog<String>(
@@ -141,14 +132,8 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
           onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('common.cancel'.tr()),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: Text('common.ok'.tr()),
-          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(controller.text.trim()), child: Text('common.ok'.tr())),
         ],
       ),
     );
@@ -161,9 +146,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   }
 
   Future<MediaInfo?> _showSearchDialog({String? initialQuery}) async {
-    final controller = TextEditingController(
-      text: initialQuery ?? VideoNameParser.parse(widget.video.uri).cleanName,
-    );
+    final controller = TextEditingController(text: initialQuery ?? VideoNameParser.parse(widget.video.uri).cleanName);
     List<MediaInfo> results = [];
     bool searching = false;
     MediaInfo? picked;
@@ -191,10 +174,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                           results = [];
                         });
                         final lang = ctx.locale.languageCode;
-                        final res = await _lookup.searchCandidates(
-                          controller.text.trim(),
-                          lang,
-                        );
+                        final res = await _lookup.searchCandidates(controller.text.trim(), lang);
                         setS(() {
                           results = res;
                           searching = false;
@@ -221,57 +201,46 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                   child: searching
                       ? const Center(child: CircularProgressIndicator())
                       : results.isEmpty
-                          ? Center(
-                              child: Text(
-                                'video.manual_search_hint'.tr(),
-                                style: const TextStyle(color: Colors.grey),
+                      ? Center(
+                          child: Text('video.manual_search_hint'.tr(), style: const TextStyle(color: Colors.grey)),
+                        )
+                      : ListView.builder(
+                          itemCount: results.length,
+                          itemBuilder: (_, i) {
+                            final m = results[i];
+                            final year = (m.releaseDate != null && m.releaseDate!.length >= 4) ? m.releaseDate!.substring(0, 4) : '?';
+                            return ListTile(
+                              leading: m.posterPath != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Image.network(
+                                        m.posterUrl,
+                                        width: 36,
+                                        height: 54,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const SizedBox(width: 36, height: 54),
+                                      ),
+                                    )
+                                  : const SizedBox(width: 36),
+                              title: Text(m.title),
+                              subtitle: Text(
+                                '$year · '
+                                '${m.type == MediaType.movie ? 'Film' : 'Seriál'} · '
+                                '⭐ ${m.voteAverage?.toStringAsFixed(1) ?? '?'}',
+                                style: const TextStyle(fontSize: 12),
                               ),
-                            )
-                          : ListView.builder(
-                              itemCount: results.length,
-                              itemBuilder: (_, i) {
-                                final m = results[i];
-                                final year = (m.releaseDate != null && m.releaseDate!.length >= 4)
-                                    ? m.releaseDate!.substring(0, 4)
-                                    : '?';
-                                return ListTile(
-                                  leading: m.posterPath != null
-                                      ? ClipRRect(
-                                          borderRadius: BorderRadius.circular(4),
-                                          child: Image.network(
-                                            m.posterUrl,
-                                            width: 36,
-                                            height: 54,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                const SizedBox(width: 36, height: 54),
-                                          ),
-                                        )
-                                      : const SizedBox(width: 36),
-                                  title: Text(m.title),
-                                  subtitle: Text(
-                                    '$year · '
-                                    '${m.type == MediaType.movie ? 'Film' : 'Seriál'} · '
-                                    '⭐ ${m.voteAverage?.toStringAsFixed(1) ?? '?'}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  onTap: () {
-                                    picked = m;
-                                    Navigator.of(ctx).pop();
-                                  },
-                                );
+                              onTap: () {
+                                picked = m;
+                                Navigator.of(ctx).pop();
                               },
-                            ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text('common.cancel'.tr()),
-            ),
-          ],
+          actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr()))],
         ),
       ),
     );
@@ -284,18 +253,15 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _notFound
-              ? _buildNotFound()
-              : _buildContent(),
+          ? _buildNotFound()
+          : _buildContent(),
     );
   }
 
   Widget _buildNotFound() {
     return CustomScrollView(
       slivers: [
-        SliverAppBar(
-          floating: true,
-          title: Text(widget.video.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
+        SliverAppBar(floating: true, title: Text(widget.video.displayName, maxLines: 1, overflow: TextOverflow.ellipsis)),
         SliverFillRemaining(
           child: Center(
             child: Padding(
@@ -305,32 +271,16 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                 children: [
                   const Icon(Icons.movie_outlined, size: 72, color: Colors.grey),
                   const SizedBox(height: 16),
-                  Text(
-                    'video.media_not_found'.tr(),
-                    style: const TextStyle(fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
+                  Text('video.media_not_found'.tr(), style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.search),
-                        label: Text('video.manual_search'.tr()),
-                        onPressed: _showManualSearch,
-                      ),
+                      OutlinedButton.icon(icon: const Icon(Icons.search), label: Text('video.manual_search'.tr()), onPressed: _showManualSearch),
                       const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.edit),
-                        label: Text('video.change_search_name'.tr()),
-                        onPressed: _showRenameSearch,
-                      ),
+                      OutlinedButton.icon(icon: const Icon(Icons.edit), label: Text('video.change_search_name'.tr()), onPressed: _showRenameSearch),
                       const SizedBox(width: 12),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.play_arrow),
-                        label: Text('video.play'.tr()),
-                        onPressed: _play,
-                      ),
+                      FilledButton.icon(icon: const Icon(Icons.play_arrow), label: Text('video.play'.tr()), onPressed: _play),
                     ],
                   ),
                 ],
@@ -357,18 +307,10 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                   background: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
-                        media.backdropUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                      ),
+                      Image.network(media.backdropUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
                       const DecoratedBox(
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [Colors.black87, Colors.transparent],
-                          ),
+                          gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
                         ),
                       ),
                     ],
@@ -377,16 +319,8 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
               : null,
           title: Text(media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.edit),
-              tooltip: 'video.edit_media_info'.tr(),
-              onPressed: _showManualSearch,
-            ),
-            IconButton(
-              icon: const Icon(Icons.drive_file_rename_outline),
-              tooltip: 'video.change_search_name'.tr(),
-              onPressed: _showRenameSearch,
-            ),
+            IconButton(icon: const Icon(Icons.edit), tooltip: 'video.edit_media_info'.tr(), onPressed: _showManualSearch),
+            IconButton(icon: const Icon(Icons.drive_file_rename_outline), tooltip: 'video.change_search_name'.tr(), onPressed: _showRenameSearch),
           ],
         ),
 
@@ -403,13 +337,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                     if (media.posterUrl.isNotEmpty) ...[
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          media.posterUrl,
-                          width: 120,
-                          height: 180,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                        ),
+                        child: Image.network(media.posterUrl, width: 120, height: 180, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
                       ),
                       const SizedBox(width: 16),
                     ],
@@ -417,20 +345,12 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            media.title,
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
+                          Text(media.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                           if (media.originalTitle != media.title) ...[
                             const SizedBox(height: 4),
                             Text(
                               media.originalTitle,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(fontStyle: FontStyle.italic, color: Colors.grey),
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontStyle: FontStyle.italic, color: Colors.grey),
                             ),
                           ],
                           const SizedBox(height: 8),
@@ -439,27 +359,14 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                               children: [
                                 const Icon(Icons.star, color: Colors.amber, size: 18),
                                 const SizedBox(width: 4),
-                                Text(
-                                  media.voteAverage!.toStringAsFixed(1),
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  ' / 10',
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
+                                Text(media.voteAverage!.toStringAsFixed(1), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text(' / 10', style: TextStyle(color: Colors.grey[600])),
                               ],
                             ),
                           const SizedBox(height: 6),
                           if (media.type == MediaType.movie && media.releaseDate != null)
-                            _infoChip(Icons.calendar_today,
-                                media.releaseDate!.length >= 4
-                                    ? media.releaseDate!.substring(0, 4)
-                                    : media.releaseDate!),
-                          if (media.type == MediaType.tv) ...[
-                            if (media.numberOfSeasons != null)
-                              _infoChip(Icons.tv,
-                                  '${media.numberOfSeasons} ${'video.seasons'.tr()}'),
-                          ],
+                            _infoChip(Icons.calendar_today, media.releaseDate!.length >= 4 ? media.releaseDate!.substring(0, 4) : media.releaseDate!),
+                          if (media.type == MediaType.tv) ...[if (media.numberOfSeasons != null) _infoChip(Icons.tv, '${media.numberOfSeasons} ${'video.seasons'.tr()}')],
                         ],
                       ),
                     ),
@@ -472,22 +379,14 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                   Wrap(
                     spacing: 6,
                     runSpacing: 4,
-                    children: media.genres
-                        .map((g) => Chip(label: Text(g), visualDensity: VisualDensity.compact))
-                        .toList(),
+                    children: media.genres.map((g) => Chip(label: Text(g), visualDensity: VisualDensity.compact)).toList(),
                   ),
                 ],
 
                 // Overview
                 if (media.overview != null && media.overview!.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  Text(
-                    'video.overview'.tr(),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
+                  Text('video.overview'.tr(), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text(media.overview!, style: const TextStyle(height: 1.5)),
                 ],
@@ -504,18 +403,12 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                           'S${_parsed!.season!.toString().padLeft(2, '0')}'
                           'E${_parsed!.episode!.toString().padLeft(2, '0')}'
                           '${_episode!.name != null ? "  ${_episode!.name}" : ""}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
                   ),
-                  if (_episode!.overview != null && _episode!.overview!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(_episode!.overview!, style: const TextStyle(height: 1.5)),
-                  ],
+                  if (_episode!.overview != null && _episode!.overview!.isNotEmpty) ...[const SizedBox(height: 8), Text(_episode!.overview!, style: const TextStyle(height: 1.5))],
                   if (_episode!.voteAverage != null) ...[
                     const SizedBox(height: 8),
                     Row(
@@ -530,16 +423,9 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
 
                 if (_nextEpisode != null) ...[
                   const Divider(height: 32),
-                  FilledButton.tonalIcon(
-                    onPressed: _playNextEpisode,
-                    icon: const Icon(Icons.skip_next),
-                    label: Text('video.continue_next_episode'.tr()),
-                  ),
+                  FilledButton.tonalIcon(onPressed: _playNextEpisode, icon: const Icon(Icons.skip_next), label: Text('video.continue_next_episode'.tr())),
                   const SizedBox(height: 8),
-                  Text(
-                    _nextEpisode!.displayName,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[400]),
-                  ),
+                  Text(_nextEpisode!.displayName, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[400])),
                 ],
 
                 const SizedBox(height: 32),
@@ -596,9 +482,7 @@ class _MediaInfoRouteState extends StatelessWidget {
           child: FilledButton.icon(
             icon: const Icon(Icons.play_arrow),
             label: Text('video.play'.tr()),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
             onPressed: () async {
               // Add to recent
               await PlayraStorage.addRecent(video);

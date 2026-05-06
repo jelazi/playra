@@ -82,5 +82,15 @@ class EpisodeInfo {
     airDate: j['air_date'] as String?,
   );
 
+  EpisodeInfo copyWith({String? name, String? overview, String? stillPath, double? voteAverage, String? airDate}) => EpisodeInfo(
+    season: season,
+    episode: episode,
+    name: name ?? this.name,
+    overview: overview ?? this.overview,
+    stillPath: stillPath ?? this.stillPath,
+    voteAverage: voteAverage ?? this.voteAverage,
+    airDate: airDate ?? this.airDate,
+  );
+
   String get stillUrl => stillPath != null ? 'https://image.tmdb.org/t/p/w300$stillPath' : '';
 }
