@@ -13,6 +13,7 @@ import '../bloc/library/library_cubit.dart';
 import '../models/player_settings.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
+import '../services/lan_sync_service.dart';
 import '../services/playra_storage.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/video_name_parser.dart';
@@ -37,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<VideoItem> _recents = [];
   Map<String, bool> _expandedSections = {};
   bool _isHomeDragging = false;
+  bool _isSyncing = false;
 
   @override
   void initState() {
@@ -113,6 +115,39 @@ class _HomeScreenState extends State<HomeScreen> {
     await context.read<LibraryCubit>().refresh();
     _loadRecents();
     _loadExpandedSections();
+  }
+
+  bool _canSyncAcrossLan() {
+    final settings = PlayraStorage.getPlayerSettings();
+    return settings.syncUsername.trim().isNotEmpty && settings.syncPassword.trim().isNotEmpty;
+  }
+
+  Future<void> _runLanSync() async {
+    if (_isSyncing) return;
+
+    setState(() => _isSyncing = true);
+    final result = await LanSyncService.instance.syncNow();
+    if (!mounted) return;
+    setState(() => _isSyncing = false);
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (!result.configured) {
+      messenger.showSnackBar(SnackBar(content: Text('home.sync_not_configured'.tr())));
+      return;
+    }
+
+    if (result.error != null) {
+      messenger.showSnackBar(SnackBar(content: Text('home.sync_failed'.tr(args: [result.error!]))));
+      return;
+    }
+
+    if (result.peersFound == 0) {
+      messenger.showSnackBar(SnackBar(content: Text('home.sync_no_peers'.tr())));
+      return;
+    }
+
+    messenger.showSnackBar(SnackBar(content: Text('home.sync_done'.tr(args: [result.peersFound.toString(), result.mergedFromPeers.toString(), result.pushedToPeers.toString()]))));
   }
 
   bool _isSupportedVideoPath(String filePath) {
@@ -547,11 +582,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final playerSettings = PlayraStorage.getPlayerSettings();
     final libraryMode = playerSettings.libraryViewMode;
     final visualMode = playerSettings.libraryVisualMode;
+    final canSyncAcrossLan = _canSyncAcrossLan();
 
     return Scaffold(
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
+          if (canSyncAcrossLan)
+            IconButton(
+              tooltip: 'home.sync_now'.tr(),
+              icon: _isSyncing ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync),
+              onPressed: _isSyncing ? null : _runLanSync,
+            ),
           IconButton(
             tooltip: 'subtitle.search_title'.tr(),
             icon: const Icon(Icons.subtitles),
@@ -566,7 +608,10 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: 'home.settings'.tr(),
             icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),

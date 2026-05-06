@@ -14,6 +14,7 @@ import 'bloc/subtitle/subtitle_bloc.dart';
 import 'repositories/titulky_repository.dart';
 import 'screens/home_screen.dart';
 import 'screens/player_launcher.dart';
+import 'services/lan_sync_service.dart';
 import 'services/library_service.dart';
 import 'services/media_cache_service.dart';
 import 'services/playra_storage.dart';
@@ -31,6 +32,7 @@ void main() async {
   await SettingsService.init();
   await MediaCacheService.init();
   await PlayraStorage.init();
+  await LanSyncService.instance.start();
 
   await EasyLocalization.ensureInitialized();
 

@@ -108,6 +108,28 @@ class SettingsScreen extends StatelessWidget {
     return result ?? captured;
   }
 
+  Future<String?> _showTextInputDialog(BuildContext context, {required String title, required String initialValue, bool obscureText = false}) async {
+    final controller = TextEditingController(text: initialValue);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: obscureText,
+          autofocus: true,
+          decoration: InputDecoration(labelText: title),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(controller.text.trim()), child: Text('common.save'.tr())),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -258,6 +280,32 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
               ],
+              _section(context, 'settings.section_library'.tr()),
+              _section(context, 'settings.section_sync'.tr()),
+              ListTile(
+                title: Text('settings.sync_username'.tr()),
+                subtitle: Text(p.syncUsername.isEmpty ? 'settings.sync_not_configured'.tr() : p.syncUsername),
+                trailing: const Icon(Icons.edit),
+                onTap: () async {
+                  final value = await _showTextInputDialog(context, title: 'settings.sync_username'.tr(), initialValue: p.syncUsername);
+                  if (value != null && context.mounted) {
+                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncUsername: value));
+                  }
+                },
+              ),
+              ListTile(
+                title: Text('settings.sync_password'.tr()),
+                subtitle: Text(p.syncPassword.isEmpty ? 'settings.sync_not_configured'.tr() : '••••••••'),
+                trailing: const Icon(Icons.edit),
+                onTap: () async {
+                  final value = await _showTextInputDialog(context, title: 'settings.sync_password'.tr(), initialValue: p.syncPassword, obscureText: true);
+                  if (value != null && context.mounted) {
+                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncPassword: value));
+                  }
+                },
+              ),
+              ListTile(leading: const Icon(Icons.sync), title: Text('settings.sync_hint'.tr())),
+
               _section(context, 'settings.section_library'.tr()),
               ListTile(
                 leading: const Icon(Icons.refresh),

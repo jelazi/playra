@@ -33,6 +33,8 @@ class PlayerSettings {
   final double desktopWheelStep;
   final String libraryViewMode;
   final String libraryVisualMode;
+  final String syncUsername;
+  final String syncPassword;
 
   const PlayerSettings({
     this.resumePlayback = true,
@@ -50,6 +52,8 @@ class PlayerSettings {
     this.desktopWheelStep = 10,
     this.libraryViewMode = 'structured',
     this.libraryVisualMode = 'list',
+    this.syncUsername = '',
+    this.syncPassword = '',
   });
 
   PlayerSettings copyWith({
@@ -68,6 +72,8 @@ class PlayerSettings {
     double? desktopWheelStep,
     String? libraryViewMode,
     String? libraryVisualMode,
+    String? syncUsername,
+    String? syncPassword,
   }) => PlayerSettings(
     resumePlayback: resumePlayback ?? this.resumePlayback,
     gesturesEnabled: gesturesEnabled ?? this.gesturesEnabled,
@@ -84,6 +90,8 @@ class PlayerSettings {
     desktopWheelStep: desktopWheelStep ?? this.desktopWheelStep,
     libraryViewMode: libraryViewMode ?? this.libraryViewMode,
     libraryVisualMode: libraryVisualMode ?? this.libraryVisualMode,
+    syncUsername: syncUsername ?? this.syncUsername,
+    syncPassword: syncPassword ?? this.syncPassword,
   );
 
   Map<String, dynamic> toJson() => {
@@ -102,6 +110,8 @@ class PlayerSettings {
     'desktopWheelStep': desktopWheelStep,
     'libraryViewMode': libraryViewMode,
     'libraryVisualMode': libraryVisualMode,
+    'syncUsername': syncUsername,
+    'syncPassword': syncPassword,
   };
 
   factory PlayerSettings.fromJson(Map<String, dynamic> j) => PlayerSettings(
@@ -120,6 +130,8 @@ class PlayerSettings {
     desktopWheelStep: (j['desktopWheelStep'] as num?)?.toDouble() ?? 10,
     libraryViewMode: (j['libraryViewMode'] as String?) ?? 'structured',
     libraryVisualMode: (j['libraryVisualMode'] as String?) ?? 'list',
+    syncUsername: (j['syncUsername'] as String?) ?? '',
+    syncPassword: (j['syncPassword'] as String?) ?? '',
   );
 
   String encode() => jsonEncode(toJson());
