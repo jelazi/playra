@@ -1,4 +1,4 @@
-package com.example.titulky_com
+package cz.playra.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,7 +1,7 @@
-import 'package:titulky_com/bloc/subtitle/subtitle_bloc.dart';
-import 'package:titulky_com/bloc/subtitle/subtitle_event.dart';
-import 'package:titulky_com/bloc/subtitle/subtitle_state.dart';
-import 'package:titulky_com/repositories/titulky_repository.dart';
+import 'package:playra/bloc/subtitle/subtitle_bloc.dart';
+import 'package:playra/bloc/subtitle/subtitle_event.dart';
+import 'package:playra/bloc/subtitle/subtitle_state.dart';
+import 'package:playra/repositories/titulky_repository.dart';
 
 void main() async {
   print('=== Testing Subtitle BLoC Login ===\n');

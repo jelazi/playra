@@ -1,6 +1,6 @@
 {
     "app": {
-        "title": "Titulky.com Desktop"
+        "title": "Playra"
     },
     "auth": {
         "login_title": "Přihlášení k Titulky.com",
@@ -69,7 +69,9 @@
         "cancel": "Zrušit",
         "save": "Uložit",
         "back": "Zpět",
-        "edit_subtitles": "Upravit titulky"
+        "edit_subtitles": "Upravit titulky",
+        "audio_track": "Zvuková stopa",
+        "subtitle_track": "Titulky"
     },
     "editor": {
         "title": "Editor titulků",
@@ -104,6 +106,67 @@
         "error": "Chyba",
         "loading": "Načítání...",
         "cancel": "Zrušit",
-        "ok": "OK"
+        "ok": "OK",
+        "save": "Uložit",
+        "retry": "Zkusit znovu"
+    },
+    "home": {
+        "add_folder": "Přidat složku",
+        "open_file": "Otevřít soubor",
+        "servers": "Servery",
+        "settings": "Nastavení",
+        "empty_title": "Knihovna je prázdná",
+        "empty_subtitle": "Přidejte složku s videi nebo otevřete jednotlivý soubor.",
+        "no_videos_title": "Žádná videa",
+        "no_videos_subtitle": "V nastavených složkách nebyla nalezena žádná podporovaná videa.",
+        "resume_marker": "pokračovat",
+        "play": "Přehrát",
+        "clear_resume": "Smázat uloženou pozici"
+    },
+    "settings": {
+        "title": "Nastavení",
+        "section_general": "Obecné",
+        "section_player": "Přehrávač",
+        "section_library": "Knihovna",
+        "section_subtitles": "Titulky",
+        "language": "Jazyk",
+        "resume_playback": "Pamatovat si pozici",
+        "resume_playback_hint": "Po opětovném otevření videa navázat na poslední pozici.",
+        "gestures": "Gesta",
+        "gestures_hint": "Levá strana = jas, pravá strana = hlasitost.",
+        "keep_screen_on": "Nechat displej zapnutý",
+        "clear_all_resume": "Smazat všechny uložené pozice",
+        "cleared": "Hotovo",
+        "no_folders": "Žádné složky nejsou přidány",
+        "subtitles_enabled": "Zobrazovat titulky",
+        "subtitle_size": "Velikost písma",
+        "subtitle_outline": "Síla obrysu",
+        "subtitle_bold": "Tučné",
+        "subtitle_font": "Font",
+        "subtitle_text_color": "Barva textu",
+        "subtitle_bg_color": "Barva pozadí",
+        "subtitle_outline_color": "Barva obrysu",
+        "subtitle_manager": "Správa titulků",
+        "subtitle_manager_hint": "Stáhnout titulky z titulky.com a upravit časování."
+    },
+    "servers": {
+        "title": "Servery",
+        "empty": "Zatím nežádný server.\nPřidejte SMB sdílení nebo jiný zdroj.",
+        "add": "Přidat server",
+        "edit": "Upravit",
+        "delete": "Smazat",
+        "type": "Typ",
+        "name": "Název",
+        "host": "Adresa (host)",
+        "port": "Port (volitelnečě)",
+        "share": "Sdílení (share)",
+        "path": "Výchozí cesta",
+        "username": "Jméno",
+        "password": "Heslo",
+        "up": "Úroveň výše",
+        "only_smb_supported": "V tuto chvíli je podporován pouze SMB."
+    },
+    "subtitle_manager": {
+        "title": "Správa titulků"
     }
 }

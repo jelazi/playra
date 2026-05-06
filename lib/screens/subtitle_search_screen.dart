@@ -1,12 +1,17 @@
+import 'dart:io';
+
 import 'package:easy_localization/easy_localization.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:path/path.dart' as p;
 
 import '../bloc/subtitle/subtitle_bloc.dart';
 import '../bloc/subtitle/subtitle_event.dart';
 import '../bloc/subtitle/subtitle_state.dart';
 import '../models/subtitle.dart';
 import '../models/video_info.dart';
+import '../services/settings_service.dart';
 import 'video_player_screen.dart';
 
 class SubtitleSearchScreen extends StatefulWidget {
@@ -172,6 +177,11 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                     width: double.infinity,
                     child: ElevatedButton.icon(onPressed: () => _playVideoWithoutSubtitles(), icon: const Icon(Icons.play_arrow), label: Text('video.play'.tr())),
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(onPressed: _pickSubtitleFromFile, icon: const Icon(Icons.upload_file), label: const Text('Přidat titulky ze souboru')),
+                  ),
                 ],
               )
             : Row(
@@ -190,6 +200,13 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                       ],
                     ),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: _pickSubtitleFromFile,
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Ze souboru'),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
+                  ),
+                  const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: () => _playVideoWithoutSubtitles(),
                     icon: const Icon(Icons.play_arrow),
@@ -682,6 +699,64 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
 
   void _playVideoWithoutSubtitles() {
     Navigator.push(context, MaterialPageRoute(builder: (context) => VideoPlayerScreen(videoInfo: widget.videoInfo)));
+  }
+
+  /// Lets the user pick an existing subtitle file from disk, copies it next to
+  /// the video (matching the video's base name) and opens the player with it.
+  Future<void> _pickSubtitleFromFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['srt', 'sub', 'ass', 'ssa', 'txt', 'vtt'],
+        dialogTitle: 'Vyberte soubor s titulky',
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final picked = result.files.single;
+      final pickedPath = picked.path;
+      if (pickedPath == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Soubor nelze načíst'), backgroundColor: Colors.red));
+        }
+        return;
+      }
+
+      final sourceFile = File(pickedPath);
+      if (!await sourceFile.exists()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Soubor neexistuje'), backgroundColor: Colors.red));
+        }
+        return;
+      }
+
+      final videoPath = widget.videoInfo.path;
+      final videoDir = p.dirname(videoPath);
+      final videoBase = p.basenameWithoutExtension(videoPath);
+      final ext = p.extension(pickedPath).isNotEmpty ? p.extension(pickedPath) : '.srt';
+
+      var targetPath = p.join(videoDir, '$videoBase$ext');
+
+      // Always overwrite the existing subtitle file so the player uses the new one
+      if (!p.equals(targetPath, pickedPath)) {
+        await sourceFile.copy(targetPath);
+        print('🔵 Copied picked subtitle to: $targetPath');
+      }
+
+      await SettingsService.markVideoWithSubtitles(videoPath);
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VideoPlayerScreen(videoInfo: widget.videoInfo, subtitlePath: targetPath),
+        ),
+      );
+    } catch (e, st) {
+      print('🔴 Pick subtitle error: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při načítání titulku: $e'), backgroundColor: Colors.red));
+      }
+    }
   }
 
   void _downloadSubtitle(Subtitle subtitle) {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:titulky_com/models/subtitle.dart';
+import 'package:playra/models/subtitle.dart';
 
 // Test to verify that original and alternative subtitles have consistent naming
 void main() {

@@ -1,11 +1,11 @@
 {
-    "name": "titulky_com",
-    "short_name": "titulky_com",
+    "name": "Playra",
+    "short_name": "Playra",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Playra - cross-platform video player.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

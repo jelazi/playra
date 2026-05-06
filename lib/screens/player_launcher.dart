@@ -1,0 +1,77 @@
+import 'package:flutter/material.dart';
+
+import '../models/server_connection.dart';
+import '../models/video_item.dart';
+import '../services/playra_storage.dart';
+import '../services/smb_browser_service.dart';
+import '../services/smb_proxy_server.dart';
+import 'playra_player_screen.dart';
+
+/// Resolve a [VideoItem] into a play URL (local file or local-proxy URL for SMB)
+/// and push the player screen.
+class PlayerLauncher {
+  PlayerLauncher(this._browser, this._proxy);
+
+  final SmbBrowserService _browser;
+  final SmbProxyServer _proxy;
+
+  Future<void> launch(BuildContext context, VideoItem video) async {
+    String url;
+    switch (video.source) {
+      case VideoSource.local:
+        url = video.uri;
+        break;
+      case VideoSource.http:
+        url = video.uri;
+        break;
+      case VideoSource.smb:
+        // Expected video.uri format: smb://<serverId><path>
+        final parsed = _parseSmbUri(video.uri);
+        if (parsed == null) {
+          _showError(context, 'Invalid SMB URI: ${video.uri}');
+          return;
+        }
+        final server = PlayraStorage.getServers().firstWhere(
+          (s) => s.id == parsed.$1,
+          orElse: () => ServerConnection(
+            id: '',
+            name: '',
+            type: ServerType.smb,
+            host: '',
+          ),
+        );
+        if (server.id.isEmpty) {
+          _showError(context, 'Server not found');
+          return;
+        }
+        await _proxy.start();
+        _proxy.register(server);
+        url = _proxy.urlFor(server, parsed.$2);
+        break;
+    }
+
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayraPlayerScreen(video: video, playUrl: url),
+      ),
+    );
+  }
+
+  (String, String)? _parseSmbUri(String uri) {
+    if (!uri.startsWith('smb://')) return null;
+    final rest = uri.substring(6);
+    final slash = rest.indexOf('/');
+    if (slash < 0) return null;
+    final id = rest.substring(0, slash);
+    final path = rest.substring(slash);
+    return (id, path);
+  }
+
+  void _showError(BuildContext context, String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // expose browser if needed by callers
+  SmbBrowserService get browser => _browser;
+}

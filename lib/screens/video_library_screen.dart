@@ -360,57 +360,92 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                             final video = _videos[index];
                             final isSelected = _selectedVideo == video;
 
-                            return ListTile(
-                              selected: isSelected,
-                              leading: Stack(
-                                children: [
-                                  Icon(Icons.movie, color: video.hasAnySubtitles ? Colors.green : null),
-                                  // Subtitle indicator
-                                  if (video.hasAnySubtitles)
-                                    Positioned(
-                                      right: -2,
-                                      bottom: -2,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
-                                        child: Icon(Icons.subtitles, color: Colors.white, size: 10),
+                            return GestureDetector(
+                              onDoubleTap: () => _searchSubtitles(video: video),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
+                                  border: isSelected
+                                      ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
+                                      : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
+                                ),
+                                child: ListTile(
+                                  selected: isSelected,
+                                  selectedTileColor: Colors.transparent,
+                                  contentPadding: const EdgeInsets.only(left: 12, right: 8, top: 2, bottom: 2),
+                                  leading: Stack(
+                                    children: [
+                                      Icon(
+                                        Icons.movie,
+                                        color: isSelected
+                                            ? Theme.of(context).colorScheme.primary
+                                            : (video.hasAnySubtitles ? Colors.green : null),
+                                        size: isSelected ? 28 : 24,
                                       ),
-                                    ),
-                                ],
-                              ),
-                              title: Text(video.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                                  if (video.hasAnySubtitles)
-                                    Row(
-                                      children: [
-                                        Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
-                                            style: TextStyle(fontSize: 11, color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w500),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                      // Subtitle indicator
+                                      if (video.hasAnySubtitles)
+                                        Positioned(
+                                          right: -2,
+                                          bottom: -2,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(2),
+                                            decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                            child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                ],
+                                    ],
+                                  ),
+                                  title: Text(
+                                    video.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: isSelected
+                                        ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)
+                                        : null,
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                      if (video.hasAnySubtitles)
+                                        Row(
+                                          children: [
+                                            Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
+                                                style: TextStyle(fontSize: 11, color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w500),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      if (isSelected)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            'Dvojklik = vyhledat titulky',
+                                            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  trailing: isPhone
+                                      ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
+                                            IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
+                                          ],
+                                        ),
+                                  onTap: () => _selectVideo(video),
+                                  onLongPress: isPhone ? () => _showVideoOptionsMenu(video) : null,
+                                ),
                               ),
-                              trailing: isPhone
-                                  ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
-                                  : Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
-                                        IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
-                                      ],
-                                    ),
-                              onTap: () => _selectVideo(video),
-                              onLongPress: isPhone ? () => _showVideoOptionsMenu(video) : null,
                             );
                           },
                         ),
@@ -865,11 +900,24 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     );
   }
 
-  void _searchSubtitles() {
-    if (_selectedVideo == null || _selectedMediaInfo == null) return;
+  void _searchSubtitles({VideoInfo? video}) {
+    final targetVideo = video ?? _selectedVideo;
+    if (targetVideo == null) return;
 
-    // Vytvořit upravené VideoInfo s názvem z TMDB
-    final videoInfo = VideoInfo(path: _selectedVideo!.path, name: _selectedMediaInfo!.title, directory: _selectedVideo!.directory);
+    // If a specific video is provided and is not yet selected, select it first
+    if (video != null && _selectedVideo != video) {
+      setState(() {
+        _selectedVideo = video;
+      });
+    }
+
+    // Use TMDB title if available (and media info belongs to the target video), else raw name
+    final useMediaTitle = _selectedMediaInfo != null && _selectedVideo == targetVideo;
+    final videoInfo = VideoInfo(
+      path: targetVideo.path,
+      name: useMediaTitle ? _selectedMediaInfo!.title : targetVideo.name,
+      directory: targetVideo.directory,
+    );
 
     Navigator.push(context, MaterialPageRoute(builder: (context) => SubtitleSearchScreen(videoInfo: videoInfo))).then((_) {
       // Refresh subtitle states after returning from subtitle search

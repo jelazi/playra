@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../models/subtitle.dart';
 import '../../repositories/titulky_repository.dart';
 import '../../services/settings_service.dart';
 import '../../services/subtitle_relevance_service.dart';
@@ -98,8 +99,9 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       // Get preferred language from settings
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
+      final normalizedLang = languageFilter == 'all' ? null : languageFilter;
 
-      final subtitles = await _repository.searchSubtitles(searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter);
+      final subtitles = await _fetchSubtitlesWithFallback(searchQuery, normalizedLang);
 
       if (subtitles.isEmpty) {
         emit(SubtitleError('subtitle.no_results'));
@@ -122,6 +124,9 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
             hasMore: hasMore,
           ),
         );
+
+        // Flatten alternatives into the main list in the background
+        await _enrichWithFlatAlternatives(emit, parsedVideo);
       }
     } catch (e) {
       print('🔴 SubtitleBloc: Search error: $e');
@@ -140,8 +145,9 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     try {
       final settings = SettingsService.getSettings();
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
+      final normalizedLang = languageFilter == 'all' ? null : languageFilter;
 
-      final subtitles = await _repository.searchSubtitles(searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter);
+      final subtitles = await _fetchSubtitlesWithFallback(searchQuery, normalizedLang);
 
       if (subtitles.isEmpty) {
         emit(SubtitleError('subtitle.no_results'));
@@ -162,11 +168,88 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
             hasMore: hasMore,
           ),
         );
+
+        await _enrichWithFlatAlternatives(emit, parsedVideo);
       }
     } catch (e) {
       print('🔴 SubtitleBloc: Manual search error: $e');
       emit(SubtitleError('subtitle.search_error'));
     }
+  }
+
+  /// Runs primary search and, if results are scarce, transparently appends the
+  /// "Vyhledat jinak" (fsf=1) results. Duplicates are filtered by subtitle id.
+  Future<List<Subtitle>> _fetchSubtitlesWithFallback(String query, String? languageFilter) async {
+    final primary = await _repository.searchSubtitles(query, languageFilter: languageFilter);
+
+    // Site offers "Vyhledat jinak" (alternative/fuzzy search) when few results
+    // are returned. Trigger it automatically for <= 3 primary results.
+    if (primary.length > 3) {
+      return primary;
+    }
+
+    try {
+      final alternative = await _repository.searchSubtitles(query, languageFilter: languageFilter, alternativeSearch: true);
+      if (alternative.isEmpty) return primary;
+
+      final seen = primary.map((s) => s.id).toSet();
+      final merged = <Subtitle>[...primary];
+      for (final s in alternative) {
+        if (seen.add(s.id)) merged.add(s);
+      }
+      print('🔵 Merged fsf=1 results: +${merged.length - primary.length} extra (total ${merged.length})');
+      return merged;
+    } catch (e) {
+      print('🟡 Alternative search (fsf=1) failed: $e');
+      return primary;
+    }
+  }
+
+  /// Fetches the "Alternativní titulky" table for each result and merges those
+  /// subtitles into the main list so the UI shows every variant flat, without
+  /// the user needing to open a card to discover them.
+  Future<void> _enrichWithFlatAlternatives(Emitter<SubtitleState> emit, ParsedVideoName parsedVideo) async {
+    if (state is! SubtitleSearchResults) return;
+    final baseState = state as SubtitleSearchResults;
+    final baseQuery = baseState.searchQuery;
+
+    // Fetch in parallel (user has premium; all requests are cookie-authenticated)
+    final futures = baseState.subtitles.map<Future<AlternativeSubtitlesResult>>((s) async {
+      try {
+        return await _repository.getAlternativeSubtitles(s);
+      } catch (e) {
+        return AlternativeSubtitlesResult(enhancedOriginal: s, alternatives: const []);
+      }
+    });
+
+    final results = await Future.wait(futures);
+
+    // Bail out if user moved on to a different search in the meantime
+    if (state is! SubtitleSearchResults) return;
+    final currentState = state as SubtitleSearchResults;
+    if (currentState.searchQuery != baseQuery) return;
+
+    final enhancedById = <String, Subtitle>{};
+    for (final r in results) {
+      enhancedById[r.enhancedOriginal.id] = r.enhancedOriginal;
+    }
+
+    final seen = currentState.subtitles.map((s) => s.id).toSet();
+    final extras = <Subtitle>[];
+    for (final r in results) {
+      for (final alt in r.alternatives) {
+        if (seen.add(alt.id)) extras.add(alt);
+      }
+    }
+
+    // Replace originals with their enhanced versions where available.
+    final enrichedOriginals = currentState.subtitles.map((s) => enhancedById[s.id] ?? s).toList();
+
+    final allSubtitles = <Subtitle>[...enrichedOriginals, ...extras];
+    final sorted = SubtitleRelevanceService.sortByRelevance(allSubtitles, parsedVideo);
+    print('🔵 Flattened alternatives: +${extras.length} (total ${allSubtitles.length})');
+
+    emit(currentState.copyWith(subtitles: allSubtitles, sortedSubtitles: sorted));
   }
 
   /// Load next page of results
@@ -219,7 +302,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   Future<void> _onDownloadSubtitle(DownloadSubtitle event, Emitter<SubtitleState> emit) async {
     // Save previous state to restore after download
     final previousState = state is SubtitleSearchResults ? state as SubtitleSearchResults : null;
-    
+
     emit(SubtitleDownloading(event.subtitle));
     try {
       final path = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
@@ -230,7 +313,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         print('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
 
         emit(SubtitleDownloaded(event.subtitle, path));
-        
+
         // Restore previous SubtitleSearchResults state after a brief delay
         // This preserves the selection and alternatives when returning from player
         if (previousState != null) {

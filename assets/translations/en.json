@@ -1,6 +1,6 @@
 {
     "app": {
-        "title": "Titulky.com Desktop"
+        "title": "Playra"
     },
     "auth": {
         "login_title": "Login to Titulky.com",
@@ -69,7 +69,9 @@
         "cancel": "Cancel",
         "save": "Save",
         "back": "Back",
-        "edit_subtitles": "Edit Subtitles"
+        "edit_subtitles": "Edit Subtitles",
+        "audio_track": "Audio track",
+        "subtitle_track": "Subtitles"
     },
     "editor": {
         "title": "Subtitle Editor",
@@ -104,6 +106,67 @@
         "error": "Error",
         "loading": "Loading...",
         "cancel": "Cancel",
-        "ok": "OK"
+        "ok": "OK",
+        "save": "Save",
+        "retry": "Retry"
+    },
+    "home": {
+        "add_folder": "Add folder",
+        "open_file": "Open file",
+        "servers": "Servers",
+        "settings": "Settings",
+        "empty_title": "Library is empty",
+        "empty_subtitle": "Add a folder containing videos or open a single file.",
+        "no_videos_title": "No videos",
+        "no_videos_subtitle": "No supported video files were found in the configured folders.",
+        "resume_marker": "resume",
+        "play": "Play",
+        "clear_resume": "Clear saved position"
+    },
+    "settings": {
+        "title": "Settings",
+        "section_general": "General",
+        "section_player": "Player",
+        "section_library": "Library",
+        "section_subtitles": "Subtitles",
+        "language": "Language",
+        "resume_playback": "Resume playback",
+        "resume_playback_hint": "Resume each video where you left off.",
+        "gestures": "Gestures",
+        "gestures_hint": "Left side = brightness, right side = volume.",
+        "keep_screen_on": "Keep screen on",
+        "clear_all_resume": "Clear all saved positions",
+        "cleared": "Done",
+        "no_folders": "No folders added",
+        "subtitles_enabled": "Show subtitles",
+        "subtitle_size": "Font size",
+        "subtitle_outline": "Outline width",
+        "subtitle_bold": "Bold",
+        "subtitle_font": "Font",
+        "subtitle_text_color": "Text color",
+        "subtitle_bg_color": "Background color",
+        "subtitle_outline_color": "Outline color",
+        "subtitle_manager": "Subtitle manager",
+        "subtitle_manager_hint": "Download subtitles from titulky.com and edit timing."
+    },
+    "servers": {
+        "title": "Servers",
+        "empty": "No server yet.\nAdd an SMB share or another source.",
+        "add": "Add server",
+        "edit": "Edit",
+        "delete": "Delete",
+        "type": "Type",
+        "name": "Name",
+        "host": "Host",
+        "port": "Port (optional)",
+        "share": "Share",
+        "path": "Default path",
+        "username": "Username",
+        "password": "Password",
+        "up": "Up",
+        "only_smb_supported": "Only SMB is supported at the moment."
+    },
+    "subtitle_manager": {
+        "title": "Subtitle manager"
     }
 }

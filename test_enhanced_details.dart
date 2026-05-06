@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:titulky_com/models/subtitle.dart';
-import 'package:titulky_com/repositories/titulky_repository.dart';
+import 'package:playra/models/subtitle.dart';
+import 'package:playra/repositories/titulky_repository.dart';
 
 // Test for enhanced original subtitle details functionality
 void main() {

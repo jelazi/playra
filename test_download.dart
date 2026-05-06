@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:titulky_com/repositories/titulky_repository.dart';
+import 'package:playra/repositories/titulky_repository.dart';
 
 void main() async {
   print('🧪 Testing subtitle download functionality...\n');

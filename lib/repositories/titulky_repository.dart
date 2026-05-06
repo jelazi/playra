@@ -100,16 +100,23 @@ class TitulkyRepository {
   }
 
   /// Search subtitles by video name
-  Future<List<Subtitle>> searchSubtitles(String query, {String? languageFilter, int page = 1}) async {
+  /// [alternativeSearch] sends the "Vyhledat jinak" request (fsf=1) which the
+  /// site offers when the primary search returns few/no results.
+  Future<List<Subtitle>> searchSubtitles(String query, {String? languageFilter, int page = 1, bool alternativeSearch = false}) async {
     if (!isLoggedIn) {
       throw Exception('Not logged in');
     }
 
     try {
-      print('Searching for: $query (language filter: ${languageFilter ?? 'all'}, page: $page)');
+      print('Searching for: $query (language filter: ${languageFilter ?? 'all'}, page: $page, fsf: $alternativeSearch)');
 
       // Build query parameters
       final queryParams = <String, dynamic>{'action': 'search', 'Fulltext': query};
+
+      // "Vyhledat jinak" (fuzzy/alternative search) - site appends fsf=1
+      if (alternativeSearch) {
+        queryParams['fsf'] = '1';
+      }
 
       // Add pagination - premium.titulky.com uses Strana parameter
       if (page > 1) {
