@@ -55,6 +55,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   Timer? _hideTimer;
   Timer? _overlayTimer;
+  Timer? _resumePersistTimer;
+  int _lastPersistedResumeMs = -1;
 
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -87,6 +89,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _errorSub?.cancel();
     _hideTimer?.cancel();
     _overlayTimer?.cancel();
+    _resumePersistTimer?.cancel();
+    unawaited(_persistResumeNow());
     _keyboardFocusNode.dispose();
     _player.dispose();
     super.dispose();
@@ -102,7 +106,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       if (!mounted) return;
       setState(() => _position = pos);
       if (_duration.inMilliseconds > 0) {
-        await PlayraStorage.setResume(widget.video.id, pos.inMilliseconds);
+        _scheduleResumePersist();
       }
     });
 
@@ -142,6 +146,20 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     _startHideTimer();
+  }
+
+  void _scheduleResumePersist() {
+    if (_resumePersistTimer?.isActive ?? false) return;
+    _resumePersistTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_persistResumeNow());
+    });
+  }
+
+  Future<void> _persistResumeNow() async {
+    final ms = _position.inMilliseconds;
+    if (ms <= 0 || ms == _lastPersistedResumeMs) return;
+    _lastPersistedResumeMs = ms;
+    await PlayraStorage.setResume(widget.video.id, ms);
   }
 
   Future<void> _restorePreferredTracks() async {
@@ -186,6 +204,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
     final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
     await _player.seek(clamped);
+    _scheduleResumePersist();
     _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
   }
 
@@ -623,6 +642,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final target = _position + delta;
     final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds));
     _player.seek(clamped);
+    _scheduleResumePersist();
     _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
   }
 
@@ -648,10 +668,17 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                   fit: StackFit.expand,
                   children: [
                     Positioned.fill(
-                      child: Transform.scale(
-                        scale: _videoZoom,
-                        child: Video(controller: _videoController, fit: _currentVideoBoxFit(), controls: (_) => const SizedBox.shrink(), subtitleViewConfiguration: subtitleCfg),
-                      ),
+                      child: _videoZoom == 1.0
+                          ? Video(controller: _videoController, fit: _currentVideoBoxFit(), controls: (_) => const SizedBox.shrink(), subtitleViewConfiguration: subtitleCfg)
+                          : Transform.scale(
+                              scale: _videoZoom,
+                              child: Video(
+                                controller: _videoController,
+                                fit: _currentVideoBoxFit(),
+                                controls: (_) => const SizedBox.shrink(),
+                                subtitleViewConfiguration: subtitleCfg,
+                              ),
+                            ),
                     ),
 
                     Positioned.fill(
@@ -803,7 +830,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                     onChanged: (v) {
                       setState(() => _position = Duration(milliseconds: v.toInt()));
                     },
-                    onChangeEnd: (v) => _player.seek(Duration(milliseconds: v.toInt())),
+                    onChangeEnd: (v) {
+                      _player.seek(Duration(milliseconds: v.toInt()));
+                      _scheduleResumePersist();
+                    },
                   ),
                 ),
               ),

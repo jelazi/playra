@@ -81,6 +81,12 @@ class PlayraStorage {
   // --- Resume positions (videoId -> milliseconds) ---
   static int? getResume(String videoId) => _resume?.get(videoId);
 
+  static Map<String, int> getResumeMap() {
+    final box = _resume;
+    if (box == null) return <String, int>{};
+    return Map<String, int>.from(box.toMap());
+  }
+
   static Future<void> setResume(String videoId, int positionMs) async {
     final meta = _readMap(_resumeMetaKey);
     if (positionMs <= 0) {
@@ -442,6 +448,30 @@ class PlayraStorage {
     }
 
     return null;
+  }
+
+  static Map<String, String?> getRecentPosterPathMap(Iterable<VideoItem> videos) {
+    final byVideo = _readStringMap(_recentPosterByVideoKey);
+    final bySeries = _readStringMap(_recentPosterBySeriesKey);
+    final out = <String, String?>{};
+
+    for (final video in videos) {
+      String? resolved;
+
+      final direct = byVideo[video.id];
+      if (direct != null && direct.isNotEmpty && File(direct).existsSync()) {
+        resolved = direct;
+      } else {
+        final seriesPath = bySeries[_seriesCacheKey(video)];
+        if (seriesPath != null && seriesPath.isNotEmpty && File(seriesPath).existsSync()) {
+          resolved = seriesPath;
+        }
+      }
+
+      out[video.id] = resolved;
+    }
+
+    return out;
   }
 
   // --- Last opened file directory ---

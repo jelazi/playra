@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/video_item.dart';
@@ -25,6 +26,13 @@ class LibraryCubit extends Cubit<LibraryState> {
 
   final LibraryService _service;
 
+  void _debugLog(String message) {
+    if (kDebugMode) {
+      print('[LibraryCubit] $message');
+      debugPrint('[LibraryCubit] $message');
+    }
+  }
+
   Future<void> refresh() async {
     await load();
   }
@@ -33,9 +41,29 @@ class LibraryCubit extends Cubit<LibraryState> {
     final folders = PlayraStorage.getPlayerSettings().libraryFolders;
     emit(state.copyWith(loading: true, folders: folders, error: null));
     try {
-      final videos = await _service.listFolders(folders, recursive: true);
+      final loadedVideos = await _service.listFolders(folders, recursive: true);
+      _debugLog('Loaded raw items count=${loadedVideos.length} folders=${folders.join(', ')}');
+      for (final item in loadedVideos.take(50)) {
+        _debugLog('Raw item: name=${item.name} ext=${item.extension} uri=${item.uri}');
+      }
+
+      final videos = loadedVideos
+          .where((video) {
+            final accepted = kSupportedVideoExtensions.contains(video.extension);
+            if (!accepted) {
+              _debugLog('Rejecting non-video item in cubit: name=${video.name} ext=${video.extension} uri=${video.uri}');
+            }
+            return accepted;
+          })
+          .fold<List<VideoItem>>(<VideoItem>[], (acc, video) {
+            if (acc.any((existing) => existing.id == video.id)) return acc;
+            acc.add(video);
+            return acc;
+          });
+      _debugLog('Emitting filtered videos count=${videos.length} items=${videos.take(50).map((e) => e.name).join(', ')}');
       emit(state.copyWith(loading: false, videos: videos));
     } catch (e) {
+      _debugLog('Load failed: $e');
       emit(state.copyWith(loading: false, error: e.toString()));
     }
   }

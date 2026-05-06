@@ -1,8 +1,11 @@
+import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../bloc/library/library_cubit.dart';
 import '../models/player_settings.dart';
+import '../models/server_connection.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/lan_sync_service.dart';
@@ -18,6 +22,7 @@ import '../services/playra_storage.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/video_name_parser.dart';
 import 'media_info_screen.dart';
+import 'server_browser_screen.dart';
 import 'servers_screen.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
@@ -39,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, bool> _expandedSections = {};
   bool _isHomeDragging = false;
   bool _isSyncing = false;
+  String? _lastDebugDumpSignature;
 
   @override
   void initState() {
@@ -51,7 +57,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadRecents() {
-    if (mounted) setState(() => _recents = PlayraStorage.getRecent());
+    final recents = PlayraStorage.getRecent().where((video) => kSupportedVideoExtensions.contains(video.extension)).toList();
+    if (mounted) setState(() => _recents = recents);
   }
 
   void _loadExpandedSections() {
@@ -86,11 +93,69 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addFolder() async {
+    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
+    if (smbServers.isEmpty) {
+      await _addLocalFolder();
+      return;
+    }
+
+    if (!mounted) return;
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.folder_open), title: Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
+            ListTile(leading: const Icon(Icons.lan), title: Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
+          ],
+        ),
+      ),
+    );
+
+    if (source == 'smb') {
+      await _addSmbFolder();
+      return;
+    }
+
+    if (source == 'local') {
+      await _addLocalFolder();
+    }
+  }
+
+  Future<void> _addLocalFolder() async {
     final selected = await FilePicker.platform.getDirectoryPath();
     if (selected != null) {
       if (!mounted) return;
       await context.read<LibraryCubit>().addFolder(selected);
     }
+  }
+
+  Future<void> _addSmbFolder() async {
+    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
+    if (smbServers.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nejprve přidejte SMB server v sekci Servery.')));
+      return;
+    }
+
+    if (!mounted) return;
+    final selectedServer = await showModalBottomSheet<ServerConnection>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [for (final s in smbServers) ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s))],
+        ),
+      ),
+    );
+
+    if (selectedServer == null || !mounted) return;
+
+    final selectedSmbFolderUri = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
+
+    if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !mounted) return;
+    await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
   }
 
   Future<void> _openSingleFile() async {
@@ -154,6 +219,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return _supportedVideoExtensions.contains(p.extension(filePath).toLowerCase());
   }
 
+  bool get _supportsDesktopDragDrop {
+    if (kIsWeb) return false;
+    return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  }
+
   Future<void> _handleHomeDrop(List<String> droppedPaths) async {
     String? firstVideoPath;
 
@@ -173,6 +243,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildMiniDropZone() {
+    if (!_supportsDesktopDragDrop) return const SizedBox.shrink();
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       child: DropTarget(
@@ -447,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode) {
+  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode, Map<String, String?> posterById) {
     if (mode == 'flat') {
       final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
       return sorted.map((v) => _LibraryEntry.video(v)).toList();
@@ -471,7 +543,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final items = groups[key]!;
         items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         final expanded = _expandedSections[key] ?? false;
-        final headerPoster = items.map((v) => PlayraStorage.getRecentPosterPath(v)).firstWhere((p) => p != null, orElse: () => null);
+        final headerPoster = items.map((v) => posterById[v.id]).firstWhere((p) => p != null, orElse: () => null);
         out.add(_LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster));
         if (expanded) {
           out.addAll(items.map(_LibraryEntry.video));
@@ -577,6 +649,143 @@ class _HomeScreenState extends State<HomeScreen> {
     return sorted;
   }
 
+  List<VideoItem> _filterDisplayVideos(List<VideoItem> videos) {
+    return videos.where((v) => kSupportedVideoExtensions.contains(v.extension.toLowerCase())).toList();
+  }
+
+  void _debugLogUnexpectedUiItems(List<VideoItem> rawVideos, List<VideoItem> displayVideos) {
+    if (!kDebugMode) return;
+    if (rawVideos.length == displayVideos.length) return;
+
+    final hidden = rawVideos.where((video) => !kSupportedVideoExtensions.contains(video.extension.toLowerCase())).toList();
+    if (hidden.isEmpty) return;
+
+    debugPrint('[HomeScreen] Hidden non-video items before render: ${hidden.take(30).map((v) => '${v.name} (${v.extension})').join(', ')}');
+  }
+
+  void _emitDebugDumpIfChanged(LibraryState state) {
+    if (!kDebugMode) return;
+
+    final signature = '${state.folders.join('|')}::${state.videos.length}::${state.videos.take(20).map((v) => v.id).join('|')}';
+    if (_lastDebugDumpSignature == signature) return;
+    _lastDebugDumpSignature = signature;
+
+    final dump = _buildDebugLibraryDump(state);
+    developer.log('Library dump\n$dump', name: 'HomeScreen');
+    debugPrint('[HomeScreen] Library dump\n$dump');
+  }
+
+  Widget _buildInlineDebugPanel(LibraryState state) {
+    final rawVideos = state.videos;
+    final displayVideos = _filterDisplayVideos(rawVideos);
+    final hiddenVideos = rawVideos.where((video) => !_supportedVideoExtensions.contains('.${video.extension.toLowerCase()}')).toList();
+    final previewItems = rawVideos.take(8).toList();
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      color: Colors.orange.withValues(alpha: 0.12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bug_report_outlined, size: 18),
+                const SizedBox(width: 8),
+                Text('Library Debug', style: Theme.of(context).textTheme.titleSmall),
+                const Spacer(),
+                TextButton(onPressed: _showDebugLibraryDump, child: const Text('Open')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('folders=${state.folders.length}  raw=${rawVideos.length}  display=${displayVideos.length}  hidden=${hiddenVideos.length}  recents=${_recents.length}'),
+            if (state.folders.isNotEmpty) ...[const SizedBox(height: 8), Text('Folders: ${state.folders.join(' | ')}', maxLines: 3, overflow: TextOverflow.ellipsis)],
+            if (previewItems.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('First raw items:'),
+              const SizedBox(height: 4),
+              for (final video in previewItems) Text('- ${video.name} | ext=${video.extension} | ${video.source.name}', maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _buildDebugLibraryDump(LibraryState state) {
+    final rawVideos = state.videos;
+    final displayVideos = _filterDisplayVideos(rawVideos);
+    final hiddenVideos = rawVideos.where((video) => !_supportedVideoExtensions.contains('.${video.extension.toLowerCase()}')).toList();
+    final buffer = StringBuffer()
+      ..writeln('folders: ${state.folders.length}')
+      ..writeln('rawVideos: ${rawVideos.length}')
+      ..writeln('displayVideos: ${displayVideos.length}')
+      ..writeln('hiddenNonVideos: ${hiddenVideos.length}')
+      ..writeln('recents: ${_recents.length}')
+      ..writeln('')
+      ..writeln('Configured folders:');
+
+    for (final folder in state.folders) {
+      buffer.writeln('- $folder');
+    }
+
+    buffer
+      ..writeln('')
+      ..writeln('Raw items:');
+    for (final video in rawVideos.take(120)) {
+      buffer.writeln('- ${video.name} | ext=${video.extension} | source=${video.source.name} | uri=${video.uri}');
+    }
+
+    if (rawVideos.length > 120) {
+      buffer.writeln('... ${rawVideos.length - 120} more raw items');
+    }
+
+    buffer
+      ..writeln('')
+      ..writeln('Hidden non-video items:');
+    for (final video in hiddenVideos.take(120)) {
+      buffer.writeln('- ${video.name} | ext=${video.extension} | source=${video.source.name} | uri=${video.uri}');
+    }
+
+    if (hiddenVideos.length > 120) {
+      buffer.writeln('... ${hiddenVideos.length - 120} more hidden items');
+    }
+
+    return buffer.toString();
+  }
+
+  Future<void> _showDebugLibraryDump() async {
+    if (!kDebugMode || !mounted) return;
+
+    final state = context.read<LibraryCubit>().state;
+    final dump = _buildDebugLibraryDump(state);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Library Debug'),
+        content: SizedBox(
+          width: math.min(MediaQuery.of(ctx).size.width * 0.92, 900.0),
+          child: SingleChildScrollView(
+            child: SelectableText(dump, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: dump));
+              if (!ctx.mounted) return;
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Library debug copied')));
+            },
+            child: const Text('Copy'),
+          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final playerSettings = PlayraStorage.getPlayerSettings();
@@ -588,12 +797,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
+          if (kDebugMode) IconButton(tooltip: 'Debug library', icon: const Icon(Icons.bug_report_outlined), onPressed: _showDebugLibraryDump),
           if (canSyncAcrossLan)
             IconButton(
               tooltip: 'home.sync_now'.tr(),
               icon: _isSyncing ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync),
               onPressed: _isSyncing ? null : _runLanSync,
             ),
+          IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _addFolder),
           IconButton(
             tooltip: 'subtitle.search_title'.tr(),
             icon: const Icon(Icons.subtitles),
@@ -603,7 +814,10 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: 'home.servers'.tr(),
             icon: const Icon(Icons.dns),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen())),
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen()));
+              _loadRecents();
+            },
           ),
           IconButton(
             tooltip: 'home.settings'.tr(),
@@ -619,10 +833,15 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context, state) {
           if (state.loading) return const Center(child: CircularProgressIndicator());
 
-          final hasLibrary = state.folders.isNotEmpty && state.videos.isNotEmpty;
+          final displayVideos = _filterDisplayVideos(state.videos);
+          _debugLogUnexpectedUiItems(state.videos, displayVideos);
+          _emitDebugDumpIfChanged(state);
+          final resumeById = PlayraStorage.getResumeMap();
+          final posterById = PlayraStorage.getRecentPosterPathMap([...displayVideos, ..._recents]);
+          final hasLibrary = state.folders.isNotEmpty && displayVideos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
-          final libraryEntries = _buildLibraryEntries(state.videos, libraryMode);
-          final gridVideos = _gridVideosForMode(state.videos, libraryMode);
+          final libraryEntries = _buildLibraryEntries(displayVideos, libraryMode, posterById);
+          final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
             if (state.folders.isEmpty) {
@@ -630,7 +849,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   _buildMiniDropZone(),
                   Expanded(
-                    child: _emptyState(icon: Icons.folder_open, title: 'home.empty_title'.tr(), subtitle: 'home.empty_subtitle'.tr()),
+                    child: _emptyState(
+                      icon: Icons.folder_open,
+                      title: 'home.empty_title'.tr(),
+                      subtitle: 'home.empty_subtitle'.tr(),
+                      actionLabel: 'home.add_folder'.tr(),
+                      onAction: _addFolder,
+                    ),
                   ),
                 ],
               );
@@ -643,8 +868,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.movie_outlined,
                     title: 'home.no_videos_title'.tr(),
                     subtitle: 'home.no_videos_subtitle'.tr(),
-                    actionLabel: 'home.refresh_library'.tr(),
-                    onAction: _refreshLibrary,
+                    actionLabel: 'home.add_folder'.tr(),
+                    onAction: _addFolder,
                   ),
                 ),
               ],
@@ -657,6 +882,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: CustomScrollView(
               slivers: [
+                if (kDebugMode) SliverToBoxAdapter(child: _buildInlineDebugPanel(state)),
                 SliverToBoxAdapter(child: _buildMiniDropZone()),
                 if (showRecents) ...[
                   SliverToBoxAdapter(
@@ -687,7 +913,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         itemCount: _recents.length,
-                        itemBuilder: (_, i) => _buildRecentCard(_recents[i]),
+                        itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id]),
                       ),
                     ),
                   ),
@@ -767,8 +993,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
 
                       final v = entry.video!;
-                      final resume = PlayraStorage.getResume(v.id);
-                      final posterPath = PlayraStorage.getRecentPosterPath(v);
+                      final resume = resumeById[v.id];
+                      final posterPath = posterById[v.id];
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
@@ -791,7 +1017,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: resume != null ? const Icon(Icons.history, size: 20) : const Icon(Icons.chevron_right),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
+                              Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
+                            ],
+                          ),
                           onTap: () => _openVideo(v),
                           onLongPress: () => _showVideoMenu(v),
                         ),
@@ -811,9 +1043,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       itemBuilder: (context, i) {
                         final v = gridVideos[i];
-                        final posterPath = PlayraStorage.getRecentPosterPath(v);
+                        final posterPath = posterById[v.id];
                         return InkWell(
-                          onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: state.videos),
+                          onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: displayVideos),
                           onSecondaryTapDown: (d) => _showVideoContextMenu(v, d.globalPosition),
                           onLongPress: () => _showVideoMenu(v),
                           child: Column(
@@ -822,8 +1054,11 @@ class _HomeScreenState extends State<HomeScreen> {
                               Expanded(
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: posterPath != null
-                                      ? Image.file(
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      if (posterPath != null)
+                                        Image.file(
                                           File(posterPath),
                                           fit: BoxFit.cover,
                                           errorBuilder: (context, error, stackTrace) => Container(
@@ -831,10 +1066,29 @@ class _HomeScreenState extends State<HomeScreen> {
                                             child: const Icon(Icons.movie, size: 32, color: Colors.grey),
                                           ),
                                         )
-                                      : Container(
+                                      else
+                                        Container(
                                           color: Colors.grey[300],
                                           child: const Icon(Icons.movie, size: 32, color: Colors.grey),
                                         ),
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: Material(
+                                          color: Colors.black45,
+                                          borderRadius: BorderRadius.circular(14),
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(14),
+                                            onTap: () => _showVideoMenu(v),
+                                            child: const Padding(
+                                              padding: EdgeInsets.all(4),
+                                              child: Icon(Icons.more_vert, color: Colors.white, size: 16),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -859,11 +1113,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentCard(VideoItem v) {
-    final posterPath = PlayraStorage.getRecentPosterPath(v);
+  Widget _buildRecentCard(VideoItem v, String? posterPath) {
     return GestureDetector(
       onTap: () => _openVideo(v),
       onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
+      onLongPress: () => _showVideoMenu(v),
       child: Container(
         width: 100,
         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -891,6 +1145,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: const Icon(Icons.movie, size: 40, color: Colors.grey),
                       ),
                     const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 22)),
+                    Positioned(
+                      bottom: 4,
+                      right: 4,
+                      child: Material(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showVideoMenu(v),
+                          child: const Padding(
+                            padding: EdgeInsets.all(3),
+                            child: Icon(Icons.more_vert, color: Colors.white, size: 14),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),

@@ -11,6 +11,10 @@ class SmbBrowserService {
   SmbConnect? _connect;
   ServerConnection? _server;
 
+  bool isHiddenEntry(String name) {
+    return name.trim().startsWith('.');
+  }
+
   /// Returns the currently held connection or opens a new one.
   Future<SmbConnect> _ensureConnected(ServerConnection server) async {
     if (_connect != null && _server?.id == server.id) return _connect!;
@@ -46,6 +50,7 @@ class SmbBrowserService {
 
   /// Returns true if the entry's filename has a supported video extension.
   bool isVideo(String name) {
+    if (isHiddenEntry(name)) return false;
     final dot = name.lastIndexOf('.');
     if (dot < 0) return false;
     return kSupportedVideoExtensions.contains(name.substring(dot + 1).toLowerCase());

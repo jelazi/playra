@@ -16,7 +16,10 @@ class PlayerLauncher {
   final SmbProxyServer _proxy;
 
   Future<void> launch(BuildContext context, VideoItem video) async {
+    await PlayraStorage.addRecent(video);
+    if (!context.mounted) return;
     final url = await _resolvePlayUrl(context, video);
+    if (!context.mounted) return;
     if (url == null) return;
     final playbackVideo = _toPlaybackVideo(video, url);
 
@@ -25,7 +28,10 @@ class PlayerLauncher {
   }
 
   Future<void> launchReplacement(BuildContext context, VideoItem video) async {
+    await PlayraStorage.addRecent(video);
+    if (!context.mounted) return;
     final url = await _resolvePlayUrl(context, video);
+    if (!context.mounted) return;
     if (url == null) return;
     final playbackVideo = _toPlaybackVideo(video, url);
 

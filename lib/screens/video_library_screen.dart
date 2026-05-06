@@ -80,6 +80,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     return MediaQuery.of(context).size.width >= _tabletBreakpoint;
   }
 
+  bool get _supportsDesktopDragDrop {
+    return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -371,200 +375,367 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-              child: DropTarget(
-                onDragDone: (details) async {
-                  await _addVideosFromPaths(details.files.map((f) => f.path).toList());
-                },
-                onDragEntered: (details) {
-                  setState(() => _isDragging = true);
-                },
-                onDragExited: (details) {
-                  setState(() => _isDragging = false);
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _isDragging ? Colors.blue : Theme.of(context).dividerColor, width: _isDragging ? 2 : 1),
-                    color: _isDragging ? Colors.blue.withValues(alpha: 0.08) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          isPhone ? 'video.tap_to_add'.tr() : 'video.drag_drop_hint'.tr(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
+              child: _supportsDesktopDragDrop
+                  ? DropTarget(
+                      onDragDone: (details) async {
+                        await _addVideosFromPaths(details.files.map((f) => f.path).toList());
+                      },
+                      onDragEntered: (details) {
+                        setState(() => _isDragging = true);
+                      },
+                      onDragExited: (details) {
+                        setState(() => _isDragging = false);
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _isDragging ? Colors.blue : Theme.of(context).dividerColor, width: _isDragging ? 2 : 1),
+                          color: _isDragging ? Colors.blue.withValues(alpha: 0.08) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text('video.drag_drop_hint'.tr(), maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
+                    )
+                  : InkWell(
+                      onTap: _pickVideos,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Theme.of(context).dividerColor),
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.video_library, size: 18, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text('video.tap_to_add'.tr(), maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
             ),
 
             // Drop zone
             Expanded(
-              child: DropTarget(
-                onDragDone: (details) async {
-                  await _addVideosFromPaths(details.files.map((f) => f.path).toList());
-                },
-                onDragEntered: (details) {
-                  setState(() => _isDragging = true);
-                },
-                onDragExited: (details) {
-                  setState(() => _isDragging = false);
-                },
-                child: Container(
-                  decoration: BoxDecoration(border: Border.all(color: _isDragging ? Colors.blue : Colors.transparent, width: 2)),
-                  child: _videos.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.video_library_outlined, size: 64, color: Colors.grey[400]),
-                              const SizedBox(height: 16),
-                              Text(
-                                isPhone ? 'video.tap_to_add'.tr() : 'video.drag_drop_hint'.tr(),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey[600], fontSize: 16),
-                              ),
-                              if (isPhone) ...[
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(onPressed: _pickVideos, icon: const Icon(Icons.add), label: Text('video.add_videos'.tr())),
-                              ],
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: entries.length,
-                          itemBuilder: (context, index) {
-                            final entry = entries[index];
-
-                            if (entry.isHeader) {
-                              final expanded = entry.expanded ?? false;
-                              return InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _expandedSections[entry.sectionKey!] = !expanded;
-                                  });
-                                },
-                                child: Container(
-                                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                                  padding: EdgeInsets.fromLTRB(10 + (entry.level * 16), 8, 10, 8),
-                                  child: Row(
-                                    children: [
-                                      Icon(expanded ? Icons.expand_more : Icons.chevron_right, size: 18),
-                                      const SizedBox(width: 6),
-                                      Icon(entry.isRoot ? Icons.folder_open : Icons.folder, size: 16),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text('${entry.title} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
-                                      ),
-                                    ],
-                                  ),
+              child: _supportsDesktopDragDrop
+                  ? DropTarget(
+                      onDragDone: (details) async {
+                        await _addVideosFromPaths(details.files.map((f) => f.path).toList());
+                      },
+                      onDragEntered: (details) {
+                        setState(() => _isDragging = true);
+                      },
+                      onDragExited: (details) {
+                        setState(() => _isDragging = false);
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(border: Border.all(color: _isDragging ? Colors.blue : Colors.transparent, width: 2)),
+                        child: _videos.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.video_library_outlined, size: 64, color: Colors.grey[400]),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'video.drag_drop_hint'.tr(),
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                                    ),
+                                  ],
                                 ),
-                              );
-                            }
+                              )
+                            : ListView.builder(
+                                itemCount: entries.length,
+                                itemBuilder: (context, index) {
+                                  final entry = entries[index];
 
-                            final video = entry.video!;
-                            final isSelected = _selectedVideo == video;
-
-                            return GestureDetector(
-                              onDoubleTap: () => _searchSubtitles(video: video),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
-                                  border: isSelected
-                                      ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
-                                      : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
-                                ),
-                                child: ListTile(
-                                  selected: isSelected,
-                                  selectedTileColor: Colors.transparent,
-                                  contentPadding: EdgeInsets.only(left: 12 + (entry.level * 16), right: 8, top: 2, bottom: 2),
-                                  leading: Stack(
-                                    children: [
-                                      Icon(
-                                        Icons.movie,
-                                        color: isSelected ? Theme.of(context).colorScheme.primary : (video.hasAnySubtitles ? Colors.green : null),
-                                        size: isSelected ? 28 : 24,
-                                      ),
-                                      // Subtitle indicator
-                                      if (video.hasAnySubtitles)
-                                        Positioned(
-                                          right: -2,
-                                          bottom: -2,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(2),
-                                            decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
-                                            child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  title: Text(
-                                    video.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: isSelected ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary) : null,
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                                      if (video.hasAnySubtitles)
-                                        Row(
+                                  if (entry.isHeader) {
+                                    final expanded = entry.expanded ?? false;
+                                    return InkWell(
+                                      onTap: () {
+                                        setState(() {
+                                          _expandedSections[entry.sectionKey!] = !expanded;
+                                        });
+                                      },
+                                      child: Container(
+                                        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                        padding: EdgeInsets.fromLTRB(10 + (entry.level * 16), 8, 10, 8),
+                                        child: Row(
                                           children: [
-                                            Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
-                                            const SizedBox(width: 4),
+                                            Icon(expanded ? Icons.expand_more : Icons.chevron_right, size: 18),
+                                            const SizedBox(width: 6),
+                                            Icon(entry.isRoot ? Icons.folder_open : Icons.folder, size: 16),
+                                            const SizedBox(width: 8),
                                             Expanded(
                                               child: Text(
-                                                video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
-                                                  fontWeight: FontWeight.w500,
-                                                ),
+                                                '${entry.title} (${entry.count})',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context).textTheme.labelLarge,
                                               ),
                                             ),
                                           ],
                                         ),
-                                      if (isSelected)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 4),
-                                          child: Text(
-                                            'Dvojklik = vyhledat titulky',
-                                            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  trailing: isPhone
-                                      ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
-                                      : Row(
-                                          mainAxisSize: MainAxisSize.min,
+                                      ),
+                                    );
+                                  }
+
+                                  final video = entry.video!;
+                                  final isSelected = _selectedVideo == video;
+
+                                  return GestureDetector(
+                                    onDoubleTap: () => _searchSubtitles(video: video),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 180),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
+                                        border: isSelected
+                                            ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
+                                            : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
+                                      ),
+                                      child: ListTile(
+                                        selected: isSelected,
+                                        selectedTileColor: Colors.transparent,
+                                        contentPadding: EdgeInsets.only(left: 12 + (entry.level * 16), right: 8, top: 2, bottom: 2),
+                                        leading: Stack(
                                           children: [
-                                            IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
-                                            IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
+                                            Icon(
+                                              Icons.movie,
+                                              color: isSelected ? Theme.of(context).colorScheme.primary : (video.hasAnySubtitles ? Colors.green : null),
+                                              size: isSelected ? 28 : 24,
+                                            ),
+                                            // Subtitle indicator
+                                            if (video.hasAnySubtitles)
+                                              Positioned(
+                                                right: -2,
+                                                bottom: -2,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(2),
+                                                  decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                                  child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
+                                                ),
+                                              ),
                                           ],
                                         ),
-                                  onTap: () => _selectVideo(video),
-                                  onLongPress: isPhone ? () => _showVideoOptionsMenu(video) : null,
-                                ),
+                                        title: Text(
+                                          video.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: isSelected ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary) : null,
+                                        ),
+                                        subtitle: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                            if (video.hasAnySubtitles)
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            if (isSelected)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 4),
+                                                child: Text(
+                                                  'Dvojklik = vyhledat titulky',
+                                                  style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        trailing: isPhone
+                                            ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
+                                            : Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
+                                                  IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
+                                                ],
+                                              ),
+                                        onTap: () => _selectVideo(video),
+                                        onLongPress: isPhone ? () => _showVideoOptionsMenu(video) : null,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
-                ),
-              ),
+                      ),
+                    )
+                  : Container(
+                      child: _videos.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.video_library_outlined, size: 64, color: Colors.grey[400]),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'video.tap_to_add'.tr(),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton.icon(onPressed: _pickVideos, icon: const Icon(Icons.add), label: Text('video.add_videos'.tr())),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: entries.length,
+                              itemBuilder: (context, index) {
+                                final entry = entries[index];
+
+                                if (entry.isHeader) {
+                                  final expanded = entry.expanded ?? false;
+                                  return InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _expandedSections[entry.sectionKey!] = !expanded;
+                                      });
+                                    },
+                                    child: Container(
+                                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                      padding: EdgeInsets.fromLTRB(10 + (entry.level * 16), 8, 10, 8),
+                                      child: Row(
+                                        children: [
+                                          Icon(expanded ? Icons.expand_more : Icons.chevron_right, size: 18),
+                                          const SizedBox(width: 6),
+                                          Icon(entry.isRoot ? Icons.folder_open : Icons.folder, size: 16),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${entry.title} (${entry.count})',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context).textTheme.labelLarge,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }
+
+                                final video = entry.video!;
+                                final isSelected = _selectedVideo == video;
+
+                                return GestureDetector(
+                                  onDoubleTap: () => _searchSubtitles(video: video),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
+                                      border: isSelected
+                                          ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
+                                          : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
+                                    ),
+                                    child: ListTile(
+                                      selected: isSelected,
+                                      selectedTileColor: Colors.transparent,
+                                      contentPadding: EdgeInsets.only(left: 12 + (entry.level * 16), right: 8, top: 2, bottom: 2),
+                                      leading: Stack(
+                                        children: [
+                                          Icon(
+                                            Icons.movie,
+                                            color: isSelected ? Theme.of(context).colorScheme.primary : (video.hasAnySubtitles ? Colors.green : null),
+                                            size: isSelected ? 28 : 24,
+                                          ),
+                                          // Subtitle indicator
+                                          if (video.hasAnySubtitles)
+                                            Positioned(
+                                              right: -2,
+                                              bottom: -2,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(2),
+                                                decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                                child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      title: Text(
+                                        video.name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: isSelected ? TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary) : null,
+                                      ),
+                                      subtitle: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(path.dirname(video.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                          if (video.hasAnySubtitles)
+                                            Row(
+                                              children: [
+                                                Icon(Icons.subtitles, size: 12, color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    video.hasPhysicalSubtitles ? 'Soubory titulků (${video.subtitleFiles.length})' : 'Stažené přes aplikaci',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: video.hasPhysicalSubtitles ? Colors.green[700] : Colors.orange[700],
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          if (isSelected)
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 4),
+                                              child: Text(
+                                                'Dvojklik = vyhledat titulky',
+                                                style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      trailing: isPhone
+                                          ? IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _selectVideo(video))
+                                          : Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
+                                                IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
+                                              ],
+                                            ),
+                                      onTap: () => _selectVideo(video),
+                                      onLongPress: isPhone ? () => _showVideoOptionsMenu(video) : null,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
             ),
             // Tlačítka - pouze na tabletu/desktopu
             if (!isPhone) ...[
