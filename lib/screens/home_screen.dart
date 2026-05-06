@@ -61,7 +61,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _openVideo(VideoItem v) async {
+  Future<void> _openVideo(VideoItem v, {String? libraryMode, List<VideoItem>? allVideos}) async {
+    if (libraryMode == 'smart' && allVideos != null) {
+      final parsed = VideoNameParser.parse(v.uri);
+      if (parsed.isTV) {
+        _showSeriesEpisodes(context, v, allVideos);
+        return;
+      }
+    }
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => MediaInfoRoute(video: v)));
     _loadRecents();
   }
@@ -125,11 +132,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return out;
     }
 
-    // structured
+    // structured - group by library folder (ignore nested subfolders)
     final byDir = <String, List<VideoItem>>{};
+    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders.toSet();
     for (final v in videos) {
-      final dir = p.dirname(v.uri);
-      byDir.putIfAbsent(dir, () => []).add(v);
+      String displayDir = p.dirname(v.uri);
+      // Try to find which library folder this file belongs to
+      for (final libFolder in libraryFolders) {
+        if (v.uri.startsWith(libFolder)) {
+          displayDir = libFolder;
+          break;
+        }
+      }
+      byDir.putIfAbsent(displayDir, () => []).add(v);
     }
 
     final dirs = byDir.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -145,6 +160,52 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return out;
+  }
+
+  List<VideoItem> _getSeriesVideos(VideoItem representative, List<VideoItem> allVideos) {
+    final parsed = VideoNameParser.parse(representative.uri);
+    if (!parsed.isTV) return [representative];
+    return allVideos.where((v) {
+      final p = VideoNameParser.parse(v.uri);
+      if (!p.isTV) return false;
+      return p.cleanName.toLowerCase() == parsed.cleanName.toLowerCase();
+    }).toList()..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+
+  void _showSeriesEpisodes(BuildContext context, VideoItem representative, List<VideoItem> allVideos) {
+    final episodes = _getSeriesVideos(representative, allVideos);
+    if (episodes.length <= 1) {
+      _openVideo(representative);
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppBar(
+            leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(ctx).pop()),
+            title: Text(representative.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+            automaticallyImplyLeading: false,
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: episodes.length,
+              itemBuilder: (_, i) {
+                final ep = episodes[i];
+                return ListTile(
+                  title: Text(ep.name),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _openVideo(ep);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   List<VideoItem> _gridVideosForMode(List<VideoItem> videos, String mode) {
@@ -178,33 +239,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
-          PopupMenuButton<String>(
-            tooltip: 'home.display_options'.tr(),
-            icon: const Icon(Icons.view_compact_alt),
-            onSelected: (value) {
-              if (value.startsWith('view:')) {
-                final view = value.substring(5);
-                _updatePlayerSettings((s) => s.copyWith(libraryVisualMode: view));
-                return;
-              }
-              if (value.startsWith('group:')) {
-                final group = value.substring(6);
-                _updatePlayerSettings((s) => s.copyWith(libraryViewMode: group));
-                return;
-              }
-            },
-            itemBuilder: (ctx) => [
-              PopupMenuItem(enabled: false, child: Text('home.display_mode'.tr())),
-              CheckedPopupMenuItem(value: 'view:list', checked: visualMode == 'list', child: Text('home.view_list'.tr())),
-              CheckedPopupMenuItem(value: 'view:iconsSmall', checked: visualMode == 'iconsSmall', child: Text('home.view_icons_small'.tr())),
-              CheckedPopupMenuItem(value: 'view:iconsLarge', checked: visualMode == 'iconsLarge', child: Text('home.view_icons_large'.tr())),
-              const PopupMenuDivider(),
-              PopupMenuItem(enabled: false, child: Text('home.group_mode'.tr())),
-              CheckedPopupMenuItem(value: 'group:structured', checked: libraryMode == 'structured', child: Text('settings.library_mode_structured'.tr())),
-              CheckedPopupMenuItem(value: 'group:flat', checked: libraryMode == 'flat', child: Text('settings.library_mode_flat'.tr())),
-              CheckedPopupMenuItem(value: 'group:smart', checked: libraryMode == 'smart', child: Text('settings.library_mode_smart'.tr())),
-            ],
-          ),
           IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file), onPressed: _openSingleFile),
           IconButton(
             tooltip: 'home.servers'.tr(),
@@ -218,7 +252,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _addFolder, icon: const Icon(Icons.create_new_folder), label: Text('home.add_folder'.tr())),
       body: BlocBuilder<LibraryCubit, LibraryState>(
         builder: (context, state) {
           if (state.loading) return const Center(child: CircularProgressIndicator());
@@ -287,6 +320,37 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Icon(Icons.video_library, size: 18),
                           const SizedBox(width: 8),
                           Text('home.library'.tr(), style: Theme.of(context).textTheme.titleSmall),
+                          const Spacer(),
+                          PopupMenuButton<String>(
+                            tooltip: 'home.display_options'.tr(),
+                            icon: const Icon(Icons.view_compact_alt, size: 18),
+                            onSelected: (value) {
+                              if (value.startsWith('view:')) {
+                                final view = value.substring(5);
+                                _updatePlayerSettings((s) => s.copyWith(libraryVisualMode: view));
+                                return;
+                              }
+                              if (value.startsWith('group:')) {
+                                final group = value.substring(6);
+                                _updatePlayerSettings((s) => s.copyWith(libraryViewMode: group));
+                                return;
+                              }
+                            },
+                            itemBuilder: (ctx) => [
+                              CheckedPopupMenuItem(value: 'view:list', checked: visualMode == 'list', child: Text('home.view_list'.tr())),
+                              CheckedPopupMenuItem(value: 'view:iconsSmall', checked: visualMode == 'iconsSmall', child: Text('home.view_icons_small'.tr())),
+                              CheckedPopupMenuItem(value: 'view:iconsLarge', checked: visualMode == 'iconsLarge', child: Text('home.view_icons_large'.tr())),
+                              const PopupMenuDivider(),
+                              CheckedPopupMenuItem(value: 'group:structured', checked: libraryMode == 'structured', child: Text('settings.library_mode_structured'.tr())),
+                              CheckedPopupMenuItem(value: 'group:flat', checked: libraryMode == 'flat', child: Text('settings.library_mode_flat'.tr())),
+                              CheckedPopupMenuItem(value: 'group:smart', checked: libraryMode == 'smart', child: Text('settings.library_mode_smart'.tr())),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, size: 18),
+                            tooltip: 'home.add_folder'.tr(),
+                            onPressed: _addFolder,
+                          ),
                         ],
                       ),
                     ),
@@ -346,7 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         trailing: resume != null ? const Icon(Icons.history, size: 20) : const Icon(Icons.chevron_right),
-                        onTap: () => _openVideo(v),
+                        onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: state.videos),
                         onLongPress: () => _showVideoMenu(v),
                       );
                     },
@@ -357,16 +421,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     sliver: SliverGrid.builder(
                       itemCount: gridVideos.length,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: visualMode == 'iconsLarge' ? 4 : 7,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: visualMode == 'iconsLarge' ? 0.64 : 0.74,
+                        crossAxisCount: visualMode == 'iconsLarge' ? 3 : 9,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        childAspectRatio: visualMode == 'iconsLarge' ? 0.64 : 0.6,
                       ),
                       itemBuilder: (context, i) {
                         final v = gridVideos[i];
                         final posterPath = PlayraStorage.getRecentPosterPath(v);
                         return InkWell(
-                          onTap: () => _openVideo(v),
+                          onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: state.videos),
                           onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -113,6 +113,25 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('subtitle.searching')]),
                   );
                 } else if (state is SubtitleSearchResults) {
+                  print('✅ Found ${state.subtitles.length} primary + ${state.alternativeSubtitles?.length ?? 0} alternative subtitles');
+                  if (state.subtitles.isEmpty && (state.alternativeSubtitles?.isEmpty ?? true)) {
+                    return Center(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.search_off, size: 64, color: Colors.grey),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Žádné titulky nebyly nalezeny.\n\nDiagnostika:\n• Zkontrolujte připojení\n• Zkontrolujte přihlášení\n• Zkuste hledat jinak\n\n→ Viz flutter logs pro podrobnosti',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.grey, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
                   return _buildSubtitleList(state);
                 } else if (state is SubtitleDownloading) {
                   return Center(

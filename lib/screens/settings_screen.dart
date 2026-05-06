@@ -224,13 +224,12 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 ListTile(
                   title: Text('settings.desktop_double_click_shortcut'.tr()),
-                  subtitle: Text(p.desktopDoubleClickShortcut),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.edit),
-                    onPressed: () async {
-                      final value = await _captureShortcutDialog(context, 'settings.desktop_double_click_shortcut'.tr(), forDoubleClick: true);
-                      if (value != null && context.mounted) {
-                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopDoubleClickShortcut: value));
+                  trailing: DropdownButton<String>(
+                    value: p.desktopDoubleClickAction,
+                    items: kDesktopDoubleClickActionOptions.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopDoubleClickAction: v));
                       }
                     },
                   ),

@@ -241,13 +241,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Future<void> _onDoubleTapToggleFullscreen() async {
     if (_isDesktopPlatform) {
       final settings = PlayraStorage.getPlayerSettings();
-      if (!_doubleClickShortcutMatches(settings.desktopDoubleClickShortcut)) {
+      final action = settings.desktopDoubleClickAction;
+      if (action == 'none') {
         return;
       }
-      final isFullscreen = await windowManager.isFullScreen();
-      await windowManager.setFullScreen(!isFullscreen);
-      _flashOverlay(!isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, !isFullscreen ? 'Fullscreen' : 'Windowed');
-      _startHideTimer();
+      _executeDesktopAction(action);
       return;
     }
 
@@ -294,22 +292,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     return normalizedTarget == normalizedCurrent;
   }
 
-  bool _doubleClickShortcutMatches(String shortcut) {
-    final s = shortcut.toLowerCase();
-    if (!s.contains('double')) return true;
-
-    final needsCtrl = s.contains('ctrl');
-    final needsAlt = s.contains('alt');
-    final needsShift = s.contains('shift');
-    final needsMeta = s.contains('meta');
-
-    if (needsCtrl && !HardwareKeyboard.instance.isControlPressed) return false;
-    if (needsAlt && !HardwareKeyboard.instance.isAltPressed) return false;
-    if (needsShift && !HardwareKeyboard.instance.isShiftPressed) return false;
-    if (needsMeta && !HardwareKeyboard.instance.isMetaPressed) return false;
-
-    return true;
-  }
 
   bool _hasAnyModifierPressed() {
     return HardwareKeyboard.instance.isControlPressed ||
@@ -379,6 +361,59 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     return KeyEventResult.ignored;
+  }
+
+  Future<void> _executeDesktopAction(String action) async {
+    final settings = PlayraStorage.getPlayerSettings();
+    switch (action) {
+      case 'fullscreen':
+        _toggleDesktopFullscreen();
+        break;
+      case 'fit':
+        _toggleFullscreenFit();
+        break;
+      case 'toggleControls':
+        _toggleControls();
+        break;
+      case 'seekBackward':
+        await _seekRelative(Duration(seconds: -settings.seekStepSeconds.toInt()));
+        break;
+      case 'seekForward':
+        await _seekRelative(Duration(seconds: settings.seekStepSeconds.toInt()));
+        break;
+      case 'volumeUp':
+        try {
+          final current = await FlutterVolumeController.getVolume() ?? 0.5;
+          final next = (current + 0.1).clamp(0.0, 1.0);
+          await FlutterVolumeController.setVolume(next);
+          _flashOverlay(Icons.volume_up, '${(next * 100).round()}%');
+        } catch (_) {}
+        break;
+      case 'volumeDown':
+        try {
+          final current = await FlutterVolumeController.getVolume() ?? 0.5;
+          final next = (current - 0.1).clamp(0.0, 1.0);
+          await FlutterVolumeController.setVolume(next);
+          _flashOverlay(Icons.volume_down, '${(next * 100).round()}%');
+        } catch (_) {}
+        break;
+      case 'brightnessUp':
+        try {
+          final current = await ScreenBrightness().current;
+          final next = (current + 0.1).clamp(0.0, 1.0);
+          await ScreenBrightness().setScreenBrightness(next);
+          _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
+        } catch (_) {}
+        break;
+      case 'brightnessDown':
+        try {
+          final current = await ScreenBrightness().current;
+          final next = (current - 0.1).clamp(0.0, 1.0);
+          await ScreenBrightness().setScreenBrightness(next);
+          _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
+        } catch (_) {}
+        break;
+    }
   }
 
   Future<void> _onDesktopPointerSignal(PointerSignalEvent signal, PlayerSettings settings) async {

@@ -1,6 +1,18 @@
 import 'dart:convert';
 
 const List<String> kDesktopWheelActionOptions = ['none', 'seek', 'volume', 'brightness'];
+const List<String> kDesktopDoubleClickActionOptions = [
+  'none',
+  'fullscreen',
+  'fit',
+  'toggleControls',
+  'seekBackward',
+  'seekForward',
+  'volumeUp',
+  'volumeDown',
+  'brightnessUp',
+  'brightnessDown',
+];
 const List<String> kLibraryViewModeOptions = ['structured', 'flat', 'smart'];
 const List<String> kLibraryVisualModeOptions = ['list', 'iconsSmall', 'iconsLarge'];
 
@@ -16,7 +28,7 @@ class PlayerSettings {
   final String desktopFullscreenShortcut;
   final String desktopSeekBackwardShortcut;
   final String desktopSeekForwardShortcut;
-  final String desktopDoubleClickShortcut;
+  final String desktopDoubleClickAction;
   final String desktopWheelAction;
   final double desktopWheelStep;
   final String libraryViewMode;
@@ -33,7 +45,7 @@ class PlayerSettings {
     this.desktopFullscreenShortcut = 'F',
     this.desktopSeekBackwardShortcut = 'Arrow Left',
     this.desktopSeekForwardShortcut = 'Arrow Right',
-    this.desktopDoubleClickShortcut = 'Double Click',
+    this.desktopDoubleClickAction = 'fullscreen',
     this.desktopWheelAction = 'seek',
     this.desktopWheelStep = 10,
     this.libraryViewMode = 'structured',
@@ -51,7 +63,7 @@ class PlayerSettings {
     String? desktopFullscreenShortcut,
     String? desktopSeekBackwardShortcut,
     String? desktopSeekForwardShortcut,
-    String? desktopDoubleClickShortcut,
+    String? desktopDoubleClickAction,
     String? desktopWheelAction,
     double? desktopWheelStep,
     String? libraryViewMode,
@@ -67,7 +79,7 @@ class PlayerSettings {
     desktopFullscreenShortcut: desktopFullscreenShortcut ?? this.desktopFullscreenShortcut,
     desktopSeekBackwardShortcut: desktopSeekBackwardShortcut ?? this.desktopSeekBackwardShortcut,
     desktopSeekForwardShortcut: desktopSeekForwardShortcut ?? this.desktopSeekForwardShortcut,
-    desktopDoubleClickShortcut: desktopDoubleClickShortcut ?? this.desktopDoubleClickShortcut,
+    desktopDoubleClickAction: desktopDoubleClickAction ?? this.desktopDoubleClickAction,
     desktopWheelAction: desktopWheelAction ?? this.desktopWheelAction,
     desktopWheelStep: desktopWheelStep ?? this.desktopWheelStep,
     libraryViewMode: libraryViewMode ?? this.libraryViewMode,
@@ -85,7 +97,7 @@ class PlayerSettings {
     'desktopFullscreenShortcut': desktopFullscreenShortcut,
     'desktopSeekBackwardShortcut': desktopSeekBackwardShortcut,
     'desktopSeekForwardShortcut': desktopSeekForwardShortcut,
-    'desktopDoubleClickShortcut': desktopDoubleClickShortcut,
+    'desktopDoubleClickAction': desktopDoubleClickAction,
     'desktopWheelAction': desktopWheelAction,
     'desktopWheelStep': desktopWheelStep,
     'libraryViewMode': libraryViewMode,
@@ -103,7 +115,7 @@ class PlayerSettings {
     desktopFullscreenShortcut: (j['desktopFullscreenShortcut'] as String?) ?? (j['desktopFullscreenKey'] as String?) ?? 'F',
     desktopSeekBackwardShortcut: (j['desktopSeekBackwardShortcut'] as String?) ?? (j['desktopSeekBackwardKey'] as String?) ?? 'Arrow Left',
     desktopSeekForwardShortcut: (j['desktopSeekForwardShortcut'] as String?) ?? (j['desktopSeekForwardKey'] as String?) ?? 'Arrow Right',
-    desktopDoubleClickShortcut: (j['desktopDoubleClickShortcut'] as String?) ?? 'Double Click',
+    desktopDoubleClickAction: (j['desktopDoubleClickAction'] as String?) ?? 'fullscreen',
     desktopWheelAction: (j['desktopWheelAction'] as String?) ?? 'seek',
     desktopWheelStep: (j['desktopWheelStep'] as num?)?.toDouble() ?? 10,
     libraryViewMode: (j['libraryViewMode'] as String?) ?? 'structured',
