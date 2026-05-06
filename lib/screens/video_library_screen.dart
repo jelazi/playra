@@ -125,33 +125,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('video.library_title'.tr()),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // Přepínač jazyků UI
-          PopupMenuButton<String>(
-            onSelected: (String languageCode) async {
-              await context.setLocale(Locale(languageCode));
-              await SettingsService.updateLanguage(languageCode);
-            },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(value: 'cs', child: Text('🇨🇿 Čeština')),
-              const PopupMenuItem<String>(value: 'en', child: Text('🇬🇧 English')),
-            ],
-            icon: const Icon(Icons.language),
-          ),
-          // Logout
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'auth.logout_button'.tr(),
-            onPressed: () {
-              context.read<SubtitleBloc>().add(LogoutFromTitulky());
-              _showLoginDialog();
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Knihovna videí - vyhledávání titulků'), backgroundColor: Theme.of(context).colorScheme.inversePrimary),
       body: _isTabletOrDesktop(context)
           ? Row(
               children: [

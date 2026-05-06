@@ -21,6 +21,7 @@ import 'servers_screen.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
+import 'video_library_screen.dart';
 
 /// Main Playra home screen — the local video library.
 class HomeScreen extends StatefulWidget {
@@ -551,6 +552,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
+          IconButton(
+            tooltip: 'subtitle.search_title'.tr(),
+            icon: const Icon(Icons.subtitles),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
+          ),
           IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file), onPressed: _openSingleFile),
           IconButton(
             tooltip: 'home.servers'.tr(),
