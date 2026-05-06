@@ -34,6 +34,8 @@ class PlayraPlayerScreen extends StatefulWidget {
 }
 
 class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
+  static const List<String> _videoFitModes = ['scaleDown', 'contain'];
+
   late final Player _player;
   late final VideoController _videoController;
 
@@ -45,7 +47,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   String? _overlayText;
   bool _playing = false;
   bool _isReady = false;
-  bool _isFullscreenFit = false;
+  String _videoFitMode = 'scaleDown';
+  double _videoZoom = 1.0;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -226,8 +229,152 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   }
 
   void _toggleFullscreenFit() {
-    setState(() => _isFullscreenFit = !_isFullscreenFit);
-    _flashOverlay(_isFullscreenFit ? Icons.fit_screen : Icons.fullscreen, _isFullscreenFit ? 'Fit' : 'Fill');
+    final currentIndex = _videoFitModes.indexOf(_videoFitMode);
+    final nextIndex = (currentIndex + 1) % _videoFitModes.length;
+    final nextMode = _videoFitModes[nextIndex];
+    setState(() => _videoFitMode = nextMode);
+    _flashOverlay(_videoFitIcon(nextMode), _videoFitLabel(nextMode));
+  }
+
+  void _setVideoFitMode(String mode) {
+    setState(() => _videoFitMode = mode);
+    _flashOverlay(_videoFitIcon(mode), _videoFitLabel(mode));
+    _startHideTimer();
+  }
+
+  void _setVideoZoom(double zoom) {
+    final clamped = zoom.clamp(1.0, 2.5);
+    setState(() => _videoZoom = clamped);
+    _flashOverlay(Icons.zoom_in, '${clamped.toStringAsFixed(2)}x');
+    _startHideTimer();
+  }
+
+  void _resetVideoScale() {
+    setState(() {
+      _videoFitMode = 'scaleDown';
+      _videoZoom = 1.0;
+    });
+    _flashOverlay(Icons.center_focus_strong, '1.00x');
+    _startHideTimer();
+  }
+
+  BoxFit _currentVideoBoxFit() {
+    switch (_videoFitMode) {
+      case 'scaleDown':
+        return BoxFit.scaleDown;
+      case 'contain':
+      default:
+        return BoxFit.contain;
+    }
+  }
+
+  IconData _videoFitIcon(String mode) {
+    switch (mode) {
+      case 'scaleDown':
+        return Icons.photo_size_select_small;
+      case 'contain':
+      default:
+        return Icons.fit_screen;
+    }
+  }
+
+  String _videoFitLabel(String mode) {
+    switch (mode) {
+      case 'scaleDown':
+        return 'Original';
+      case 'contain':
+      default:
+        return 'Fit';
+    }
+  }
+
+  Future<void> _showVideoScaleOptions() async {
+    _startHideTimer();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetCtx) => SafeArea(
+        child: StatefulBuilder(
+          builder: (sheetCtx, setSheetState) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Center(
+                  child: SizedBox(width: 40, child: Divider(thickness: 4, color: Colors.grey)),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Video Scale',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _videoFitModes.map((mode) {
+                    final selected = _videoFitMode == mode;
+                    return ChoiceChip(
+                      label: Text(_videoFitLabel(mode)),
+                      selected: selected,
+                      onSelected: (_) {
+                        _setVideoFitMode(mode);
+                        setSheetState(() {});
+                      },
+                      labelStyle: TextStyle(color: selected ? Colors.black : Colors.white),
+                      selectedColor: Colors.white,
+                      backgroundColor: Colors.grey[800],
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    const Icon(Icons.zoom_in, color: Colors.white70),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Slider(
+                        min: 1.0,
+                        max: 2.5,
+                        divisions: 15,
+                        value: _videoZoom,
+                        label: '${_videoZoom.toStringAsFixed(2)}x',
+                        onChanged: (value) {
+                          _setVideoZoom(value);
+                          setSheetState(() {});
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        '${_videoZoom.toStringAsFixed(2)}x',
+                        style: const TextStyle(color: Colors.white),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      _resetVideoScale();
+                      setSheetState(() {});
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reset'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _playNextEpisode() async {
@@ -291,7 +438,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final normalizedCurrent = _formatShortcutFromKeyEvent(event).replaceAll(' ', '').toLowerCase();
     return normalizedTarget == normalizedCurrent;
   }
-
 
   bool _hasAnyModifierPressed() {
     return HardwareKeyboard.instance.isControlPressed ||
@@ -502,11 +648,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                   fit: StackFit.expand,
                   children: [
                     Positioned.fill(
-                      child: Video(
-                        controller: _videoController,
-                        fit: _isFullscreenFit ? BoxFit.contain : BoxFit.cover,
-                        controls: (_) => const SizedBox.shrink(),
-                        subtitleViewConfiguration: subtitleCfg,
+                      child: Transform.scale(
+                        scale: _videoZoom,
+                        child: Video(controller: _videoController, fit: _currentVideoBoxFit(), controls: (_) => const SizedBox.shrink(), subtitleViewConfiguration: subtitleCfg),
                       ),
                     ),
 
@@ -619,6 +763,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
             icon: const Icon(Icons.audiotrack, color: Colors.white),
             tooltip: 'player.audio_track'.tr(),
             onPressed: _pickAudioTrack,
+          ),
+          IconButton(
+            icon: Icon(_videoFitIcon(_videoFitMode), color: Colors.white),
+            tooltip: 'Video Scale',
+            onPressed: _showVideoScaleOptions,
           ),
           if (_nextEpisode != null)
             IconButton(

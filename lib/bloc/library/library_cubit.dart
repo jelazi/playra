@@ -25,6 +25,10 @@ class LibraryCubit extends Cubit<LibraryState> {
 
   final LibraryService _service;
 
+  Future<void> refresh() async {
+    await load();
+  }
+
   Future<void> load() async {
     final folders = PlayraStorage.getPlayerSettings().libraryFolders;
     emit(state.copyWith(loading: true, folders: folders, error: null));

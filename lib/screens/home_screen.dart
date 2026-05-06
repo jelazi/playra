@@ -3,18 +3,23 @@ import 'dart:io';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
+import 'package:share_plus/share_plus.dart';
 
 import '../bloc/library/library_cubit.dart';
 import '../models/player_settings.dart';
+import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/playra_storage.dart';
+import '../services/subtitle_file_service.dart';
 import '../services/video_name_parser.dart';
 import 'media_info_screen.dart';
-import 'player_launcher.dart';
 import 'servers_screen.dart';
 import 'settings_screen.dart';
+import 'subtitle_editor_screen.dart';
+import 'subtitle_search_screen.dart';
 
 /// Main Playra home screen — the local video library.
 class HomeScreen extends StatefulWidget {
@@ -97,6 +102,256 @@ class _HomeScreenState extends State<HomeScreen> {
     final updated = updater(current);
     await PlayraStorage.savePlayerSettings(updated);
     if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshLibrary() async {
+    await context.read<LibraryCubit>().refresh();
+    _loadRecents();
+    _loadExpandedSections();
+  }
+
+  VideoInfo _toVideoInfo(VideoItem v) {
+    final file = File(v.uri);
+    return VideoInfo(path: v.uri, name: v.name, directory: file.parent.path);
+  }
+
+  bool _isLocalVideo(VideoItem v) => v.source == VideoSource.local && File(v.uri).existsSync();
+
+  Future<void> _showUnsupportedFileActionMessage() async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.action_local_only'.tr())));
+  }
+
+  Future<void> _showFileInfoDialog(VideoItem v) async {
+    final file = File(v.uri);
+    final stat = _isLocalVideo(v) ? await file.stat() : null;
+    final subtitleInfo = _isLocalVideo(v) ? SubtitleFileService.checkSubtitleFiles(_toVideoInfo(v)) : SubtitleFileInfo(hasSubtitles: false, subtitleFiles: []);
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('home.file_info'.tr()),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _infoRow('home.info_name'.tr(), v.name),
+              _infoRow('home.info_path'.tr(), v.uri),
+              _infoRow('home.info_folder'.tr(), v.folder ?? p.basename(p.dirname(v.uri))),
+              _infoRow('home.info_size'.tr(), stat != null ? _formatSize(stat.size) : (v.sizeBytes != null ? _formatSize(v.sizeBytes!) : '-')),
+              _infoRow('home.info_modified'.tr(), stat?.modified.toLocal().toString() ?? (v.modified?.toLocal().toString() ?? '-')),
+              _infoRow('home.info_extension'.tr(), v.extension.toUpperCase()),
+              _infoRow('home.info_subtitles'.tr(), subtitleInfo.description),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.ok'.tr()))],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          SelectableText(value),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editSubtitles(VideoItem v) async {
+    if (!_isLocalVideo(v)) {
+      await _showUnsupportedFileActionMessage();
+      return;
+    }
+
+    final info = SubtitleFileService.checkSubtitleFiles(_toVideoInfo(v));
+    if (info.subtitleFiles.isEmpty) {
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => SubtitleSearchScreen(videoInfo: _toVideoInfo(v))));
+      return;
+    }
+
+    String? subtitlePath;
+    if (info.subtitleFiles.length == 1) {
+      subtitlePath = info.subtitleFiles.first;
+    } else {
+      if (!mounted) return;
+      subtitlePath = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(title: Text('home.edit_subtitles'.tr())),
+              ...info.subtitleFiles.map((path) => ListTile(leading: const Icon(Icons.subtitles), title: Text(p.basename(path)), onTap: () => Navigator.of(ctx).pop(path))),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (subtitlePath == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SubtitleEditorScreen(videoPath: v.uri, subtitlePath: subtitlePath!),
+      ),
+    );
+  }
+
+  Future<void> _shareVideoFile(VideoItem v) async {
+    if (!_isLocalVideo(v)) {
+      await _showUnsupportedFileActionMessage();
+      return;
+    }
+
+    final subtitleInfo = SubtitleFileService.checkSubtitleFiles(_toVideoInfo(v));
+    final files = <XFile>[XFile(v.uri), ...subtitleInfo.subtitleFiles.map(XFile.new)];
+    await Share.shareXFiles(files, subject: v.displayName, text: v.displayName);
+  }
+
+  Future<void> _copyVideoFile(VideoItem v) async {
+    await _transferVideoFile(v, move: false);
+  }
+
+  Future<void> _moveVideoFile(VideoItem v) async {
+    await _transferVideoFile(v, move: true);
+  }
+
+  Future<void> _transferVideoFile(VideoItem v, {required bool move}) async {
+    if (!_isLocalVideo(v)) {
+      await _showUnsupportedFileActionMessage();
+      return;
+    }
+
+    final targetDir = await FilePicker.platform.getDirectoryPath(dialogTitle: move ? 'home.move_file'.tr() : 'home.copy_file'.tr());
+    if (targetDir == null || targetDir.isEmpty) return;
+
+    final subtitleInfo = SubtitleFileService.checkSubtitleFiles(_toVideoInfo(v));
+    final sourceFiles = <String>[v.uri, ...subtitleInfo.subtitleFiles];
+    final collisions = sourceFiles.where((source) => File(p.join(targetDir, p.basename(source))).existsSync()).toList();
+    if (collisions.isNotEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.target_exists'.tr())));
+      return;
+    }
+
+    for (final source in sourceFiles) {
+      final target = p.join(targetDir, p.basename(source));
+      await File(source).copy(target);
+    }
+
+    if (move) {
+      for (final source in sourceFiles.reversed) {
+        final file = File(source);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      await PlayraStorage.removeRecent(v.id);
+      await PlayraStorage.clearResume(v.id);
+      await _refreshLibrary();
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text((move ? 'home.move_done' : 'home.copy_done').tr())));
+  }
+
+  Future<void> _deleteVideoFile(VideoItem v) async {
+    if (!_isLocalVideo(v)) {
+      await _showUnsupportedFileActionMessage();
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('home.delete_file'.tr()),
+        content: Text('home.delete_file_confirm'.tr(args: [v.name])),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text('common.cancel'.tr())),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text('home.delete_file'.tr())),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final subtitleInfo = SubtitleFileService.checkSubtitleFiles(_toVideoInfo(v));
+    for (final subtitle in subtitleInfo.subtitleFiles) {
+      final file = File(subtitle);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+
+    final videoFile = File(v.uri);
+    if (await videoFile.exists()) {
+      await videoFile.delete();
+    }
+
+    await PlayraStorage.removeRecent(v.id);
+    await PlayraStorage.clearResume(v.id);
+    await _refreshLibrary();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.delete_done'.tr())));
+  }
+
+  Future<void> _copyVideoPath(VideoItem v) async {
+    await Clipboard.setData(ClipboardData(text: v.uri));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.copy_path_done'.tr())));
+  }
+
+  Future<void> _showVideoContextMenu(VideoItem v, Offset globalPosition) async {
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
+      items: [
+        PopupMenuItem(value: 'info', child: Text('home.file_info'.tr())),
+        PopupMenuItem(value: 'subtitles', child: Text('home.edit_subtitles'.tr())),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'copy', child: Text('home.copy_file'.tr())),
+        PopupMenuItem(value: 'move', child: Text('home.move_file'.tr())),
+        PopupMenuItem(value: 'copy_path', child: Text('home.copy_path'.tr())),
+        PopupMenuItem(value: 'share', child: Text('home.share_file'.tr())),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'delete', child: Text('home.delete_file'.tr())),
+      ],
+    );
+
+    switch (selected) {
+      case 'info':
+        await _showFileInfoDialog(v);
+        break;
+      case 'subtitles':
+        await _editSubtitles(v);
+        break;
+      case 'copy':
+        await _copyVideoFile(v);
+        break;
+      case 'move':
+        await _moveVideoFile(v);
+        break;
+      case 'copy_path':
+        await _copyVideoPath(v);
+        break;
+      case 'share':
+        await _shareVideoFile(v);
+        break;
+      case 'delete':
+        await _deleteVideoFile(v);
+        break;
+    }
   }
 
   List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode) {
@@ -265,14 +520,18 @@ class _HomeScreenState extends State<HomeScreen> {
             if (state.folders.isEmpty) {
               return _emptyState(icon: Icons.folder_open, title: 'home.empty_title'.tr(), subtitle: 'home.empty_subtitle'.tr());
             }
-            return _emptyState(icon: Icons.movie_outlined, title: 'home.no_videos_title'.tr(), subtitle: 'home.no_videos_subtitle'.tr());
+            return _emptyState(
+              icon: Icons.movie_outlined,
+              title: 'home.no_videos_title'.tr(),
+              subtitle: 'home.no_videos_subtitle'.tr(),
+              actionLabel: 'home.refresh_library'.tr(),
+              onAction: _refreshLibrary,
+            );
           }
 
           return RefreshIndicator(
             onRefresh: () async {
-              await context.read<LibraryCubit>().load();
-              _loadRecents();
-              _loadExpandedSections();
+              await _refreshLibrary();
             },
             child: CustomScrollView(
               slivers: [
@@ -346,11 +605,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               CheckedPopupMenuItem(value: 'group:smart', checked: libraryMode == 'smart', child: Text('settings.library_mode_smart'.tr())),
                             ],
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline, size: 18),
-                            tooltip: 'home.add_folder'.tr(),
-                            onPressed: _addFolder,
-                          ),
+                          IconButton(icon: const Icon(Icons.refresh, size: 18), tooltip: 'home.refresh_library'.tr(), onPressed: _refreshLibrary),
+                          IconButton(icon: const Icon(Icons.add_circle_outline, size: 18), tooltip: 'home.add_folder'.tr(), onPressed: _addFolder),
                         ],
                       ),
                     ),
@@ -390,28 +646,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       final v = entry.video!;
                       final resume = PlayraStorage.getResume(v.id);
                       final posterPath = PlayraStorage.getRecentPosterPath(v);
-                      return ListTile(
-                        leading: posterPath != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: Image.file(
-                                  File(posterPath),
-                                  width: 28,
-                                  height: 42,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.movie),
-                                ),
-                              )
-                            : const Icon(Icons.movie),
-                        title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text(
-                          [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
+                        child: ListTile(
+                          leading: posterPath != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Image.file(
+                                    File(posterPath),
+                                    width: 28,
+                                    height: 42,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.movie),
+                                  ),
+                                )
+                              : const Icon(Icons.movie),
+                          title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: resume != null ? const Icon(Icons.history, size: 20) : const Icon(Icons.chevron_right),
+                          onTap: () => _openVideo(v),
+                          onLongPress: () => _showVideoMenu(v),
                         ),
-                        trailing: resume != null ? const Icon(Icons.history, size: 20) : const Icon(Icons.chevron_right),
-                        onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: state.videos),
-                        onLongPress: () => _showVideoMenu(v),
                       );
                     },
                   ),
@@ -421,17 +681,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     sliver: SliverGrid.builder(
                       itemCount: gridVideos.length,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: visualMode == 'iconsLarge' ? 3 : 9,
+                        crossAxisCount: visualMode == 'iconsLarge' ? 4 : 9,
                         crossAxisSpacing: 8,
                         mainAxisSpacing: 8,
-                        childAspectRatio: visualMode == 'iconsLarge' ? 0.64 : 0.6,
+                        childAspectRatio: visualMode == 'iconsLarge' ? 0.7 : 0.6,
                       ),
                       itemBuilder: (context, i) {
                         final v = gridVideos[i];
                         final posterPath = PlayraStorage.getRecentPosterPath(v);
                         return InkWell(
                           onTap: () => _openVideo(v, libraryMode: libraryMode, allVideos: state.videos),
-                          onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
+                          onSecondaryTapDown: (d) => _showVideoContextMenu(v, d.globalPosition),
+                          onLongPress: () => _showVideoMenu(v),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -458,7 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 v.displayName,
                                 maxLines: visualMode == 'iconsLarge' ? 2 : 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: visualMode == 'iconsLarge' ? 12 : 10),
+                                style: TextStyle(fontSize: visualMode == 'iconsLarge' ? 11 : 10),
                               ),
                             ],
                           ),
@@ -532,7 +793,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _emptyState({required IconData icon, required String title, required String subtitle}) {
+  Widget _emptyState({required IconData icon, required String title, required String subtitle, String? actionLabel, Future<void> Function()? onAction}) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -548,6 +809,10 @@ class _HomeScreenState extends State<HomeScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.grey),
             ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 20),
+              FilledButton.icon(onPressed: onAction, icon: const Icon(Icons.refresh), label: Text(actionLabel)),
+            ],
           ],
         ),
       ),
@@ -563,34 +828,60 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.info_outline),
-              title: Text('home.view_info'.tr()),
+              title: Text('home.file_info'.tr()),
               onTap: () {
                 Navigator.of(ctx).pop();
-                _openVideo(v);
+                _showFileInfoDialog(v);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.play_arrow),
-              title: Text('home.play'.tr()),
-              onTap: () async {
-                final launcher = context.read<PlayerLauncher>();
+              leading: const Icon(Icons.subtitles),
+              title: Text('home.edit_subtitles'.tr()),
+              onTap: () {
                 Navigator.of(ctx).pop();
-                await PlayraStorage.addRecent(v);
-                if (!mounted) return;
-                await launcher.launch(context, v);
-                _loadRecents();
+                _editSubtitles(v);
               },
             ),
-            if (PlayraStorage.getResume(v.id) != null)
-              ListTile(
-                leading: const Icon(Icons.delete_sweep),
-                title: Text('home.clear_resume'.tr()),
-                onTap: () async {
-                  await PlayraStorage.clearResume(v.id);
-                  if (ctx.mounted) Navigator.of(ctx).pop();
-                  if (mounted) setState(() {});
-                },
-              ),
+            ListTile(
+              leading: const Icon(Icons.file_copy_outlined),
+              title: Text('home.copy_file'.tr()),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await _copyVideoFile(v);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: Text('home.move_file'.tr()),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await _moveVideoFile(v);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_all),
+              title: Text('home.copy_path'.tr()),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await _copyVideoPath(v);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.ios_share),
+              title: Text('home.share_file'.tr()),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await _shareVideoFile(v);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text('home.delete_file'.tr()),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                await _deleteVideoFile(v);
+              },
+            ),
           ],
         ),
       ),

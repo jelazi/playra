@@ -1,5 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../models/media_info.dart';
@@ -36,6 +39,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   VideoItem? _nextEpisode;
   bool _loading = true;
   bool _notFound = false;
+  Color _appBarForeground = Colors.white;
 
   @override
   void initState() {
@@ -74,6 +78,9 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     _media = result.mediaInfo;
     _parsed = result.parsed;
 
+    // Adapt app bar foreground (title/back/edit icons) to the backdrop image.
+    _updateAppBarForegroundFromBackdrop(result.mediaInfo.backdropUrl);
+
     // Keep a local small poster for recents cards.
     final posterPath = await PosterCacheService.cacheSmallPoster(result.mediaInfo);
     if (posterPath != null) {
@@ -90,6 +97,53 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     }
 
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _updateAppBarForegroundFromBackdrop(String backdropUrl) async {
+    if (backdropUrl.isEmpty) {
+      if (!mounted) return;
+      setState(() => _appBarForeground = Theme.of(context).colorScheme.onSurface);
+      return;
+    }
+
+    try {
+      final byteData = await NetworkAssetBundle(Uri.parse(backdropUrl)).load(backdropUrl);
+      final bytes = byteData.buffer.asUint8List();
+
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 28, targetHeight: 28);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      final rgba = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+
+      if (rgba == null) return;
+
+      final data = rgba.buffer.asUint8List();
+      double luminanceSum = 0;
+      int count = 0;
+      for (int i = 0; i <= data.length - 4; i += 4) {
+        final r = data[i] / 255.0;
+        final g = data[i + 1] / 255.0;
+        final b = data[i + 2] / 255.0;
+
+        final linearR = r <= 0.03928 ? r / 12.92 : ((r + 0.055) / 1.055);
+        final linearG = g <= 0.03928 ? g / 12.92 : ((g + 0.055) / 1.055);
+        final linearB = b <= 0.03928 ? b / 12.92 : ((b + 0.055) / 1.055);
+        final l = 0.2126 * linearR + 0.7152 * linearG + 0.0722 * linearB;
+        luminanceSum += l;
+        count++;
+      }
+
+      if (count == 0 || !mounted) return;
+      final avgLuminance = luminanceSum / count;
+
+      setState(() {
+        _appBarForeground = avgLuminance < 0.46 ? Colors.white : Colors.black87;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _appBarForeground = Colors.white);
+    }
   }
 
   Future<void> _play() async {
@@ -302,6 +356,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
         SliverAppBar(
           expandedHeight: isPortrait ? 220 : 0,
           pinned: true,
+          foregroundColor: _appBarForeground,
           flexibleSpace: media.backdropUrl.isNotEmpty
               ? FlexibleSpaceBar(
                   background: Stack(

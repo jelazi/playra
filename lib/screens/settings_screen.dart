@@ -259,6 +259,12 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
               _section(context, 'settings.section_library'.tr()),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: Text('settings.refresh_library'.tr()),
+                subtitle: Text('settings.refresh_library_hint'.tr()),
+                onTap: () => context.read<LibraryCubit>().refresh(),
+              ),
               ...currentFolders.map(
                 (f) => ListTile(
                   leading: const Icon(Icons.folder),
