@@ -26,6 +26,21 @@ import '../services/video_hash_service.dart';
 import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
 
+String _normalizeTrackPart(String? value) => (value ?? '').trim().toLowerCase();
+
+String _stableAudioTrackKey(AudioTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
+
+String _stableSubtitleTrackKey(SubtitleTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
+
+({String title, String language, String id}) _parseStoredTrackKey(String storedKey) {
+  final parts = storedKey.split('|');
+  return (
+    title: parts.isNotEmpty ? parts[0].trim().toLowerCase() : '',
+    language: parts.length > 1 ? parts[1].trim().toLowerCase() : '',
+    id: parts.length > 2 ? parts.sublist(2).join('|').trim() : '',
+  );
+}
+
 class PlayraPlayerScreen extends StatefulWidget {
   final VideoItem video;
 
@@ -65,6 +80,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Duration? _pendingInitialResume;
   bool _initialResumeApplied = false;
   bool _initialResumeResolved = false;
+  String? _pendingAudioTrackPref;
+  String? _pendingSubtitleTrackPref;
+  bool _preferredTracksApplied = false;
+  int _preferredTrackRestoreAttempts = 0;
 
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -130,6 +149,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
         _lastPersistedDurationMs = durationMs;
         unawaited(PlayraStorage.setVideoDuration(widget.video.id, durationMs));
         unawaited(_applyInitialResumeIfNeeded());
+        unawaited(_restorePreferredTracks());
       }
       _scheduleSessionSync();
     });
@@ -153,6 +173,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       _initialResumeResolved = true;
     }
 
+    _pendingAudioTrackPref = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+    _pendingSubtitleTrackPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+
     await _attachAutoSubtitleIfAvailable();
 
     await _restorePreferredTracks();
@@ -173,6 +196,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     _startHideTimer();
     _scheduleSessionSync();
+    _schedulePreferredTrackRestore();
   }
 
   Future<void> _applyInitialResumeIfNeeded() async {
@@ -352,40 +376,105 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   }
 
   Future<void> _restorePreferredTracks() async {
-    final audioPref = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
-    final subPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    final audioPref = _pendingAudioTrackPref ?? PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+    final subPref = _pendingSubtitleTrackPref ?? PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+
+    var appliedAudio = audioPref == null;
+    var appliedSubtitle = subPref == null;
 
     if (audioPref != null) {
       final tracks = _player.state.tracks.audio;
-      for (final t in tracks) {
-        if (_audioTrackKey(t) == audioPref) {
-          await _player.setAudioTrack(t);
-          break;
-        }
+      final matched = _matchAudioTrack(tracks, audioPref);
+      if (matched != null) {
+        await _player.setAudioTrack(matched);
+        appliedAudio = true;
       }
     }
 
     if (subPref != null) {
       final tracks = _player.state.tracks.subtitle;
-      for (final t in tracks) {
-        if (_subtitleTrackKey(t) == subPref) {
-          await _player.setSubtitleTrack(t);
-          break;
-        }
+      final matched = _matchSubtitleTrack(tracks, subPref);
+      if (matched != null) {
+        await _player.setSubtitleTrack(matched);
+        appliedSubtitle = true;
       }
     }
+
+    if (appliedAudio) _pendingAudioTrackPref = null;
+    if (appliedSubtitle) _pendingSubtitleTrackPref = null;
+    _preferredTracksApplied = appliedAudio && appliedSubtitle;
+  }
+
+  void _schedulePreferredTrackRestore() {
+    if (_preferredTracksApplied) return;
+    if (_preferredTrackRestoreAttempts >= 8) return;
+
+    _preferredTrackRestoreAttempts += 1;
+    Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted || _preferredTracksApplied) return;
+      await _restorePreferredTracks();
+      _schedulePreferredTrackRestore();
+    });
+  }
+
+  AudioTrack? _matchAudioTrack(List<AudioTrack> tracks, String storedKey) {
+    final parsed = _parseStoredTrackKey(storedKey);
+
+    for (final track in tracks) {
+      if (_audioTrackKey(track) == storedKey) return track;
+    }
+
+    for (final track in tracks) {
+      if (_stableAudioTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
+    }
+
+    if (parsed.title.isNotEmpty) {
+      for (final track in tracks) {
+        if (_normalizeTrackPart(track.title) == parsed.title) return track;
+      }
+    }
+
+    if (parsed.language.isNotEmpty) {
+      for (final track in tracks) {
+        if (_normalizeTrackPart(track.language) == parsed.language) return track;
+      }
+    }
+
+    return null;
+  }
+
+  SubtitleTrack? _matchSubtitleTrack(List<SubtitleTrack> tracks, String storedKey) {
+    final parsed = _parseStoredTrackKey(storedKey);
+
+    for (final track in tracks) {
+      if (_subtitleTrackKey(track) == storedKey) return track;
+    }
+
+    for (final track in tracks) {
+      if (_stableSubtitleTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
+    }
+
+    if (parsed.title.isNotEmpty) {
+      for (final track in tracks) {
+        if (_normalizeTrackPart(track.title) == parsed.title) return track;
+      }
+    }
+
+    if (parsed.language.isNotEmpty) {
+      for (final track in tracks) {
+        if (_normalizeTrackPart(track.language) == parsed.language) return track;
+      }
+    }
+
+    return null;
   }
 
   String _audioTrackKey(AudioTrack t) {
-    final title = (t.title ?? '').trim();
-    final lang = (t.language ?? '').trim();
-    return '$title|$lang|${t.id}';
+    return _stableAudioTrackKey(t);
   }
 
   String _subtitleTrackKey(SubtitleTrack t) {
-    final title = (t.title ?? '').trim();
-    final lang = (t.language ?? '').trim();
-    return '$title|$lang|${t.id}';
+    return _stableSubtitleTrackKey(t);
   }
 
   Future<void> _seekRelative(Duration delta) async {
@@ -1268,9 +1357,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
   }
 
   String _subtitleTrackKey(SubtitleTrack t) {
-    final title = (t.title ?? '').trim();
-    final lang = (t.language ?? '').trim();
-    return '$title|$lang|${t.id}';
+    return _stableSubtitleTrackKey(t);
   }
 
   List<Widget> _buildTrackTiles(SubtitleStyleSettings s) {
