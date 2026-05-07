@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -32,7 +33,8 @@ void main() async {
   await SettingsService.init();
   await MediaCacheService.init();
   await PlayraStorage.init();
-  await LanSyncService.instance.start();
+  // LAN sync server should not block app startup in release builds.
+  unawaited(LanSyncService.instance.start().catchError((_) {}));
 
   await EasyLocalization.ensureInitialized();
 

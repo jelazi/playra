@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/server_connection.dart';
@@ -11,14 +11,8 @@ import 'smb_browser_service.dart';
 /// Scans configured local folders for video files.
 class LibraryService {
   static const int _minVideoBytes = 256 * 1024;
+  static const Duration _folderScanTimeout = Duration(seconds: 12);
   final SmbBrowserService _smbBrowser = SmbBrowserService();
-
-  void _debugLog(String message) {
-    if (kDebugMode) {
-      print('[LibraryService] $message');
-      debugPrint('[LibraryService] $message');
-    }
-  }
 
   /// List videos in a single directory (non-recursive by default; set [recursive] to walk subtree).
   Future<List<VideoItem>> listFolder(String folderPath, {bool recursive = false}) async {
@@ -86,10 +80,8 @@ class LibraryService {
     );
     if (server.id.isEmpty) return const [];
 
-    _debugLog('Scanning SMB folder: server=${server.name} (${server.id}) path=$smbPath recursive=$recursive');
     final items = await _listSmbPath(server, smbPath, recursive: recursive);
     items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    _debugLog('SMB folder result count=${items.length} items=${items.take(20).map((e) => e.name).join(', ')}');
     return items;
   }
 
@@ -97,11 +89,8 @@ class LibraryService {
     final entries = await _smbBrowser.listPath(server, smbPath);
     final out = <VideoItem>[];
 
-    _debugLog('SMB path entries path=$smbPath total=${entries.length} names=${entries.take(30).map((e) => '${e.isDirectory ? '[DIR]' : '[FILE]'} ${e.name}').join(', ')}');
-
     for (final e in entries) {
       if (_smbBrowser.isHiddenEntry(e.name)) {
-        _debugLog('Skipping hidden SMB entry: ${e.name} (${e.path})');
         continue;
       }
 
@@ -117,11 +106,9 @@ class LibraryService {
       }
 
       if (!_smbBrowser.isVideo(e.name)) {
-        _debugLog('Skipping non-video SMB file: ${e.name} (${e.path})');
         continue;
       }
 
-      _debugLog('Accepting SMB video: ${e.name} (${e.path})');
       out.add(_smbBrowser.entryToVideoItem(server, e));
     }
 
@@ -132,7 +119,13 @@ class LibraryService {
   Future<List<VideoItem>> listFolders(List<String> folders, {bool recursive = true}) async {
     final all = <VideoItem>[];
     for (final f in folders) {
-      all.addAll(await listFolder(f, recursive: recursive));
+      try {
+        all.addAll(await listFolder(f, recursive: recursive).timeout(_folderScanTimeout));
+      } on TimeoutException {
+        // Skip folders that are currently unreachable (for example offline SMB paths).
+      } catch (_) {
+        // Keep loading remaining folders even when one fails.
+      }
     }
     return all;
   }

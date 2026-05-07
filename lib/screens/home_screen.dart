@@ -1,6 +1,4 @@
-import 'dart:developer' as developer;
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -44,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, bool> _expandedSections = {};
   bool _isHomeDragging = false;
   bool _isSyncing = false;
-  String? _lastDebugDumpSignature;
 
   @override
   void initState() {
@@ -57,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadRecents() {
-    final recents = PlayraStorage.getRecent().where((video) => kSupportedVideoExtensions.contains(video.extension)).toList();
+    final recents = PlayraStorage.getRecent().where((video) => kSupportedVideoExtensions.contains(video.extension.toLowerCase())).toList();
     if (mounted) setState(() => _recents = recents);
   }
 
@@ -222,6 +219,31 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _supportsDesktopDragDrop {
     if (kIsWeb) return false;
     return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  }
+
+  bool get _isMobileDevice {
+    if (kIsWeb) return false;
+    return Platform.isIOS || Platform.isAndroid;
+  }
+
+  Widget _buildPosterThumbnail({required String? posterPath, required double width, required double height, required BorderRadius borderRadius, required Widget fallback}) {
+    if (posterPath == null || posterPath.isEmpty || _isMobileDevice) {
+      return fallback;
+    }
+
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: Image.file(
+        File(posterPath),
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        cacheWidth: width.round() * 2,
+        cacheHeight: height.round() * 2,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (context, error, stackTrace) => fallback,
+      ),
+    );
   }
 
   Future<void> _handleHomeDrop(List<String> droppedPaths) async {
@@ -653,139 +675,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return videos.where((v) => kSupportedVideoExtensions.contains(v.extension.toLowerCase())).toList();
   }
 
-  void _debugLogUnexpectedUiItems(List<VideoItem> rawVideos, List<VideoItem> displayVideos) {
-    if (!kDebugMode) return;
-    if (rawVideos.length == displayVideos.length) return;
-
-    final hidden = rawVideos.where((video) => !kSupportedVideoExtensions.contains(video.extension.toLowerCase())).toList();
-    if (hidden.isEmpty) return;
-
-    debugPrint('[HomeScreen] Hidden non-video items before render: ${hidden.take(30).map((v) => '${v.name} (${v.extension})').join(', ')}');
-  }
-
-  void _emitDebugDumpIfChanged(LibraryState state) {
-    if (!kDebugMode) return;
-
-    final signature = '${state.folders.join('|')}::${state.videos.length}::${state.videos.take(20).map((v) => v.id).join('|')}';
-    if (_lastDebugDumpSignature == signature) return;
-    _lastDebugDumpSignature = signature;
-
-    final dump = _buildDebugLibraryDump(state);
-    developer.log('Library dump\n$dump', name: 'HomeScreen');
-    debugPrint('[HomeScreen] Library dump\n$dump');
-  }
-
-  Widget _buildInlineDebugPanel(LibraryState state) {
-    final rawVideos = state.videos;
-    final displayVideos = _filterDisplayVideos(rawVideos);
-    final hiddenVideos = rawVideos.where((video) => !_supportedVideoExtensions.contains('.${video.extension.toLowerCase()}')).toList();
-    final previewItems = rawVideos.take(8).toList();
-
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      color: Colors.orange.withValues(alpha: 0.12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.bug_report_outlined, size: 18),
-                const SizedBox(width: 8),
-                Text('Library Debug', style: Theme.of(context).textTheme.titleSmall),
-                const Spacer(),
-                TextButton(onPressed: _showDebugLibraryDump, child: const Text('Open')),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('folders=${state.folders.length}  raw=${rawVideos.length}  display=${displayVideos.length}  hidden=${hiddenVideos.length}  recents=${_recents.length}'),
-            if (state.folders.isNotEmpty) ...[const SizedBox(height: 8), Text('Folders: ${state.folders.join(' | ')}', maxLines: 3, overflow: TextOverflow.ellipsis)],
-            if (previewItems.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const Text('First raw items:'),
-              const SizedBox(height: 4),
-              for (final video in previewItems) Text('- ${video.name} | ext=${video.extension} | ${video.source.name}', maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _buildDebugLibraryDump(LibraryState state) {
-    final rawVideos = state.videos;
-    final displayVideos = _filterDisplayVideos(rawVideos);
-    final hiddenVideos = rawVideos.where((video) => !_supportedVideoExtensions.contains('.${video.extension.toLowerCase()}')).toList();
-    final buffer = StringBuffer()
-      ..writeln('folders: ${state.folders.length}')
-      ..writeln('rawVideos: ${rawVideos.length}')
-      ..writeln('displayVideos: ${displayVideos.length}')
-      ..writeln('hiddenNonVideos: ${hiddenVideos.length}')
-      ..writeln('recents: ${_recents.length}')
-      ..writeln('')
-      ..writeln('Configured folders:');
-
-    for (final folder in state.folders) {
-      buffer.writeln('- $folder');
-    }
-
-    buffer
-      ..writeln('')
-      ..writeln('Raw items:');
-    for (final video in rawVideos.take(120)) {
-      buffer.writeln('- ${video.name} | ext=${video.extension} | source=${video.source.name} | uri=${video.uri}');
-    }
-
-    if (rawVideos.length > 120) {
-      buffer.writeln('... ${rawVideos.length - 120} more raw items');
-    }
-
-    buffer
-      ..writeln('')
-      ..writeln('Hidden non-video items:');
-    for (final video in hiddenVideos.take(120)) {
-      buffer.writeln('- ${video.name} | ext=${video.extension} | source=${video.source.name} | uri=${video.uri}');
-    }
-
-    if (hiddenVideos.length > 120) {
-      buffer.writeln('... ${hiddenVideos.length - 120} more hidden items');
-    }
-
-    return buffer.toString();
-  }
-
-  Future<void> _showDebugLibraryDump() async {
-    if (!kDebugMode || !mounted) return;
-
-    final state = context.read<LibraryCubit>().state;
-    final dump = _buildDebugLibraryDump(state);
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Library Debug'),
-        content: SizedBox(
-          width: math.min(MediaQuery.of(ctx).size.width * 0.92, 900.0),
-          child: SingleChildScrollView(
-            child: SelectableText(dump, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: dump));
-              if (!ctx.mounted) return;
-              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Library debug copied')));
-            },
-            child: const Text('Copy'),
-          ),
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final playerSettings = PlayraStorage.getPlayerSettings();
@@ -797,7 +686,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
-          if (kDebugMode) IconButton(tooltip: 'Debug library', icon: const Icon(Icons.bug_report_outlined), onPressed: _showDebugLibraryDump),
           if (canSyncAcrossLan)
             IconButton(
               tooltip: 'home.sync_now'.tr(),
@@ -834,8 +722,6 @@ class _HomeScreenState extends State<HomeScreen> {
           if (state.loading) return const Center(child: CircularProgressIndicator());
 
           final displayVideos = _filterDisplayVideos(state.videos);
-          _debugLogUnexpectedUiItems(state.videos, displayVideos);
-          _emitDebugDumpIfChanged(state);
           final resumeById = PlayraStorage.getResumeMap();
           final posterById = PlayraStorage.getRecentPosterPathMap([...displayVideos, ..._recents]);
           final hasLibrary = state.folders.isNotEmpty && displayVideos.isNotEmpty;
@@ -882,7 +768,6 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: CustomScrollView(
               slivers: [
-                if (kDebugMode) SliverToBoxAdapter(child: _buildInlineDebugPanel(state)),
                 SliverToBoxAdapter(child: _buildMiniDropZone()),
                 if (showRecents) ...[
                   SliverToBoxAdapter(
@@ -976,9 +861,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right, size: 18),
                                 const SizedBox(width: 6),
                                 if (entry.posterPath != null)
-                                  ClipRRect(
+                                  _buildPosterThumbnail(
+                                    posterPath: entry.posterPath,
+                                    width: 20,
+                                    height: 28,
                                     borderRadius: BorderRadius.circular(4),
-                                    child: Image.file(File(entry.posterPath!), width: 20, height: 28, fit: BoxFit.cover),
+                                    fallback: Icon(entry.smartGroup == true ? Icons.auto_awesome : Icons.folder_open, size: 16),
                                   )
                                 else
                                   Icon(entry.smartGroup == true ? Icons.auto_awesome : Icons.folder_open, size: 16),
@@ -999,18 +887,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         behavior: HitTestBehavior.opaque,
                         onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
                         child: ListTile(
-                          leading: posterPath != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Image.file(
-                                    File(posterPath),
-                                    width: 28,
-                                    height: 42,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.movie),
-                                  ),
-                                )
-                              : const Icon(Icons.movie),
+                          leading: _buildPosterThumbnail(posterPath: posterPath, width: 28, height: 42, borderRadius: BorderRadius.circular(4), fallback: const Icon(Icons.movie)),
                           title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(
                             [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
@@ -1057,20 +934,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                   child: Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      if (posterPath != null)
-                                        Image.file(
-                                          File(posterPath),
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (context, error, stackTrace) => Container(
-                                            color: Colors.grey[300],
-                                            child: const Icon(Icons.movie, size: 32, color: Colors.grey),
-                                          ),
-                                        )
-                                      else
-                                        Container(
+                                      _buildPosterThumbnail(
+                                        posterPath: posterPath,
+                                        width: 160,
+                                        height: 240,
+                                        borderRadius: BorderRadius.circular(8),
+                                        fallback: Container(
                                           color: Colors.grey[300],
                                           child: const Icon(Icons.movie, size: 32, color: Colors.grey),
                                         ),
+                                      ),
                                       Positioned(
                                         top: 4,
                                         right: 4,
@@ -1130,20 +1003,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (posterPath != null)
-                      Image.file(
-                        File(posterPath),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.movie, size: 40, color: Colors.grey),
-                        ),
-                      )
-                    else
-                      Container(
+                    _buildPosterThumbnail(
+                      posterPath: posterPath,
+                      width: 100,
+                      height: 136,
+                      borderRadius: BorderRadius.circular(8),
+                      fallback: Container(
                         color: Colors.grey[300],
                         child: const Icon(Icons.movie, size: 40, color: Colors.grey),
                       ),
+                    ),
                     const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 22)),
                     Positioned(
                       bottom: 4,
