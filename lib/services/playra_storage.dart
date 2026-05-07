@@ -26,13 +26,20 @@ class PlayraStorage {
   static const String _trackPrefsKey = 'track_prefs';
   static const String _trackPrefsMetaKey = 'track_prefs_meta';
   static const String _resumeMetaKey = 'resume_meta';
+  static const String _resumeByHashMetaKey = 'resume_by_hash_meta';
+  static const String _trackPrefsByHashMetaKey = 'track_prefs_by_hash_meta';
   static const String _durationMetaKey = 'duration_meta';
+  static const String _videoIdentityMetaKey = 'video_identity_meta';
+  static const String _recentByHashMetaKey = 'recent_by_hash_meta';
+  static const String _mediaByHashMetaKey = 'media_by_hash_meta';
+  static const String _nowPlayingSessionKey = 'now_playing_session';
   static const String _recentPosterByVideoKey = 'recent_posters_by_video';
   static const String _recentPosterBySeriesKey = 'recent_posters_by_series';
   static const String _lastOpenedDirectoryKey = 'last_opened_directory';
   static const String _librarySectionExpandedKey = 'library_section_expanded';
 
   static const int _maxRecents = 20;
+  static const int _maxNowPlayingAgeMs = 6 * 60 * 60 * 1000;
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
@@ -79,8 +86,122 @@ class PlayraStorage {
     await _style?.put(_styleKey, s.encode());
   }
 
+  // --- Video identity map (videoId -> stable content hash) ---
+
+  static String? getVideoHash(String videoId) {
+    final map = _readMap(_videoIdentityMetaKey);
+    final entry = map[videoId];
+    if (entry is! Map) return null;
+    final hash = entry['hash'];
+    if (hash is! String || hash.isEmpty) return null;
+    return hash;
+  }
+
+  static List<String> getVideoIdsForHash(String hash) {
+    if (hash.isEmpty) return const [];
+    final map = _readMap(_videoIdentityMetaKey);
+    final out = <String>[];
+    map.forEach((videoId, entry) {
+      if (entry is! Map) return;
+      if (entry['hash'] == hash) out.add(videoId);
+    });
+    return out;
+  }
+
+  static Future<void> bindVideoToHash({required String videoId, required String hash, String? title, int? sizeBytes}) async {
+    if (videoId.isEmpty || hash.isEmpty) return;
+    final now = _nowMs();
+    final map = _readMap(_videoIdentityMetaKey);
+    map[videoId] = <String, dynamic>{'hash': hash, 'title': title, 'sizeBytes': sizeBytes, 'updatedAt': now};
+    await _writeMap(_videoIdentityMetaKey, map);
+
+    final existingResume = _resume?.get(videoId);
+    if (existingResume != null && existingResume > 0) {
+      final byHash = _readMap(_resumeByHashMetaKey);
+      byHash[hash] = <String, dynamic>{'positionMs': existingResume, 'updatedAt': now};
+      await _writeMap(_resumeByHashMetaKey, byHash);
+    }
+
+    final allTrackPrefs = _getTrackPrefsMap();
+    final byVideoTrack = allTrackPrefs[videoId];
+    if (byVideoTrack is Map) {
+      final byHashTracks = _readMap(_trackPrefsByHashMetaKey);
+      final next = <String, dynamic>{};
+      final audio = byVideoTrack['audio'];
+      if (audio is String && audio.isNotEmpty) {
+        next['audio'] = audio;
+        next['audioUpdatedAt'] = now;
+      }
+      final subtitle = byVideoTrack['subtitle'];
+      if (subtitle is String && subtitle.isNotEmpty) {
+        next['subtitle'] = subtitle;
+        next['subtitleUpdatedAt'] = now;
+      }
+      if (next.isNotEmpty) {
+        byHashTracks[hash] = next;
+        await _writeMap(_trackPrefsByHashMetaKey, byHashTracks);
+      }
+    }
+
+    final recentMeta = _readMap(_recentMetaKey);
+    final recentEntry = recentMeta[videoId];
+    if (recentEntry is Map && recentEntry['video'] is Map) {
+      final byHashRecents = _readMap(_recentByHashMetaKey);
+      byHashRecents[hash] = <String, dynamic>{
+        'video': Map<String, dynamic>.from(recentEntry['video'] as Map),
+        'hash': hash,
+        'updatedAt': _updatedAtFromEntry(recentEntry) > 0 ? _updatedAtFromEntry(recentEntry) : now,
+      };
+      await _writeMap(_recentByHashMetaKey, byHashRecents);
+    }
+  }
+
+  static Future<void> saveNowPlayingSession(Map<String, dynamic> session) async {
+    final data = Map<String, dynamic>.from(session);
+    data['updatedAt'] ??= _nowMs();
+    await _writeMap(_nowPlayingSessionKey, data);
+  }
+
+  static Map<String, dynamic>? getNowPlayingSession() {
+    final data = _readMap(_nowPlayingSessionKey);
+    if (data.isEmpty) return null;
+    final age = _nowMs() - _updatedAtFromEntry(data);
+    if (age > _maxNowPlayingAgeMs) return null;
+    return data;
+  }
+
+  static Future<void> saveMediaInfoForHash(String hash, Map<String, dynamic> mediaJson) async {
+    if (hash.isEmpty || mediaJson.isEmpty) return;
+    final map = _readMap(_mediaByHashMetaKey);
+    map[hash] = <String, dynamic>{'media': mediaJson, 'updatedAt': _nowMs()};
+    await _writeMap(_mediaByHashMetaKey, map);
+  }
+
+  static Map<String, dynamic>? getMediaInfoForHash(String hash) {
+    if (hash.isEmpty) return null;
+    final map = _readMap(_mediaByHashMetaKey);
+    final entry = map[hash];
+    if (entry is! Map) return null;
+    final media = entry['media'];
+    if (media is! Map) return null;
+    return Map<String, dynamic>.from(media);
+  }
+
   // --- Resume positions (videoId -> milliseconds) ---
-  static int? getResume(String videoId) => _resume?.get(videoId);
+  static int? getResume(String videoId) {
+    final direct = _resume?.get(videoId);
+    if (direct != null && direct > 0) return direct;
+
+    final hash = getVideoHash(videoId);
+    if (hash == null || hash.isEmpty) return null;
+    final byHash = _readMap(_resumeByHashMetaKey);
+    final entry = byHash[hash];
+    if (entry is! Map) return null;
+    final value = entry['positionMs'];
+    if (value is int && value > 0) return value;
+    if (value is num && value > 0) return value.toInt();
+    return null;
+  }
 
   static Map<String, int> getResumeMap() {
     final box = _resume;
@@ -89,15 +210,25 @@ class PlayraStorage {
   }
 
   static Future<void> setResume(String videoId, int positionMs) async {
+    final now = _nowMs();
     final meta = _readMap(_resumeMetaKey);
+    final hashMeta = _readMap(_resumeByHashMetaKey);
+    final hash = getVideoHash(videoId);
     if (positionMs <= 0) {
       await _resume?.delete(videoId);
       meta.remove(videoId);
+      if (hash != null && hash.isNotEmpty) {
+        hashMeta.remove(hash);
+      }
     } else {
       await _resume?.put(videoId, positionMs);
-      meta[videoId] = <String, dynamic>{'positionMs': positionMs, 'updatedAt': _nowMs()};
+      meta[videoId] = <String, dynamic>{'positionMs': positionMs, 'updatedAt': now};
+      if (hash != null && hash.isNotEmpty) {
+        hashMeta[hash] = <String, dynamic>{'positionMs': positionMs, 'updatedAt': now};
+      }
     }
     await _writeMap(_resumeMetaKey, meta);
+    await _writeMap(_resumeByHashMetaKey, hashMeta);
   }
 
   static Future<void> clearResume(String videoId) async {
@@ -105,11 +236,19 @@ class PlayraStorage {
     final meta = _readMap(_resumeMetaKey);
     meta.remove(videoId);
     await _writeMap(_resumeMetaKey, meta);
+
+    final hash = getVideoHash(videoId);
+    if (hash != null && hash.isNotEmpty) {
+      final hashMeta = _readMap(_resumeByHashMetaKey);
+      hashMeta.remove(hash);
+      await _writeMap(_resumeByHashMetaKey, hashMeta);
+    }
   }
 
   static Future<void> clearAllResume() async {
     await _resume?.clear();
     await _player?.delete(_resumeMetaKey);
+    await _player?.delete(_resumeByHashMetaKey);
   }
 
   // --- Known media durations (videoId -> milliseconds) ---
@@ -184,6 +323,7 @@ class PlayraStorage {
 
   /// Adds [video] to the front of the recents list and trims to [_maxRecents].
   static Future<void> addRecent(VideoItem video) async {
+    final now = _nowMs();
     final list = getRecent().toList();
     // Remove duplicate
     list.removeWhere((v) => v.id == video.id);
@@ -192,13 +332,21 @@ class PlayraStorage {
     await _player?.put(_recentsKey, jsonEncode(list.map((v) => v.toJson()).toList()));
 
     final meta = _readMap(_recentMetaKey);
-    meta[video.id] = <String, dynamic>{'video': video.toJson(), 'updatedAt': _nowMs()};
+    meta[video.id] = <String, dynamic>{'video': video.toJson(), 'updatedAt': now};
     await _writeMap(_recentMetaKey, meta);
+
+    final hash = getVideoHash(video.id);
+    if (hash != null && hash.isNotEmpty) {
+      final byHash = _readMap(_recentByHashMetaKey);
+      byHash[hash] = <String, dynamic>{'video': video.toJson(), 'hash': hash, 'updatedAt': now};
+      await _writeMap(_recentByHashMetaKey, byHash);
+    }
   }
 
   static Future<void> clearRecent() async {
     await _player?.delete(_recentsKey);
     await _player?.delete(_recentMetaKey);
+    await _player?.delete(_recentByHashMetaKey);
   }
 
   static Future<void> removeRecent(String videoId) async {
@@ -209,6 +357,13 @@ class PlayraStorage {
     final meta = _readMap(_recentMetaKey);
     meta.remove(videoId);
     await _writeMap(_recentMetaKey, meta);
+
+    final hash = getVideoHash(videoId);
+    if (hash != null && hash.isNotEmpty) {
+      final byHash = _readMap(_recentByHashMetaKey);
+      byHash.remove(hash);
+      await _writeMap(_recentByHashMetaKey, byHash);
+    }
   }
 
   // --- Track preferences (videoId -> audio/subtitle track key) ---
@@ -232,32 +387,58 @@ class PlayraStorage {
   static String? getPreferredAudioTrackKey(String videoId) {
     final all = _getTrackPrefsMap();
     final pref = all[videoId];
-    if (pref is! Map) return null;
-    final value = pref['audio'];
+    if (pref is Map) {
+      final value = pref['audio'];
+      if (value is String && value.isNotEmpty) return value;
+    }
+
+    final hash = getVideoHash(videoId);
+    if (hash == null || hash.isEmpty) return null;
+    final byHash = _readMap(_trackPrefsByHashMetaKey);
+    final byHashPref = byHash[hash];
+    if (byHashPref is! Map) return null;
+    final value = byHashPref['audio'];
     return value is String && value.isNotEmpty ? value : null;
   }
 
   static String? getPreferredSubtitleTrackKey(String videoId) {
     final all = _getTrackPrefsMap();
     final pref = all[videoId];
-    if (pref is! Map) return null;
-    final value = pref['subtitle'];
+    if (pref is Map) {
+      final value = pref['subtitle'];
+      if (value is String && value.isNotEmpty) return value;
+    }
+
+    final hash = getVideoHash(videoId);
+    if (hash == null || hash.isEmpty) return null;
+    final byHash = _readMap(_trackPrefsByHashMetaKey);
+    final byHashPref = byHash[hash];
+    if (byHashPref is! Map) return null;
+    final value = byHashPref['subtitle'];
     return value is String && value.isNotEmpty ? value : null;
   }
 
   static Future<void> savePreferredAudioTrackKey(String videoId, String? trackKey) async {
+    final now = _nowMs();
     final all = _getTrackPrefsMap();
     final pref = (all[videoId] is Map) ? Map<String, dynamic>.from(all[videoId] as Map) : <String, dynamic>{};
     final meta = _readMap(_trackPrefsMetaKey);
     final metaPref = (meta[videoId] is Map) ? Map<String, dynamic>.from(meta[videoId] as Map) : <String, dynamic>{};
+    final hashMap = _readMap(_trackPrefsByHashMetaKey);
+    final hash = getVideoHash(videoId);
+    final hashPref = hash != null && hashMap[hash] is Map ? Map<String, dynamic>.from(hashMap[hash] as Map) : <String, dynamic>{};
     if (trackKey == null || trackKey.isEmpty) {
       pref.remove('audio');
       metaPref.remove('audio');
       metaPref.remove('audioUpdatedAt');
+      hashPref.remove('audio');
+      hashPref.remove('audioUpdatedAt');
     } else {
       pref['audio'] = trackKey;
       metaPref['audio'] = trackKey;
-      metaPref['audioUpdatedAt'] = _nowMs();
+      metaPref['audioUpdatedAt'] = now;
+      hashPref['audio'] = trackKey;
+      hashPref['audioUpdatedAt'] = now;
     }
     if (pref.isEmpty) {
       all.remove(videoId);
@@ -269,23 +450,40 @@ class PlayraStorage {
     } else {
       meta[videoId] = metaPref;
     }
+
+    if (hash != null && hash.isNotEmpty) {
+      if (hashPref.isEmpty) {
+        hashMap.remove(hash);
+      } else {
+        hashMap[hash] = hashPref;
+      }
+    }
     await _saveTrackPrefsMap(all);
     await _writeMap(_trackPrefsMetaKey, meta);
+    await _writeMap(_trackPrefsByHashMetaKey, hashMap);
   }
 
   static Future<void> savePreferredSubtitleTrackKey(String videoId, String? trackKey) async {
+    final now = _nowMs();
     final all = _getTrackPrefsMap();
     final pref = (all[videoId] is Map) ? Map<String, dynamic>.from(all[videoId] as Map) : <String, dynamic>{};
     final meta = _readMap(_trackPrefsMetaKey);
     final metaPref = (meta[videoId] is Map) ? Map<String, dynamic>.from(meta[videoId] as Map) : <String, dynamic>{};
+    final hashMap = _readMap(_trackPrefsByHashMetaKey);
+    final hash = getVideoHash(videoId);
+    final hashPref = hash != null && hashMap[hash] is Map ? Map<String, dynamic>.from(hashMap[hash] as Map) : <String, dynamic>{};
     if (trackKey == null || trackKey.isEmpty) {
       pref.remove('subtitle');
       metaPref.remove('subtitle');
       metaPref.remove('subtitleUpdatedAt');
+      hashPref.remove('subtitle');
+      hashPref.remove('subtitleUpdatedAt');
     } else {
       pref['subtitle'] = trackKey;
       metaPref['subtitle'] = trackKey;
-      metaPref['subtitleUpdatedAt'] = _nowMs();
+      metaPref['subtitleUpdatedAt'] = now;
+      hashPref['subtitle'] = trackKey;
+      hashPref['subtitleUpdatedAt'] = now;
     }
     if (pref.isEmpty) {
       all.remove(videoId);
@@ -297,8 +495,17 @@ class PlayraStorage {
     } else {
       meta[videoId] = metaPref;
     }
+
+    if (hash != null && hash.isNotEmpty) {
+      if (hashPref.isEmpty) {
+        hashMap.remove(hash);
+      } else {
+        hashMap[hash] = hashPref;
+      }
+    }
     await _saveTrackPrefsMap(all);
     await _writeMap(_trackPrefsMetaKey, meta);
+    await _writeMap(_trackPrefsByHashMetaKey, hashMap);
   }
 
   static Map<String, dynamic> _readMap(String key) {
@@ -318,7 +525,18 @@ class PlayraStorage {
   }
 
   static Map<String, dynamic> exportSyncSnapshot() {
-    return <String, dynamic>{'schema': 1, 'generatedAt': _nowMs(), 'recents': _readMap(_recentMetaKey), 'resume': _readMap(_resumeMetaKey), 'tracks': _readMap(_trackPrefsMetaKey)};
+    return <String, dynamic>{
+      'schema': 2,
+      'generatedAt': _nowMs(),
+      'recents': _readMap(_recentMetaKey),
+      'recentByHash': _readMap(_recentByHashMetaKey),
+      'resume': _readMap(_resumeMetaKey),
+      'resumeByHash': _readMap(_resumeByHashMetaKey),
+      'tracks': _readMap(_trackPrefsMetaKey),
+      'tracksByHash': _readMap(_trackPrefsByHashMetaKey),
+      'videoIdentity': _readMap(_videoIdentityMetaKey),
+      'mediaByHash': _readMap(_mediaByHashMetaKey),
+    };
   }
 
   static int _updatedAtFromEntry(dynamic entry) {
@@ -339,8 +557,44 @@ class PlayraStorage {
 
   static Future<void> mergeSyncSnapshot(Map<String, dynamic> snapshot) async {
     final incomingRecents = snapshot['recents'] is Map ? Map<String, dynamic>.from(snapshot['recents'] as Map) : <String, dynamic>{};
+    final incomingRecentByHash = snapshot['recentByHash'] is Map ? Map<String, dynamic>.from(snapshot['recentByHash'] as Map) : <String, dynamic>{};
     final incomingResume = snapshot['resume'] is Map ? Map<String, dynamic>.from(snapshot['resume'] as Map) : <String, dynamic>{};
+    final incomingResumeByHash = snapshot['resumeByHash'] is Map ? Map<String, dynamic>.from(snapshot['resumeByHash'] as Map) : <String, dynamic>{};
     final incomingTracks = snapshot['tracks'] is Map ? Map<String, dynamic>.from(snapshot['tracks'] as Map) : <String, dynamic>{};
+    final incomingTracksByHash = snapshot['tracksByHash'] is Map ? Map<String, dynamic>.from(snapshot['tracksByHash'] as Map) : <String, dynamic>{};
+    final incomingVideoIdentity = snapshot['videoIdentity'] is Map ? Map<String, dynamic>.from(snapshot['videoIdentity'] as Map) : <String, dynamic>{};
+    final incomingMediaByHash = snapshot['mediaByHash'] is Map ? Map<String, dynamic>.from(snapshot['mediaByHash'] as Map) : <String, dynamic>{};
+
+    List<String> videoIdsForHash(Map<String, dynamic> identityMap, String hash) {
+      final out = <String>[];
+      identityMap.forEach((videoId, value) {
+        if (value is! Map) return;
+        if (value['hash'] == hash) out.add(videoId);
+      });
+      return out;
+    }
+
+    // Merge video identity map first.
+    final localIdentity = _readMap(_videoIdentityMetaKey);
+    incomingVideoIdentity.forEach((videoId, incomingValue) {
+      if (incomingValue is! Map) return;
+      final incomingUpdatedAt = _updatedAtFromEntry(incomingValue);
+      final localUpdatedAt = _updatedAtFromEntry(localIdentity[videoId]);
+      if (incomingUpdatedAt < localUpdatedAt) return;
+      localIdentity[videoId] = Map<String, dynamic>.from(incomingValue);
+    });
+    await _writeMap(_videoIdentityMetaKey, localIdentity);
+
+    // Merge media info by hash.
+    final localMediaByHash = _readMap(_mediaByHashMetaKey);
+    incomingMediaByHash.forEach((hash, incomingValue) {
+      if (incomingValue is! Map) return;
+      final incomingUpdatedAt = _updatedAtFromEntry(incomingValue);
+      final localUpdatedAt = _updatedAtFromEntry(localMediaByHash[hash]);
+      if (incomingUpdatedAt < localUpdatedAt) return;
+      localMediaByHash[hash] = Map<String, dynamic>.from(incomingValue);
+    });
+    await _writeMap(_mediaByHashMetaKey, localMediaByHash);
 
     // Merge recents by per-video updatedAt.
     final localRecentsMeta = _readMap(_recentMetaKey);
@@ -354,21 +608,49 @@ class PlayraStorage {
       localRecentsMeta[videoId] = <String, dynamic>{'video': Map<String, dynamic>.from(videoJson), 'updatedAt': incomingUpdatedAt};
     });
 
+    // Merge recents by hash.
+    final localRecentByHash = _readMap(_recentByHashMetaKey);
+    incomingRecentByHash.forEach((hash, incomingValue) {
+      if (incomingValue is! Map) return;
+      final incomingUpdatedAt = _updatedAtFromEntry(incomingValue);
+      final localUpdatedAt = _updatedAtFromEntry(localRecentByHash[hash]);
+      if (incomingUpdatedAt < localUpdatedAt) return;
+      localRecentByHash[hash] = Map<String, dynamic>.from(incomingValue);
+    });
+
     final recentEntries = localRecentsMeta.entries.where((e) => e.value is Map && (e.value as Map)['video'] is Map).toList()
       ..sort((a, b) => _updatedAtFromEntry(b.value).compareTo(_updatedAtFromEntry(a.value)));
-    final topRecentEntries = recentEntries.take(_maxRecents).toList();
+    final recentHashEntries = localRecentByHash.entries.where((e) => e.value is Map && (e.value as Map)['video'] is Map).toList()
+      ..sort((a, b) => _updatedAtFromEntry(b.value).compareTo(_updatedAtFromEntry(a.value)));
+
     final mergedRecentVideos = <VideoItem>[];
     final trimmedRecentMeta = <String, dynamic>{};
-    for (final entry in topRecentEntries) {
+    for (final entry in recentHashEntries) {
       final value = entry.value as Map;
       try {
         final video = VideoItem.fromJson(Map<String, dynamic>.from(value['video'] as Map));
+        if (!mergedRecentVideos.any((v) => v.id == video.id)) {
+          mergedRecentVideos.add(video);
+          trimmedRecentMeta[video.id] = <String, dynamic>{'video': video.toJson(), 'updatedAt': _updatedAtFromEntry(value)};
+        }
+      } catch (_) {}
+      if (mergedRecentVideos.length >= _maxRecents) break;
+    }
+
+    for (final entry in recentEntries) {
+      final value = entry.value as Map;
+      try {
+        final video = VideoItem.fromJson(Map<String, dynamic>.from(value['video'] as Map));
+        if (mergedRecentVideos.any((v) => v.id == video.id)) continue;
         mergedRecentVideos.add(video);
         trimmedRecentMeta[entry.key] = value;
       } catch (_) {}
+      if (mergedRecentVideos.length >= _maxRecents) break;
     }
+
     await _player?.put(_recentsKey, jsonEncode(mergedRecentVideos.map((v) => v.toJson()).toList()));
     await _writeMap(_recentMetaKey, trimmedRecentMeta);
+    await _writeMap(_recentByHashMetaKey, localRecentByHash);
 
     // Merge resume positions by per-video updatedAt.
     final localResumeMeta = _readMap(_resumeMetaKey);
@@ -387,7 +669,33 @@ class PlayraStorage {
         localResumeMeta[videoId] = <String, dynamic>{'positionMs': positionMs, 'updatedAt': incomingUpdatedAt};
       }
     });
+
+    // Merge resume by hash.
+    final localResumeByHash = _readMap(_resumeByHashMetaKey);
+    incomingResumeByHash.forEach((hash, incomingValue) {
+      if (incomingValue is! Map) return;
+      final incomingUpdatedAt = _updatedAtFromEntry(incomingValue);
+      final localUpdatedAt = _updatedAtFromEntry(localResumeByHash[hash]);
+      if (incomingUpdatedAt < localUpdatedAt) return;
+      localResumeByHash[hash] = Map<String, dynamic>.from(incomingValue);
+    });
+
+    // Propagate hash-based resume to known local video IDs.
+    localResumeByHash.forEach((hash, value) {
+      if (value is! Map) return;
+      final position = value['positionMs'];
+      final positionMs = position is num ? position.toInt() : 0;
+      if (positionMs <= 0) return;
+      final updatedAt = _updatedAtFromEntry(value);
+      final ids = videoIdsForHash(localIdentity, hash);
+      for (final videoId in ids) {
+        _resume?.put(videoId, positionMs);
+        localResumeMeta[videoId] = <String, dynamic>{'positionMs': positionMs, 'updatedAt': updatedAt};
+      }
+    });
+
     await _writeMap(_resumeMetaKey, localResumeMeta);
+    await _writeMap(_resumeByHashMetaKey, localResumeByHash);
 
     // Merge preferred tracks by per-field updatedAt.
     final localTrackPrefs = _getTrackPrefsMap();
@@ -441,8 +749,83 @@ class PlayraStorage {
       }
     });
 
+    final localTracksByHash = _readMap(_trackPrefsByHashMetaKey);
+    incomingTracksByHash.forEach((hash, incomingValue) {
+      if (incomingValue is! Map) return;
+      final local = localTracksByHash[hash] is Map ? Map<String, dynamic>.from(localTracksByHash[hash] as Map) : <String, dynamic>{};
+
+      final incomingAudioAt = _fieldUpdatedAtFromEntry(incomingValue, 'audioUpdatedAt');
+      final localAudioAt = _fieldUpdatedAtFromEntry(local, 'audioUpdatedAt');
+      if (incomingAudioAt >= localAudioAt && incomingAudioAt > 0) {
+        final incomingAudio = incomingValue['audio'];
+        if (incomingAudio is String && incomingAudio.isNotEmpty) {
+          local['audio'] = incomingAudio;
+          local['audioUpdatedAt'] = incomingAudioAt;
+        } else {
+          local.remove('audio');
+          local.remove('audioUpdatedAt');
+        }
+      }
+
+      final incomingSubtitleAt = _fieldUpdatedAtFromEntry(incomingValue, 'subtitleUpdatedAt');
+      final localSubtitleAt = _fieldUpdatedAtFromEntry(local, 'subtitleUpdatedAt');
+      if (incomingSubtitleAt >= localSubtitleAt && incomingSubtitleAt > 0) {
+        final incomingSubtitle = incomingValue['subtitle'];
+        if (incomingSubtitle is String && incomingSubtitle.isNotEmpty) {
+          local['subtitle'] = incomingSubtitle;
+          local['subtitleUpdatedAt'] = incomingSubtitleAt;
+        } else {
+          local.remove('subtitle');
+          local.remove('subtitleUpdatedAt');
+        }
+      }
+
+      if (local.isEmpty) {
+        localTracksByHash.remove(hash);
+      } else {
+        localTracksByHash[hash] = local;
+      }
+    });
+
+    // Propagate hash-based track preferences to known local video IDs.
+    localTracksByHash.forEach((hash, value) {
+      if (value is! Map) return;
+      final ids = videoIdsForHash(localIdentity, hash);
+      for (final videoId in ids) {
+        final pref = (localTrackPrefs[videoId] is Map) ? Map<String, dynamic>.from(localTrackPrefs[videoId] as Map) : <String, dynamic>{};
+        final meta = (localTrackMeta[videoId] is Map) ? Map<String, dynamic>.from(localTrackMeta[videoId] as Map) : <String, dynamic>{};
+
+        final audio = value['audio'];
+        if (audio is String && audio.isNotEmpty) {
+          pref['audio'] = audio;
+          meta['audio'] = audio;
+          meta['audioUpdatedAt'] = _fieldUpdatedAtFromEntry(value, 'audioUpdatedAt');
+        }
+
+        final subtitle = value['subtitle'];
+        if (subtitle is String && subtitle.isNotEmpty) {
+          pref['subtitle'] = subtitle;
+          meta['subtitle'] = subtitle;
+          meta['subtitleUpdatedAt'] = _fieldUpdatedAtFromEntry(value, 'subtitleUpdatedAt');
+        }
+
+        if (pref.isEmpty) {
+          localTrackPrefs.remove(videoId);
+        } else {
+          localTrackPrefs[videoId] = pref;
+        }
+
+        if (meta.isEmpty) {
+          localTrackMeta.remove(videoId);
+        } else {
+          localTrackMeta[videoId] = meta;
+        }
+      }
+    });
+
     await _saveTrackPrefsMap(localTrackPrefs);
     await _writeMap(_trackPrefsMetaKey, localTrackMeta);
+    await _writeMap(_trackPrefsByHashMetaKey, localTracksByHash);
   }
 
   // --- Recent poster paths ---

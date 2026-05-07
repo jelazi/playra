@@ -15,6 +15,15 @@ class LanSyncRunResult {
   const LanSyncRunResult({required this.configured, required this.peersFound, required this.mergedFromPeers, required this.pushedToPeers, this.error});
 }
 
+class LanPeerPlaybackSession {
+  final String host;
+  final int port;
+  final String deviceName;
+  final Map<String, dynamic> session;
+
+  const LanPeerPlaybackSession({required this.host, required this.port, required this.deviceName, required this.session});
+}
+
 class _DiscoveryRequest {
   final void Function(String host, int port) onPeer;
 
@@ -99,6 +108,33 @@ class LanSyncService {
     }
   }
 
+  Future<List<LanPeerPlaybackSession>> discoverPeerPlaybackSessions() async {
+    if (!_isConfigured) return const [];
+
+    await start();
+    final peers = await _discoverPeers();
+    if (peers.isEmpty) return const [];
+
+    final out = <LanPeerPlaybackSession>[];
+    for (final entry in peers.entries) {
+      final payload = await _fetchPeerSession(entry.key, entry.value);
+      if (payload == null) continue;
+      final session = payload['session'];
+      if (session is! Map) continue;
+      final sessionMap = Map<String, dynamic>.from(session);
+      if (sessionMap.isEmpty) continue;
+      out.add(
+        LanPeerPlaybackSession(
+          host: entry.key,
+          port: entry.value,
+          deviceName: (payload['deviceName'] as String?)?.trim().isNotEmpty == true ? payload['deviceName'] as String : entry.key,
+          session: sessionMap,
+        ),
+      );
+    }
+    return out;
+  }
+
   Future<Map<String, int>> _discoverPeers() async {
     final requestId = '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 20)}';
     final peers = <String, int>{};
@@ -171,6 +207,28 @@ class LanSyncService {
   }
 
   Future<void> _handleHttpRequest(HttpRequest req) async {
+    if (req.uri.path == '/sync/session') {
+      if (!_isAuthorized(req)) {
+        req.response.statusCode = HttpStatus.unauthorized;
+        req.response.write('Unauthorized');
+        await req.response.close();
+        return;
+      }
+
+      if (req.method != 'GET') {
+        req.response.statusCode = HttpStatus.methodNotAllowed;
+        await req.response.close();
+        return;
+      }
+
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(
+        jsonEncode(<String, dynamic>{'deviceName': Platform.localHostname, 'session': PlayraStorage.getNowPlayingSession(), 'generatedAt': DateTime.now().millisecondsSinceEpoch}),
+      );
+      await req.response.close();
+      return;
+    }
+
     if (req.uri.path != '/sync/state') {
       req.response.statusCode = HttpStatus.notFound;
       await req.response.close();
@@ -257,6 +315,26 @@ class LanSyncService {
       return res.statusCode == HttpStatus.ok;
     } catch (_) {
       return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchPeerSession(String host, int port) async {
+    final client = HttpClient();
+    try {
+      final uri = Uri.parse('http://$host:$port/sync/session');
+      final req = await client.getUrl(uri);
+      req.headers.set('x-playra-sync-user', _syncUsername);
+      req.headers.set('x-playra-sync-pass', _syncPassword);
+      final res = await req.close();
+      if (res.statusCode != HttpStatus.ok) return null;
+      final body = await utf8.decoder.bind(res).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return null;
+      return decoded;
+    } catch (_) {
+      return null;
     } finally {
       client.close(force: true);
     }

@@ -39,6 +39,12 @@ class PlayerLauncher {
     await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => PlayraPlayerScreen(video: playbackVideo)));
   }
 
+  Future<VideoItem?> resolveForHash(BuildContext context, VideoItem video) async {
+    final url = await _resolvePlayUrl(context, video);
+    if (url == null) return null;
+    return _toPlaybackVideo(video, url);
+  }
+
   VideoItem _toPlaybackVideo(VideoItem original, String resolvedUrl) {
     if (original.uri == resolvedUrl) return original;
     final source = resolvedUrl.startsWith('http') ? VideoSource.http : original.source;

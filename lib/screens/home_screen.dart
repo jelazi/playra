@@ -21,8 +21,10 @@ import '../services/media_lookup_service.dart';
 import '../services/playra_storage.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/video_hash_service.dart';
 import '../services/video_name_parser.dart';
 import 'media_info_screen.dart';
+import 'player_launcher.dart';
 import 'server_browser_screen.dart';
 import 'servers_screen.dart';
 import 'settings_screen.dart';
@@ -46,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _structuredCurrentFolder;
   bool _isHomeDragging = false;
   bool _isSyncing = false;
+  bool _isDiscoveringPeerSessions = false;
 
   @override
   void initState() {
@@ -100,15 +103,17 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (!mounted) return;
+    final addedLocal = await _addLocalFolder();
+    if (addedLocal || !mounted) return;
+
     final source = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(leading: const Icon(Icons.folder_open), title: Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
-            ListTile(leading: const Icon(Icons.lan), title: Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
+            ListTile(leading: const Icon(Icons.folder_open), title: const Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
+            ListTile(leading: const Icon(Icons.lan), title: const Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
           ],
         ),
       ),
@@ -124,12 +129,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _addLocalFolder() async {
+  Future<bool> _addLocalFolder() async {
     final selected = await FilePicker.platform.getDirectoryPath();
     if (selected != null) {
-      if (!mounted) return;
+      if (!mounted) return false;
       await context.read<LibraryCubit>().addFolder(selected);
+      return true;
     }
+    return false;
   }
 
   Future<void> _addSmbFolder() async {
@@ -214,6 +221,124 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     messenger.showSnackBar(SnackBar(content: Text('home.sync_done'.tr(args: [result.peersFound.toString(), result.mergedFromPeers.toString(), result.pushedToPeers.toString()]))));
+  }
+
+  String _formatPositionText(int milliseconds) {
+    final d = Duration(milliseconds: milliseconds);
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '$hours:$minutes:$seconds';
+    }
+    return '${d.inMinutes}:$seconds';
+  }
+
+  Future<VideoItem?> _findVideoByHash(String hash, List<VideoItem> videos, {String? titleHint, int? sizeBytesHint}) async {
+    for (final video in videos) {
+      if (PlayraStorage.getVideoHash(video.id) == hash) return video;
+    }
+
+    final candidates = videos.where((v) {
+      if (sizeBytesHint != null && sizeBytesHint > 0) {
+        return v.sizeBytes == sizeBytesHint;
+      }
+      if (titleHint != null && titleHint.trim().isNotEmpty) {
+        return v.displayName.toLowerCase() == titleHint.trim().toLowerCase();
+      }
+      return true;
+    }).toList();
+    final launcher = context.read<PlayerLauncher>();
+
+    for (final video in candidates) {
+      final hashTarget = video.source == VideoSource.smb ? await launcher.resolveForHash(context, video) ?? video : video;
+      final computed = await VideoHashService.hashForVideo(hashTarget);
+      if (computed == null || computed.isEmpty) continue;
+      await PlayraStorage.bindVideoToHash(videoId: video.id, hash: computed, title: video.displayName, sizeBytes: video.sizeBytes);
+      if (computed == hash) return video;
+    }
+    return null;
+  }
+
+  Future<void> _continueFromPeerPlayback() async {
+    if (_isDiscoveringPeerSessions) return;
+
+    setState(() => _isDiscoveringPeerSessions = true);
+    final sessions = await LanSyncService.instance.discoverPeerPlaybackSessions();
+    if (!mounted) return;
+    setState(() => _isDiscoveringPeerSessions = false);
+
+    final playableSessions =
+        sessions.where((s) {
+          final hash = s.session['videoHash'];
+          final position = s.session['positionMs'];
+          return hash is String && hash.isNotEmpty && position is num && position.toInt() > 0;
+        }).toList()..sort((a, b) {
+          final aAt = (a.session['updatedAt'] as num?)?.toInt() ?? 0;
+          final bAt = (b.session['updatedAt'] as num?)?.toInt() ?? 0;
+          return bAt.compareTo(aAt);
+        });
+
+    if (playableSessions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.continue_no_sessions'.tr())));
+      return;
+    }
+
+    final selected = await showModalBottomSheet<LanPeerPlaybackSession>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(title: Text('home.continue_select_session'.tr())),
+            ...playableSessions.map((peer) {
+              final title = (peer.session['title'] as String?)?.trim().isNotEmpty == true ? peer.session['title'] as String : 'Unknown';
+              final position = (peer.session['positionMs'] as num).toInt();
+              return ListTile(
+                leading: const Icon(Icons.play_circle_outline),
+                title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${'home.continue_peer'.tr(args: [peer.deviceName])} · ${'home.continue_at'.tr(args: [_formatPositionText(position)])}'),
+                trailing: TextButton(onPressed: () => Navigator.of(ctx).pop(peer), child: Text('home.continue_play_here'.tr())),
+                onTap: () => Navigator.of(ctx).pop(peer),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    final hash = selected.session['videoHash'] as String;
+    final titleHint = selected.session['title'] as String?;
+    final sizeBytesHint = (selected.session['sizeBytes'] as num?)?.toInt();
+    final positionMs = (selected.session['positionMs'] as num).toInt();
+    final audioTrack = selected.session['audioTrack'] as String?;
+    final subtitleTrack = selected.session['subtitleTrack'] as String?;
+
+    final library = context.read<LibraryCubit>().state.videos.where((v) => kSupportedVideoExtensions.contains(v.extension.toLowerCase())).toList();
+    final localMatch = await _findVideoByHash(hash, library, titleHint: titleHint, sizeBytesHint: sizeBytesHint);
+
+    if (localMatch == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.continue_unavailable_here'.tr())));
+      return;
+    }
+
+    await PlayraStorage.bindVideoToHash(videoId: localMatch.id, hash: hash, title: localMatch.displayName, sizeBytes: localMatch.sizeBytes);
+    await PlayraStorage.setResume(localMatch.id, positionMs);
+    if (audioTrack != null && audioTrack.isNotEmpty) {
+      await PlayraStorage.savePreferredAudioTrackKey(localMatch.id, audioTrack);
+    }
+    if (subtitleTrack != null && subtitleTrack.isNotEmpty) {
+      await PlayraStorage.savePreferredSubtitleTrackKey(localMatch.id, subtitleTrack);
+    }
+    await PlayraStorage.addRecent(localMatch);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.continue_success'.tr(args: [localMatch.displayName]))));
+    await context.read<PlayerLauncher>().launch(context, localMatch);
+    _loadRecents();
   }
 
   bool _isSupportedVideoPath(String filePath) {
@@ -872,7 +997,13 @@ class _HomeScreenState extends State<HomeScreen> {
         content: SizedBox(
           width: 760,
           child: FutureBuilder<MediaLookupResult?>(
-            future: lookup.lookupForFile(video.uri, language),
+            future: () async {
+              final hash = await VideoHashService.hashForVideo(video);
+              if (hash != null) {
+                await PlayraStorage.bindVideoToHash(videoId: video.id, hash: hash, title: video.displayName, sizeBytes: video.sizeBytes);
+              }
+              return lookup.lookupForFile(video.uri, language, videoHash: hash);
+            }(),
             builder: (ctx, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
@@ -952,6 +1083,12 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: _isSyncing ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync),
               onPressed: _isSyncing ? null : _runLanSync,
             ),
+          if (canSyncAcrossLan)
+            IconButton(
+              tooltip: 'home.continue_from_device'.tr(),
+              icon: _isDiscoveringPeerSessions ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
+              onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
+            ),
           IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _addFolder),
           IconButton(
             tooltip: 'subtitle.search_title'.tr(),
@@ -985,7 +1122,8 @@ class _HomeScreenState extends State<HomeScreen> {
           final resumeById = PlayraStorage.getResumeMap();
           final durationById = PlayraStorage.getVideoDurationMap();
           final posterById = PlayraStorage.getRecentPosterPathMap([...displayVideos, ..._recents]);
-          final hasLibrary = state.folders.isNotEmpty && displayVideos.isNotEmpty;
+          final hasFolders = state.folders.isNotEmpty;
+          final hasLibrary = hasFolders && displayVideos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
           final libraryEntries = _buildLibraryEntries(displayVideos, libraryMode, posterById);
           final lastWatchedInLibrary = _resolveLastWatchedInLibrary(displayVideos);
@@ -1068,6 +1206,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SliverToBoxAdapter(child: Divider(height: 24)),
                 ],
+                if (hasFolders && !displayVideos.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: _emptyState(
+                        icon: Icons.movie_outlined,
+                        title: 'home.no_videos_title'.tr(),
+                        subtitle: 'home.no_videos_subtitle'.tr(),
+                        actionLabel: 'home.add_folder'.tr(),
+                        onAction: _addFolder,
+                      ),
+                    ),
+                  ),
                 if (hasLibrary)
                   SliverToBoxAdapter(
                     child: Padding(

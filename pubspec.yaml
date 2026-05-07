@@ -35,6 +35,8 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
   share_plus: ^10.1.2
+  package_info_plus: ^8.1.1
+  crypto: ^3.0.6
 
   # Localization
   easy_localization: ^3.0.7

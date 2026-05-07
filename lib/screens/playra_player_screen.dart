@@ -22,6 +22,7 @@ import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/episode_continuation_service.dart';
 import '../services/playra_storage.dart';
+import '../services/video_hash_service.dart';
 import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
 
@@ -57,8 +58,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Timer? _hideTimer;
   Timer? _overlayTimer;
   Timer? _resumePersistTimer;
+  Timer? _syncSessionTimer;
   int _lastPersistedResumeMs = -1;
   int _lastPersistedDurationMs = -1;
+  String? _videoHash;
+  Duration? _pendingInitialResume;
+  bool _initialResumeApplied = false;
+  bool _initialResumeResolved = false;
 
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -92,7 +98,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _hideTimer?.cancel();
     _overlayTimer?.cancel();
     _resumePersistTimer?.cancel();
+    _syncSessionTimer?.cancel();
     unawaited(_persistResumeNow());
+    unawaited(_pushSessionUpdate(force: true));
     _keyboardFocusNode.dispose();
     _player.dispose();
     super.dispose();
@@ -102,14 +110,16 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _playingSub = _player.stream.playing.listen((p) {
       if (!mounted) return;
       setState(() => _playing = p);
+      unawaited(_pushSessionUpdate());
     });
 
     _positionSub = _player.stream.position.listen((pos) async {
       if (!mounted) return;
       setState(() => _position = pos);
-      if (_duration.inMilliseconds > 0) {
+      if (_duration.inMilliseconds > 0 && _initialResumeResolved) {
         _scheduleResumePersist();
       }
+      _scheduleSessionSync();
     });
 
     _durationSub = _player.stream.duration.listen((dur) {
@@ -119,7 +129,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       if (durationMs > 0 && durationMs != _lastPersistedDurationMs) {
         _lastPersistedDurationMs = durationMs;
         unawaited(PlayraStorage.setVideoDuration(widget.video.id, durationMs));
+        unawaited(_applyInitialResumeIfNeeded());
       }
+      _scheduleSessionSync();
     });
 
     _errorSub = _player.stream.error.listen((e) {
@@ -133,17 +145,22 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     await _player.open(Media(widget.video.uri));
 
+    final resume = PlayraStorage.getResume(widget.video.id);
+    if (settings.resumePlayback && resume != null && resume > 0) {
+      _pendingInitialResume = Duration(milliseconds: resume);
+      await _applyInitialResumeIfNeeded();
+    } else {
+      _initialResumeResolved = true;
+    }
+
     await _attachAutoSubtitleIfAvailable();
 
     await _restorePreferredTracks();
 
-    final resume = PlayraStorage.getResume(widget.video.id);
-    if (settings.resumePlayback && resume != null && resume > 0) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      final target = Duration(milliseconds: resume);
-      if (target > Duration.zero) {
-        await _player.seek(target);
-      }
+    _videoHash = await VideoHashService.hashForVideo(widget.video);
+    if (_videoHash != null) {
+      await PlayraStorage.bindVideoToHash(videoId: widget.video.id, hash: _videoHash!, title: widget.video.displayName, sizeBytes: widget.video.sizeBytes);
+      await PlayraStorage.addRecent(widget.video);
     }
 
     final next = await EpisodeContinuationService.findNextEpisode(widget.video);
@@ -155,6 +172,81 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     _startHideTimer();
+    _scheduleSessionSync();
+  }
+
+  Future<void> _applyInitialResumeIfNeeded() async {
+    if (_initialResumeApplied) {
+      _initialResumeResolved = true;
+      return;
+    }
+
+    final target = _pendingInitialResume;
+    if (target == null || target <= Duration.zero) {
+      _initialResumeResolved = true;
+      return;
+    }
+
+    final durationMs = _duration.inMilliseconds;
+    if (durationMs <= 0) return;
+
+    final maxTargetMs = durationMs > 2000 ? durationMs - 2000 : durationMs;
+    final targetMs = target.inMilliseconds.clamp(0, maxTargetMs);
+    if (targetMs <= 0) {
+      _pendingInitialResume = null;
+      _initialResumeApplied = true;
+      _initialResumeResolved = true;
+      return;
+    }
+
+    final clampedTarget = Duration(milliseconds: targetMs);
+    for (var attempt = 0; attempt < 4; attempt++) {
+      await _player.seek(clampedTarget);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      final currentMs = _player.state.position.inMilliseconds;
+      if ((currentMs - targetMs).abs() <= 1500) {
+        break;
+      }
+    }
+
+    _pendingInitialResume = null;
+    _initialResumeApplied = true;
+    _initialResumeResolved = true;
+    _scheduleResumePersist();
+    _scheduleSessionSync();
+  }
+
+  void _scheduleSessionSync() {
+    if (_syncSessionTimer?.isActive ?? false) return;
+    _syncSessionTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_pushSessionUpdate());
+    });
+  }
+
+  Future<void> _pushSessionUpdate({bool force = false}) async {
+    final hash = _videoHash;
+    if (hash == null || hash.isEmpty) return;
+
+    final positionMs = _position.inMilliseconds;
+    if (!force && positionMs <= 0) return;
+
+    final audioTrack = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+    final subtitleTrack = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+
+    await PlayraStorage.saveNowPlayingSession(<String, dynamic>{
+      'videoId': widget.video.id,
+      'title': widget.video.displayName,
+      'videoHash': hash,
+      'positionMs': positionMs,
+      'durationMs': _duration.inMilliseconds,
+      'isPlaying': _playing,
+      'audioTrack': audioTrack,
+      'subtitleTrack': subtitleTrack,
+      'sizeBytes': widget.video.sizeBytes,
+      'source': widget.video.source.name,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+    });
   }
 
   Future<void> _attachAutoSubtitleIfAvailable() async {

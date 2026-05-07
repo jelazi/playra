@@ -4,6 +4,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../bloc/library/library_cubit.dart';
 import '../bloc/settings/playra_settings_cubit.dart';
@@ -16,6 +17,48 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   bool get _isDesktop => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  String _doubleClickActionLabel(BuildContext context, String value) {
+    switch (value) {
+      case 'none':
+        return 'settings.desktop_action_none'.tr();
+      case 'fullscreen':
+        return 'settings.desktop_action_fullscreen'.tr();
+      case 'fit':
+        return 'settings.desktop_action_fit'.tr();
+      case 'toggleControls':
+        return 'settings.desktop_action_toggle_controls'.tr();
+      case 'seekBackward':
+        return 'settings.desktop_action_seek_back'.tr();
+      case 'seekForward':
+        return 'settings.desktop_action_seek_forward'.tr();
+      case 'volumeUp':
+        return 'settings.desktop_action_volume_up'.tr();
+      case 'volumeDown':
+        return 'settings.desktop_action_volume_down'.tr();
+      case 'brightnessUp':
+        return 'settings.desktop_action_brightness_up'.tr();
+      case 'brightnessDown':
+        return 'settings.desktop_action_brightness_down'.tr();
+      default:
+        return value;
+    }
+  }
+
+  String _wheelActionLabel(String value) {
+    switch (value) {
+      case 'none':
+        return 'settings.desktop_action_none'.tr();
+      case 'seek':
+        return 'settings.desktop_wheel_seek'.tr();
+      case 'volume':
+        return 'settings.desktop_wheel_volume'.tr();
+      case 'brightness':
+        return 'settings.desktop_wheel_brightness'.tr();
+      default:
+        return value;
+    }
+  }
 
   String _formatShortcut(KeyEvent event) {
     final parts = <String>[];
@@ -248,7 +291,7 @@ class SettingsScreen extends StatelessWidget {
                   title: Text('settings.desktop_double_click_shortcut'.tr()),
                   trailing: DropdownButton<String>(
                     value: p.desktopDoubleClickAction,
-                    items: kDesktopDoubleClickActionOptions.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+                    items: kDesktopDoubleClickActionOptions.map((a) => DropdownMenuItem(value: a, child: Text(_doubleClickActionLabel(context, a)))).toList(),
                     onChanged: (v) {
                       if (v != null) {
                         context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopDoubleClickAction: v));
@@ -260,7 +303,7 @@ class SettingsScreen extends StatelessWidget {
                   title: Text('settings.desktop_wheel_action'.tr()),
                   trailing: DropdownButton<String>(
                     value: p.desktopWheelAction,
-                    items: kDesktopWheelActionOptions.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+                    items: kDesktopWheelActionOptions.map((a) => DropdownMenuItem(value: a, child: Text(_wheelActionLabel(a)))).toList(),
                     onChanged: (v) {
                       if (v != null) {
                         context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(desktopWheelAction: v));
@@ -305,6 +348,32 @@ class SettingsScreen extends StatelessWidget {
                 },
               ),
               ListTile(leading: const Icon(Icons.sync), title: Text('settings.sync_hint'.tr())),
+
+              _section(context, 'settings.section_about'.tr()),
+              FutureBuilder<PackageInfo>(
+                future: PackageInfo.fromPlatform(),
+                builder: (context, snap) {
+                  final info = snap.data;
+                  return Column(
+                    children: [
+                      ListTile(title: Text('settings.app_name'.tr()), subtitle: Text(info?.appName ?? 'Playra')),
+                      ListTile(title: Text('settings.app_version'.tr()), subtitle: Text(info == null ? '-' : '${info.version}+${info.buildNumber}')),
+                      ListTile(title: Text('settings.app_build'.tr()), subtitle: Text(info?.buildNumber ?? '-')),
+                      ListTile(title: Text('settings.app_package'.tr()), subtitle: Text(info?.packageName ?? '-')),
+                      ListTile(title: Text('settings.app_copyright'.tr()), subtitle: const Text('© 2026 Playra')),
+                      ListTile(
+                        title: Text('settings.app_licenses'.tr()),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => showLicensePage(
+                          context: context,
+                          applicationName: info?.appName ?? 'Playra',
+                          applicationVersion: info == null ? '' : '${info.version}+${info.buildNumber}',
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
 
               _section(context, 'settings.section_library'.tr()),
               ListTile(

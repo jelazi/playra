@@ -12,7 +12,20 @@ import 'smb_browser_service.dart';
 class LibraryService {
   static const int _minVideoBytes = 256 * 1024;
   static const Duration _folderScanTimeout = Duration(seconds: 12);
+  static const Duration _mountedVolumeScanTimeout = Duration(minutes: 2);
   final SmbBrowserService _smbBrowser = SmbBrowserService();
+
+  Duration _scanTimeoutForFolder(String folderPath) {
+    if (folderPath.startsWith('smb://')) {
+      return _mountedVolumeScanTimeout;
+    }
+
+    if (Platform.isMacOS && folderPath.startsWith('/Volumes/')) {
+      return _mountedVolumeScanTimeout;
+    }
+
+    return _folderScanTimeout;
+  }
 
   /// List videos in a single directory (non-recursive by default; set [recursive] to walk subtree).
   Future<List<VideoItem>> listFolder(String folderPath, {bool recursive = false}) async {
@@ -120,7 +133,7 @@ class LibraryService {
     final all = <VideoItem>[];
     for (final f in folders) {
       try {
-        all.addAll(await listFolder(f, recursive: recursive).timeout(_folderScanTimeout));
+        all.addAll(await listFolder(f, recursive: recursive).timeout(_scanTimeoutForFolder(f)));
       } on TimeoutException {
         // Skip folders that are currently unreachable (for example offline SMB paths).
       } catch (_) {

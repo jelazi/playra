@@ -12,6 +12,7 @@ import '../services/media_lookup_service.dart';
 import '../services/playra_storage.dart';
 import '../services/poster_cache_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/video_hash_service.dart';
 import '../services/video_name_parser.dart';
 import 'player_launcher.dart';
 
@@ -36,6 +37,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   MediaInfo? _media;
   EpisodeInfo? _episode;
   ParsedVideoName? _parsed;
+  String? _videoHash;
   VideoItem? _nextEpisode;
   bool _loading = true;
   bool _notFound = false;
@@ -62,7 +64,11 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     });
 
     final language = context.locale.languageCode;
-    final result = await _lookup.lookupForFile(widget.video.uri, language);
+    _videoHash = await VideoHashService.hashForVideo(widget.video);
+    if (_videoHash != null) {
+      await PlayraStorage.bindVideoToHash(videoId: widget.video.id, hash: _videoHash!, title: widget.video.displayName, sizeBytes: widget.video.sizeBytes);
+    }
+    final result = await _lookup.lookupForFile(widget.video.uri, language, videoHash: _videoHash);
 
     if (!mounted) return;
 

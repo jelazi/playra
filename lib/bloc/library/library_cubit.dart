@@ -25,6 +25,14 @@ class LibraryCubit extends Cubit<LibraryState> {
 
   final LibraryService _service;
 
+  String _normalizeFolder(String folder) {
+    var value = folder.trim();
+    while (value.length > 1 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
+  }
+
   Future<void> refresh() async {
     await load();
   }
@@ -48,15 +56,21 @@ class LibraryCubit extends Cubit<LibraryState> {
 
   Future<void> addFolder(String folder) async {
     final settings = PlayraStorage.getPlayerSettings();
-    if (settings.libraryFolders.contains(folder)) return;
-    final updated = settings.copyWith(libraryFolders: [...settings.libraryFolders, folder]);
+    final normalizedFolder = _normalizeFolder(folder);
+    final existingFolders = settings.libraryFolders.map(_normalizeFolder).toList();
+    if (existingFolders.contains(normalizedFolder)) {
+      await load();
+      return;
+    }
+    final updated = settings.copyWith(libraryFolders: [...settings.libraryFolders, normalizedFolder]);
     await PlayraStorage.savePlayerSettings(updated);
     await load();
   }
 
   Future<void> removeFolder(String folder) async {
     final settings = PlayraStorage.getPlayerSettings();
-    final updated = settings.copyWith(libraryFolders: settings.libraryFolders.where((f) => f != folder).toList());
+    final normalizedFolder = _normalizeFolder(folder);
+    final updated = settings.copyWith(libraryFolders: settings.libraryFolders.where((f) => _normalizeFolder(f) != normalizedFolder).toList());
     await PlayraStorage.savePlayerSettings(updated);
     await load();
   }
