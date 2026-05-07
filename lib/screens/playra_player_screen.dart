@@ -11,6 +11,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path/path.dart' as p;
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -132,6 +133,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     await _player.open(Media(widget.video.uri));
 
+    await _attachAutoSubtitleIfAvailable();
+
     await _restorePreferredTracks();
 
     final resume = PlayraStorage.getResume(widget.video.id);
@@ -152,6 +155,94 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     _startHideTimer();
+  }
+
+  Future<void> _attachAutoSubtitleIfAvailable() async {
+    final preferred = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    if (preferred != null && preferred.isNotEmpty) return;
+
+    final current = _player.state.track.subtitle;
+    if (current.id != 'auto' && current.id != 'no') {
+      return;
+    }
+
+    final candidates = await _subtitleCandidates();
+    if (candidates.isEmpty) return;
+
+    final first = candidates.first;
+    final track = SubtitleTrack.uri(first, title: p.basename(Uri.parse(first).path));
+    await _player.setSubtitleTrack(track);
+    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
+  }
+
+  Future<List<String>> _subtitleCandidates() async {
+    final out = <String>[];
+
+    // SMB playback is converted to local HTTP proxy URL, but the original SMB URI
+    // remains in `video.id` and identifies when we should probe proxy sibling files.
+    if (widget.video.id.startsWith('smb://')) {
+      final fromProxy = await _subtitleCandidatesForProxyVideoUrl(widget.video.uri);
+      out.addAll(fromProxy);
+      return out;
+    }
+
+    if (widget.video.source == VideoSource.local) {
+      final localPath = widget.video.uri;
+      final dir = p.dirname(localPath);
+      final base = p.basenameWithoutExtension(localPath);
+      final names = <String>['$base.srt', '$base.cs.srt', '$base.cz.srt', '$base.czech.srt', '$base.en.srt', '$base.english.srt'];
+      for (final name in names) {
+        final candidate = p.join(dir, name);
+        if (await File(candidate).exists()) {
+          out.add(Uri.file(candidate).toString());
+        }
+      }
+    }
+
+    return out;
+  }
+
+  Future<List<String>> _subtitleCandidatesForProxyVideoUrl(String videoUrl) async {
+    try {
+      final uri = Uri.parse(videoUrl);
+      final segments = uri.pathSegments;
+      if (segments.length < 3 || segments.first != 'play') return const [];
+
+      final videoName = segments.last;
+      final dot = videoName.lastIndexOf('.');
+      if (dot <= 0) return const [];
+      final base = videoName.substring(0, dot);
+
+      final names = <String>['$base.srt', '$base.cs.srt', '$base.cz.srt', '$base.czech.srt', '$base.en.srt', '$base.english.srt'];
+
+      final found = <String>[];
+      for (final name in names) {
+        final candidateSegments = [...segments]..[candidateIndex(segments)] = name;
+        final candidate = uri.replace(pathSegments: candidateSegments, query: null, fragment: null);
+        if (await _remoteFileExists(candidate)) {
+          found.add(candidate.toString());
+        }
+      }
+
+      return found;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  int candidateIndex(List<String> segments) => segments.length - 1;
+
+  Future<bool> _remoteFileExists(Uri uri) async {
+    final client = HttpClient();
+    try {
+      final req = await client.headUrl(uri);
+      final res = await req.close();
+      return res.statusCode == HttpStatus.ok || res.statusCode == HttpStatus.partialContent;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void _scheduleResumePersist() {
