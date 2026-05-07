@@ -40,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<VideoItem> _recents = [];
   Map<String, bool> _expandedSections = {};
+  String? _structuredCurrentFolder;
   bool _isHomeDragging = false;
   bool _isSyncing = false;
 
@@ -675,6 +676,122 @@ class _HomeScreenState extends State<HomeScreen> {
     return videos.where((v) => kSupportedVideoExtensions.contains(v.extension.toLowerCase())).toList();
   }
 
+  String _normalizeFolderPath(String path) {
+    var normalized = path.replaceAll('\\', '/');
+    if (normalized.startsWith('smb://')) {
+      final rest = normalized.substring(6).replaceAll(RegExp('/+'), '/');
+      normalized = 'smb://$rest';
+    } else {
+      normalized = normalized.replaceAll(RegExp('/+'), '/');
+    }
+    if (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    return normalized;
+  }
+
+  bool _isSameOrChildFolder(String candidate, String folder) {
+    final c = _normalizeFolderPath(candidate);
+    final f = _normalizeFolderPath(folder);
+    return c == f || c.startsWith('$f/');
+  }
+
+  String? _bestRootForVideo(VideoItem video, List<String> roots) {
+    final uri = _normalizeFolderPath(video.uri);
+    String? best;
+    for (final root in roots) {
+      final normalizedRoot = _normalizeFolderPath(root);
+      if (_isSameOrChildFolder(uri, normalizedRoot)) {
+        if (best == null || normalizedRoot.length > best.length) {
+          best = normalizedRoot;
+        }
+      }
+    }
+    return best;
+  }
+
+  String _folderLabel(String path) {
+    if (path.startsWith('smb://')) {
+      final rest = path.substring(6);
+      final parts = rest.split('/').where((s) => s.isNotEmpty).toList();
+      if (parts.length >= 2) return '${parts[0]}/${parts[1]}';
+      if (parts.isNotEmpty) return parts.first;
+      return path;
+    }
+    return p.basename(path);
+  }
+
+  String? _structuredParentFolder(String currentFolder, List<String> roots) {
+    final normalizedCurrent = _normalizeFolderPath(currentFolder);
+    final currentRoot = roots.where((r) => _isSameOrChildFolder(normalizedCurrent, r)).fold<String?>(null, (best, root) => best == null || root.length > best.length ? root : best);
+    if (currentRoot == null) return null;
+    if (normalizedCurrent == currentRoot) return null;
+
+    final slash = normalizedCurrent.lastIndexOf('/');
+    if (slash <= 0) return null;
+    final parent = normalizedCurrent.substring(0, slash);
+    return _isSameOrChildFolder(parent, currentRoot) ? parent : null;
+  }
+
+  List<_StructuredEntry> _buildStructuredEntries(List<VideoItem> videos, List<String> rootsInput) {
+    final roots = rootsInput.map(_normalizeFolderPath).toSet().toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    var effectiveCurrent = _structuredCurrentFolder;
+    if (effectiveCurrent != null) {
+      final normalizedCurrent = _normalizeFolderPath(effectiveCurrent);
+      final valid = roots.any((root) => _isSameOrChildFolder(normalizedCurrent, root));
+      effectiveCurrent = valid ? normalizedCurrent : null;
+      if (effectiveCurrent != _structuredCurrentFolder) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => _structuredCurrentFolder = effectiveCurrent);
+        });
+      }
+    }
+
+    if (effectiveCurrent == null) {
+      final counts = <String, int>{for (final r in roots) r: 0};
+      for (final v in videos) {
+        final root = _bestRootForVideo(v, roots);
+        if (root != null) counts[root] = (counts[root] ?? 0) + 1;
+      }
+
+      return roots.map((root) => _StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0)).where((entry) => entry.count > 0).toList();
+    }
+
+    final folderCounts = <String, int>{};
+    final files = <VideoItem>[];
+    final currentPrefix = '${effectiveCurrent}/';
+
+    for (final v in videos) {
+      final uri = _normalizeFolderPath(v.uri);
+      if (!_isSameOrChildFolder(uri, effectiveCurrent)) continue;
+
+      if (uri.startsWith(currentPrefix)) {
+        final relative = uri.substring(currentPrefix.length);
+        if (relative.isEmpty) continue;
+        final slash = relative.indexOf('/');
+        if (slash < 0) {
+          files.add(v);
+        } else {
+          final childName = relative.substring(0, slash);
+          final childPath = '$effectiveCurrent/$childName';
+          folderCounts[childPath] = (folderCounts[childPath] ?? 0) + 1;
+        }
+      }
+    }
+
+    files.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final folders = folderCounts.entries.toList()..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+    final parent = _structuredParentFolder(effectiveCurrent, roots);
+
+    final entries = <_StructuredEntry>[];
+    entries.add(_StructuredEntry.parent(path: parent));
+    entries.addAll(folders.map((e) => _StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value)));
+    entries.addAll(files.map(_StructuredEntry.video));
+    return entries;
+  }
+
   @override
   Widget build(BuildContext context) {
     final playerSettings = PlayraStorage.getPlayerSettings();
@@ -727,6 +844,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final hasLibrary = state.folders.isNotEmpty && displayVideos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
           final libraryEntries = _buildLibraryEntries(displayVideos, libraryMode, posterById);
+          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, state.folders) : const <_StructuredEntry>[];
           final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
@@ -847,18 +965,67 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 if (hasLibrary && visualMode == 'list')
                   SliverList.builder(
-                    itemCount: libraryEntries.length,
+                    itemCount: libraryMode == 'structured' ? structuredEntries.length : libraryEntries.length,
                     itemBuilder: (context, i) {
+                      if (libraryMode == 'structured') {
+                        final entry = structuredEntries[i];
+                        if (entry.isParent) {
+                          return ListTile(leading: const Icon(Icons.arrow_upward), title: const Text('..'), onTap: () => setState(() => _structuredCurrentFolder = entry.path));
+                        }
+
+                        if (entry.isFolder) {
+                          return ListTile(
+                            leading: const Icon(Icons.folder_open),
+                            title: Text(entry.title ?? ''),
+                            subtitle: Text('${entry.count}'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => setState(() => _structuredCurrentFolder = entry.path),
+                          );
+                        }
+
+                        final v = entry.video!;
+                        final resume = resumeById[v.id];
+                        final posterPath = posterById[v.id];
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
+                          child: ListTile(
+                            leading: _buildPosterThumbnail(
+                              posterPath: posterPath,
+                              width: 28,
+                              height: 42,
+                              borderRadius: BorderRadius.circular(4),
+                              fallback: const Icon(Icons.movie),
+                            ),
+                            title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(
+                              [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
+                                Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
+                              ],
+                            ),
+                            onTap: () => _openVideo(v),
+                            onLongPress: () => _showVideoMenu(v),
+                          ),
+                        );
+                      }
+
                       final entry = libraryEntries[i];
                       if (entry.isHeader) {
                         return InkWell(
-                          onTap: () => _setSectionExpanded(entry.sectionKey!, !(entry.expanded ?? false)),
+                          onTap: entry.smartGroup == true ? () => _setSectionExpanded(entry.sectionKey!, !(entry.expanded ?? false)) : null,
                           child: Container(
                             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                             color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                             child: Row(
                               children: [
-                                Icon((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right, size: 18),
+                                Icon(entry.smartGroup == true ? ((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right) : Icons.folder_open, size: 18),
                                 const SizedBox(width: 6),
                                 if (entry.posterPath != null)
                                   _buildPosterThumbnail(
@@ -1173,4 +1340,20 @@ class _LibraryEntry {
     : video = null;
 
   const _LibraryEntry.video(this.video) : sectionKey = null, title = null, count = 0, expanded = null, smartGroup = null, posterPath = null;
+}
+
+class _StructuredEntry {
+  final String? path;
+  final String? title;
+  final int count;
+  final VideoItem? video;
+  final bool isParent;
+
+  bool get isFolder => !isParent && path != null && video == null;
+
+  const _StructuredEntry.parent({required this.path}) : title = '..', count = 0, video = null, isParent = true;
+
+  const _StructuredEntry.folder({required this.path, required this.title, required this.count}) : video = null, isParent = false;
+
+  const _StructuredEntry.video(this.video) : path = null, title = null, count = 0, isParent = false;
 }
