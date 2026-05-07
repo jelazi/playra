@@ -26,6 +26,7 @@ class PlayraStorage {
   static const String _trackPrefsKey = 'track_prefs';
   static const String _trackPrefsMetaKey = 'track_prefs_meta';
   static const String _resumeMetaKey = 'resume_meta';
+  static const String _durationMetaKey = 'duration_meta';
   static const String _recentPosterByVideoKey = 'recent_posters_by_video';
   static const String _recentPosterBySeriesKey = 'recent_posters_by_series';
   static const String _lastOpenedDirectoryKey = 'last_opened_directory';
@@ -109,6 +110,53 @@ class PlayraStorage {
   static Future<void> clearAllResume() async {
     await _resume?.clear();
     await _player?.delete(_resumeMetaKey);
+  }
+
+  // --- Known media durations (videoId -> milliseconds) ---
+
+  static int? getVideoDuration(String videoId) {
+    final meta = _readMap(_durationMetaKey);
+    final entry = meta[videoId];
+    if (entry is Map) {
+      final value = entry['durationMs'];
+      if (value is int && value > 0) return value;
+      if (value is num && value > 0) return value.toInt();
+      return null;
+    }
+    if (entry is int && entry > 0) return entry;
+    if (entry is num && entry > 0) return entry.toInt();
+    return null;
+  }
+
+  static Map<String, int> getVideoDurationMap() {
+    final meta = _readMap(_durationMetaKey);
+    final out = <String, int>{};
+    meta.forEach((key, value) {
+      if (value is Map) {
+        final duration = value['durationMs'];
+        if (duration is int && duration > 0) {
+          out[key] = duration;
+        } else if (duration is num && duration > 0) {
+          out[key] = duration.toInt();
+        }
+        return;
+      }
+      if (value is int && value > 0) {
+        out[key] = value;
+      } else if (value is num && value > 0) {
+        out[key] = value.toInt();
+      }
+    });
+    return out;
+  }
+
+  static Future<void> setVideoDuration(String videoId, int durationMs) async {
+    if (durationMs <= 0) return;
+    final meta = _readMap(_durationMetaKey);
+    final previous = getVideoDuration(videoId);
+    if (previous == durationMs) return;
+    meta[videoId] = <String, dynamic>{'durationMs': durationMs, 'updatedAt': _nowMs()};
+    await _writeMap(_durationMetaKey, meta);
   }
 
   // --- Recently played ---

@@ -57,6 +57,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Timer? _overlayTimer;
   Timer? _resumePersistTimer;
   int _lastPersistedResumeMs = -1;
+  int _lastPersistedDurationMs = -1;
 
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -113,6 +114,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _durationSub = _player.stream.duration.listen((dur) {
       if (!mounted) return;
       setState(() => _duration = dur);
+      final durationMs = dur.inMilliseconds;
+      if (durationMs > 0 && durationMs != _lastPersistedDurationMs) {
+        _lastPersistedDurationMs = durationMs;
+        unawaited(PlayraStorage.setVideoDuration(widget.video.id, durationMs));
+      }
     });
 
     _errorSub = _player.stream.error.listen((e) {

@@ -11,13 +11,16 @@ import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
 import '../bloc/library/library_cubit.dart';
+import '../models/media_info.dart';
 import '../models/player_settings.dart';
 import '../models/server_connection.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/lan_sync_service.dart';
+import '../services/media_lookup_service.dart';
 import '../services/playra_storage.dart';
 import '../services/subtitle_file_service.dart';
+import '../services/tmdb_service.dart';
 import '../services/video_name_parser.dart';
 import 'media_info_screen.dart';
 import 'server_browser_screen.dart';
@@ -506,6 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
       position: RelativeRect.fromLTRB(globalPosition.dx, globalPosition.dy, globalPosition.dx, globalPosition.dy),
       items: [
         PopupMenuItem(value: 'info', child: Text('home.file_info'.tr())),
+        PopupMenuItem(value: 'movie_info', child: Text('Info o filmu')),
         PopupMenuItem(value: 'subtitles', child: Text('home.edit_subtitles'.tr())),
         const PopupMenuDivider(),
         PopupMenuItem(value: 'copy', child: Text('home.copy_file'.tr())),
@@ -520,6 +524,9 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (selected) {
       case 'info':
         await _showFileInfoDialog(v);
+        break;
+      case 'movie_info':
+        await _showMovieInfoDialog(v);
         break;
       case 'subtitles':
         await _editSubtitles(v);
@@ -676,6 +683,60 @@ class _HomeScreenState extends State<HomeScreen> {
     return videos.where((v) => kSupportedVideoExtensions.contains(v.extension.toLowerCase())).toList();
   }
 
+  VideoItem? _resolveLastWatchedInLibrary(List<VideoItem> videos) {
+    if (_recents.isEmpty || videos.isEmpty) return null;
+    final byId = <String, VideoItem>{for (final v in videos) v.id: v};
+    for (final recent in _recents) {
+      final matched = byId[recent.id];
+      if (matched != null) return matched;
+    }
+    return null;
+  }
+
+  String? _pathParent(String path) {
+    final normalized = _normalizeFolderPath(path);
+    final slash = normalized.lastIndexOf('/');
+    if (slash <= 0) return null;
+    return normalized.substring(0, slash);
+  }
+
+  bool _isFolderOnPathToLastWatched(String folderPath, String? lastWatchedVideoPath) {
+    if (lastWatchedVideoPath == null) return false;
+    final lastFolder = _pathParent(lastWatchedVideoPath);
+    if (lastFolder == null) return false;
+    return _isSameOrChildFolder(lastFolder, folderPath);
+  }
+
+  bool _isLastWatchedVideo(VideoItem video, String? lastWatchedVideoPath) {
+    if (lastWatchedVideoPath == null) return false;
+    return _normalizeFolderPath(video.uri) == _normalizeFolderPath(lastWatchedVideoPath);
+  }
+
+  double _videoProgress(VideoItem video, Map<String, int> resumeById, Map<String, int> durationById) {
+    final resumeMs = resumeById[video.id] ?? 0;
+    final durationMs = durationById[video.id] ?? 0;
+    if (resumeMs <= 0 || durationMs <= 0) return 0;
+    final ratio = resumeMs / durationMs;
+    if (ratio >= 0.97) return 1;
+    return ratio.clamp(0, 1).toDouble();
+  }
+
+  Widget _buildProgressPie(double progress, {double size = 18}) {
+    final normalized = progress.clamp(0, 1).toDouble();
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _ProgressPiePainter(
+          progress: normalized,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          fillColor: Theme.of(context).colorScheme.primary,
+          borderColor: Theme.of(context).dividerColor,
+        ),
+      ),
+    );
+  }
+
   String _normalizeFolderPath(String path) {
     var normalized = path.replaceAll('\\', '/');
     if (normalized.startsWith('smb://')) {
@@ -733,7 +794,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return _isSameOrChildFolder(parent, currentRoot) ? parent : null;
   }
 
-  List<_StructuredEntry> _buildStructuredEntries(List<VideoItem> videos, List<String> rootsInput) {
+  List<_StructuredEntry> _buildStructuredEntries(List<VideoItem> videos, List<String> rootsInput, String? lastWatchedVideoPath) {
     final roots = rootsInput.map(_normalizeFolderPath).toSet().toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     var effectiveCurrent = _structuredCurrentFolder;
@@ -756,7 +817,13 @@ class _HomeScreenState extends State<HomeScreen> {
         if (root != null) counts[root] = (counts[root] ?? 0) + 1;
       }
 
-      return roots.map((root) => _StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0)).where((entry) => entry.count > 0).toList();
+      return roots
+          .map(
+            (root) =>
+                _StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0, highlighted: _isFolderOnPathToLastWatched(root, lastWatchedVideoPath)),
+          )
+          .where((entry) => entry.count > 0)
+          .toList();
     }
 
     final folderCounts = <String, int>{};
@@ -786,10 +853,86 @@ class _HomeScreenState extends State<HomeScreen> {
     final parent = _structuredParentFolder(effectiveCurrent, roots);
 
     final entries = <_StructuredEntry>[];
-    entries.add(_StructuredEntry.parent(path: parent));
-    entries.addAll(folders.map((e) => _StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value)));
-    entries.addAll(files.map(_StructuredEntry.video));
+    entries.add(_StructuredEntry.parent(path: parent, highlighted: _isFolderOnPathToLastWatched(effectiveCurrent, lastWatchedVideoPath)));
+    entries.addAll(
+      folders.map((e) => _StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value, highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath))),
+    );
+    entries.addAll(files.map((v) => _StructuredEntry.video(v, highlighted: _isLastWatchedVideo(v, lastWatchedVideoPath))));
     return entries;
+  }
+
+  Future<void> _showMovieInfoDialog(VideoItem video) async {
+    final lookup = MediaLookupService(TmdbService());
+    final language = context.locale.languageCode;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Info o filmu'),
+        content: SizedBox(
+          width: 760,
+          child: FutureBuilder<MediaLookupResult?>(
+            future: lookup.lookupForFile(video.uri, language),
+            builder: (ctx, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
+              }
+
+              final result = snapshot.data;
+              if (result == null) {
+                return SizedBox(height: 120, child: Center(child: Text('Informace o filmu nebyly nalezeny.')));
+              }
+
+              final media = result.mediaInfo;
+              final rating = media.voteAverage?.toStringAsFixed(1) ?? '-';
+              final year = (media.releaseDate != null && media.releaseDate!.length >= 4) ? media.releaseDate!.substring(0, 4) : '-';
+
+              return SingleChildScrollView(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (media.posterPath != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          media.posterUrl,
+                          width: 140,
+                          height: 210,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(width: 140, height: 210, color: Theme.of(context).colorScheme.surfaceContainerHighest),
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 140,
+                        height: 210,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.movie, size: 48),
+                      ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(media.title, style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 6),
+                          Text('${media.type == MediaType.movie ? 'Film' : 'Seriál'} • $year • TMDB $rating/10'),
+                          if (media.genres.isNotEmpty) ...[const SizedBox(height: 6), Text(media.genres.join(', '))],
+                          const SizedBox(height: 12),
+                          Text(media.overview?.trim().isNotEmpty == true ? media.overview!.trim() : 'Bez popisu.'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.ok'.tr()))],
+      ),
+    );
   }
 
   @override
@@ -840,11 +983,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final displayVideos = _filterDisplayVideos(state.videos);
           final resumeById = PlayraStorage.getResumeMap();
+          final durationById = PlayraStorage.getVideoDurationMap();
           final posterById = PlayraStorage.getRecentPosterPathMap([...displayVideos, ..._recents]);
           final hasLibrary = state.folders.isNotEmpty && displayVideos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
           final libraryEntries = _buildLibraryEntries(displayVideos, libraryMode, posterById);
-          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, state.folders) : const <_StructuredEntry>[];
+          final lastWatchedInLibrary = _resolveLastWatchedInLibrary(displayVideos);
+          final lastWatchedPath = lastWatchedInLibrary != null ? _normalizeFolderPath(lastWatchedInLibrary.uri) : null;
+          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, state.folders, lastWatchedPath) : const <_StructuredEntry>[];
           final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
@@ -970,13 +1116,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (libraryMode == 'structured') {
                         final entry = structuredEntries[i];
                         if (entry.isParent) {
-                          return ListTile(leading: const Icon(Icons.arrow_upward), title: const Text('..'), onTap: () => setState(() => _structuredCurrentFolder = entry.path));
+                          return ListTile(
+                            tileColor: entry.highlighted ? Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.38) : null,
+                            leading: const Icon(Icons.arrow_upward),
+                            title: const Text('..'),
+                            onTap: () => setState(() => _structuredCurrentFolder = entry.path),
+                          );
                         }
 
                         if (entry.isFolder) {
                           return ListTile(
+                            tileColor: entry.highlighted ? Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.38) : null,
                             leading: const Icon(Icons.folder_open),
-                            title: Text(entry.title ?? ''),
+                            title: Text(entry.title ?? '', style: entry.highlighted ? const TextStyle(fontWeight: FontWeight.w700) : null),
                             subtitle: Text('${entry.count}'),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => setState(() => _structuredCurrentFolder = entry.path),
@@ -985,11 +1137,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
                         final v = entry.video!;
                         final resume = resumeById[v.id];
+                        final progress = _videoProgress(v, resumeById, durationById);
                         final posterPath = posterById[v.id];
                         return GestureDetector(
                           behavior: HitTestBehavior.opaque,
                           onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
                           child: ListTile(
+                            tileColor: entry.highlighted ? Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.38) : null,
                             leading: _buildPosterThumbnail(
                               posterPath: posterPath,
                               width: 28,
@@ -1006,6 +1160,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                _buildProgressPie(progress),
+                                const SizedBox(width: 8),
                                 IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
                                 Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
                               ],
@@ -1049,6 +1205,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       final v = entry.video!;
                       final resume = resumeById[v.id];
+                      final progress = _videoProgress(v, resumeById, durationById);
                       final posterPath = posterById[v.id];
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
@@ -1064,6 +1221,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              _buildProgressPie(progress),
+                              const SizedBox(width: 8),
                               IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
                               Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
                             ],
@@ -1264,6 +1423,14 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.movie_outlined),
+              title: const Text('Info o filmu'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _showMovieInfoDialog(v);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.subtitles),
               title: Text('home.edit_subtitles'.tr()),
               onTap: () {
@@ -1348,12 +1515,49 @@ class _StructuredEntry {
   final int count;
   final VideoItem? video;
   final bool isParent;
+  final bool highlighted;
 
   bool get isFolder => !isParent && path != null && video == null;
 
-  const _StructuredEntry.parent({required this.path}) : title = '..', count = 0, video = null, isParent = true;
+  const _StructuredEntry.parent({required this.path, this.highlighted = false}) : title = '..', count = 0, video = null, isParent = true;
 
-  const _StructuredEntry.folder({required this.path, required this.title, required this.count}) : video = null, isParent = false;
+  const _StructuredEntry.folder({required this.path, required this.title, required this.count, this.highlighted = false}) : video = null, isParent = false;
 
-  const _StructuredEntry.video(this.video) : path = null, title = null, count = 0, isParent = false;
+  const _StructuredEntry.video(this.video, {this.highlighted = false}) : path = null, title = null, count = 0, isParent = false;
+}
+
+class _ProgressPiePainter extends CustomPainter {
+  final double progress;
+  final Color backgroundColor;
+  final Color fillColor;
+  final Color borderColor;
+
+  const _ProgressPiePainter({required this.progress, required this.backgroundColor, required this.fillColor, required this.borderColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final center = rect.center;
+    final radius = size.shortestSide / 2;
+
+    final bgPaint = Paint()..color = backgroundColor;
+    canvas.drawCircle(center, radius, bgPaint);
+
+    if (progress > 0) {
+      final fillPaint = Paint()..color = fillColor;
+      final sweep = 3.141592653589793 * 2 * progress;
+      canvas.drawArc(rect, -3.141592653589793 / 2, sweep, true, fillPaint);
+    }
+
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawCircle(center, radius - 0.5, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProgressPiePainter oldDelegate) {
+    return progress != oldDelegate.progress || backgroundColor != oldDelegate.backgroundColor || fillColor != oldDelegate.fillColor || borderColor != oldDelegate.borderColor;
+  }
 }
