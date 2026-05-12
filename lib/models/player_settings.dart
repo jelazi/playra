@@ -23,6 +23,8 @@ class PlayerSettings {
   final bool keepScreenOn;
   final double seekStepSeconds; // double-tap seek step
   final double touchSeekSensitivity; // horizontal swipe seek speed on touch devices
+  final String defaultAudioLanguage; // used only when no per-video audio preference exists
+  final String defaultSubtitleLanguage; // used only when no per-video subtitle preference exists
   final List<String> libraryFolders; // local folders scanned for videos
   final bool desktopShortcutsEnabled;
   final String desktopPlayPauseShortcut;
@@ -43,6 +45,8 @@ class PlayerSettings {
     this.keepScreenOn = true,
     this.seekStepSeconds = 10,
     this.touchSeekSensitivity = 2.0,
+    this.defaultAudioLanguage = '',
+    this.defaultSubtitleLanguage = '',
     this.libraryFolders = const [],
     this.desktopShortcutsEnabled = true,
     this.desktopPlayPauseShortcut = 'Space',
@@ -64,6 +68,8 @@ class PlayerSettings {
     bool? keepScreenOn,
     double? seekStepSeconds,
     double? touchSeekSensitivity,
+    String? defaultAudioLanguage,
+    String? defaultSubtitleLanguage,
     List<String>? libraryFolders,
     bool? desktopShortcutsEnabled,
     String? desktopPlayPauseShortcut,
@@ -83,6 +89,8 @@ class PlayerSettings {
     keepScreenOn: keepScreenOn ?? this.keepScreenOn,
     seekStepSeconds: seekStepSeconds ?? this.seekStepSeconds,
     touchSeekSensitivity: touchSeekSensitivity ?? this.touchSeekSensitivity,
+    defaultAudioLanguage: defaultAudioLanguage ?? this.defaultAudioLanguage,
+    defaultSubtitleLanguage: defaultSubtitleLanguage ?? this.defaultSubtitleLanguage,
     libraryFolders: libraryFolders ?? this.libraryFolders,
     desktopShortcutsEnabled: desktopShortcutsEnabled ?? this.desktopShortcutsEnabled,
     desktopPlayPauseShortcut: desktopPlayPauseShortcut ?? this.desktopPlayPauseShortcut,
@@ -104,6 +112,8 @@ class PlayerSettings {
     'keepScreenOn': keepScreenOn,
     'seekStepSeconds': seekStepSeconds,
     'touchSeekSensitivity': touchSeekSensitivity,
+    'defaultAudioLanguage': defaultAudioLanguage,
+    'defaultSubtitleLanguage': defaultSubtitleLanguage,
     'libraryFolders': libraryFolders,
     'desktopShortcutsEnabled': desktopShortcutsEnabled,
     'desktopPlayPauseShortcut': desktopPlayPauseShortcut,
@@ -125,6 +135,8 @@ class PlayerSettings {
     keepScreenOn: j['keepScreenOn'] as bool? ?? true,
     seekStepSeconds: (j['seekStepSeconds'] as num?)?.toDouble() ?? 10,
     touchSeekSensitivity: (j['touchSeekSensitivity'] as num?)?.toDouble() ?? 2.0,
+    defaultAudioLanguage: (j['defaultAudioLanguage'] as String?) ?? '',
+    defaultSubtitleLanguage: (j['defaultSubtitleLanguage'] as String?) ?? '',
     libraryFolders: (j['libraryFolders'] as List?)?.map((e) => e.toString()).toList() ?? const [],
     desktopShortcutsEnabled: j['desktopShortcutsEnabled'] as bool? ?? true,
     desktopPlayPauseShortcut: (j['desktopPlayPauseShortcut'] as String?) ?? (j['desktopPlayPauseKey'] as String?) ?? 'Space',

@@ -29,11 +29,9 @@ import 'downloads_screen.dart';
 import 'media_info_screen.dart';
 import 'player_launcher.dart';
 import 'server_browser_screen.dart';
-import 'servers_screen.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
-import 'video_library_screen.dart';
 
 /// Main Playra home screen — the local video library.
 class HomeScreen extends StatefulWidget {
@@ -168,17 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !mounted) return;
     await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
-  }
-
-  Future<void> _openSingleFile() async {
-    final initialDir = PlayraStorage.getLastOpenedDirectory();
-    final result = await FilePicker.platform.pickFiles(type: FileType.video, allowMultiple: false, initialDirectory: initialDir);
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    if (file.path == null) return;
-    await PlayraStorage.setLastOpenedDirectory(File(file.path!).parent.path);
-    final v = VideoItem(id: file.path!, name: file.name, uri: file.path!, source: VideoSource.local);
-    await _openVideo(v);
   }
 
   Future<void> _updatePlayerSettings(PlayerSettings Function(PlayerSettings) updater) async {
@@ -1095,27 +1082,12 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: _isDiscoveringPeerSessions ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
               onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
             ),
-          IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _addFolder),
           if (_isMobileDevice)
             IconButton(
               tooltip: 'downloads.title'.tr(),
               icon: const Icon(Icons.download_for_offline),
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
             ),
-          IconButton(
-            tooltip: 'subtitle.search_title'.tr(),
-            icon: const Icon(Icons.subtitles),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
-          ),
-          IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file), onPressed: _openSingleFile),
-          IconButton(
-            tooltip: 'home.servers'.tr(),
-            icon: const Icon(Icons.dns),
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen()));
-              _loadRecents();
-            },
-          ),
           IconButton(
             tooltip: 'home.settings'.tr(),
             icon: const Icon(Icons.settings),

@@ -282,6 +282,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final preferred = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
     if (preferred != null && preferred.isNotEmpty) return;
 
+    final settings = PlayraStorage.getPlayerSettings();
+    if (settings.defaultSubtitleLanguage.trim().isNotEmpty) return;
+
     final current = _player.state.track.subtitle;
     if (current.id != 'auto' && current.id != 'no') {
       return;
@@ -383,6 +386,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   Future<void> _restorePreferredTracks() async {
     final audioPref = _pendingAudioTrackPref ?? PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
     final subPref = _pendingSubtitleTrackPref ?? PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    final settings = PlayraStorage.getPlayerSettings();
 
     var appliedAudio = audioPref == null;
     var appliedSubtitle = subPref == null;
@@ -394,6 +398,17 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
         await _player.setAudioTrack(matched);
         appliedAudio = true;
       }
+    } else {
+      final defaultAudioLang = settings.defaultAudioLanguage.trim();
+      if (defaultAudioLang.isNotEmpty) {
+        final tracks = _player.state.tracks.audio;
+        final matched = _matchAudioTrackByLanguage(tracks, defaultAudioLang);
+        if (matched != null) {
+          await _player.setAudioTrack(matched);
+          await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(matched));
+          appliedAudio = true;
+        }
+      }
     }
 
     if (subPref != null) {
@@ -402,6 +417,17 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       if (matched != null) {
         await _player.setSubtitleTrack(matched);
         appliedSubtitle = true;
+      }
+    } else {
+      final defaultSubtitleLang = settings.defaultSubtitleLanguage.trim();
+      if (defaultSubtitleLang.isNotEmpty) {
+        final tracks = _player.state.tracks.subtitle;
+        final matched = _matchSubtitleTrackByLanguage(tracks, defaultSubtitleLang);
+        if (matched != null) {
+          await _player.setSubtitleTrack(matched);
+          await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(matched));
+          appliedSubtitle = true;
+        }
       }
     }
 
@@ -448,6 +474,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     return null;
   }
 
+  AudioTrack? _matchAudioTrackByLanguage(List<AudioTrack> tracks, String languageCode) {
+    for (final track in tracks) {
+      if (_isLanguageMatch(track.language, languageCode)) return track;
+    }
+    return null;
+  }
+
   SubtitleTrack? _matchSubtitleTrack(List<SubtitleTrack> tracks, String storedKey) {
     final parsed = _parseStoredTrackKey(storedKey);
 
@@ -472,6 +505,24 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     return null;
+  }
+
+  SubtitleTrack? _matchSubtitleTrackByLanguage(List<SubtitleTrack> tracks, String languageCode) {
+    for (final track in tracks) {
+      if (_isLanguageMatch(track.language, languageCode)) return track;
+    }
+    return null;
+  }
+
+  bool _isLanguageMatch(String? trackLanguage, String expectedLanguage) {
+    final track = _normalizeTrackPart(trackLanguage);
+    final expected = _normalizeTrackPart(expectedLanguage);
+    if (track.isEmpty || expected.isEmpty) return false;
+    if (track == expected) return true;
+    if (track.startsWith('$expected-')) return true;
+    if (track.startsWith('${expected}_')) return true;
+    if (track.startsWith(expected)) return true;
+    return false;
   }
 
   String _audioTrackKey(AudioTrack t) {

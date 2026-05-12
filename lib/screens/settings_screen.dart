@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -9,12 +10,18 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../bloc/library/library_cubit.dart';
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/player_settings.dart';
+import '../models/server_connection.dart';
 import '../models/subtitle_style_settings.dart';
 import '../services/playra_storage.dart';
+import 'server_browser_screen.dart';
+import 'servers_screen.dart';
 import 'subtitle_manager_screen.dart';
+import 'video_library_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  static const List<String> _defaultTrackLanguageOptions = ['', 'cs', 'en', 'sk', 'de', 'fr', 'es', 'it', 'ru', 'uk', 'ja'];
 
   bool get _isDesktop => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -58,6 +65,93 @@ class SettingsScreen extends StatelessWidget {
       default:
         return value;
     }
+  }
+
+  String _trackLanguageLabel(String code) {
+    switch (code) {
+      case 'cs':
+        return 'Čeština';
+      case 'en':
+        return 'English';
+      case 'sk':
+        return 'Slovenčina';
+      case 'de':
+        return 'Deutsch';
+      case 'fr':
+        return 'Français';
+      case 'es':
+        return 'Español';
+      case 'it':
+        return 'Italiano';
+      case 'ru':
+        return 'Русский';
+      case 'uk':
+        return 'Українська';
+      case 'ja':
+        return '日本語';
+      default:
+        return 'settings.default_track_language_none'.tr();
+    }
+  }
+
+  Future<void> _addLibraryFolder(BuildContext context) async {
+    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
+    if (smbServers.isEmpty) {
+      await _addLocalLibraryFolder(context);
+      return;
+    }
+
+    final addedLocal = await _addLocalLibraryFolder(context);
+    if (addedLocal || !context.mounted) return;
+
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.folder_open), title: const Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
+            ListTile(leading: const Icon(Icons.lan), title: const Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
+          ],
+        ),
+      ),
+    );
+
+    if (source == 'smb') {
+      await _addSmbLibraryFolder(context);
+      return;
+    }
+
+    if (source == 'local') {
+      await _addLocalLibraryFolder(context);
+    }
+  }
+
+  Future<bool> _addLocalLibraryFolder(BuildContext context) async {
+    final selected = await FilePicker.platform.getDirectoryPath();
+    if (selected == null || !context.mounted) return false;
+    await context.read<LibraryCubit>().addFolder(selected);
+    return true;
+  }
+
+  Future<void> _addSmbLibraryFolder(BuildContext context) async {
+    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
+    if (smbServers.isEmpty || !context.mounted) return;
+
+    final selectedServer = await showModalBottomSheet<ServerConnection>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [for (final s in smbServers) ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s))],
+        ),
+      ),
+    );
+
+    if (selectedServer == null || !context.mounted) return;
+    final selectedSmbFolderUri = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
+    if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !context.mounted) return;
+    await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
   }
 
   String _formatShortcut(KeyEvent event) {
@@ -235,6 +329,32 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(keepScreenOn: v)),
               ),
               ListTile(
+                title: Text('settings.default_audio_language'.tr()),
+                subtitle: Text('settings.default_audio_language_hint'.tr()),
+                trailing: DropdownButton<String>(
+                  value: p.defaultAudioLanguage,
+                  items: _defaultTrackLanguageOptions.map((code) => DropdownMenuItem(value: code, child: Text(_trackLanguageLabel(code)))).toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(defaultAudioLanguage: v));
+                    }
+                  },
+                ),
+              ),
+              ListTile(
+                title: Text('settings.default_subtitle_language'.tr()),
+                subtitle: Text('settings.default_subtitle_language_hint'.tr()),
+                trailing: DropdownButton<String>(
+                  value: p.defaultSubtitleLanguage,
+                  items: _defaultTrackLanguageOptions.map((code) => DropdownMenuItem(value: code, child: Text(_trackLanguageLabel(code)))).toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(defaultSubtitleLanguage: v));
+                    }
+                  },
+                ),
+              ),
+              ListTile(
                 title: Text('settings.clear_all_resume'.tr()),
                 trailing: const Icon(Icons.delete_sweep),
                 onTap: () async {
@@ -340,7 +460,6 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
               ],
-              _section(context, 'settings.section_library'.tr()),
               _section(context, 'settings.section_sync'.tr()),
               ListTile(
                 title: Text('settings.sync_username'.tr()),
@@ -393,6 +512,7 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               _section(context, 'settings.section_library'.tr()),
+              ListTile(leading: const Icon(Icons.create_new_folder), title: Text('home.add_folder'.tr()), onTap: () => _addLibraryFolder(context)),
               ListTile(
                 leading: const Icon(Icons.refresh),
                 title: Text('settings.refresh_library'.tr()),
@@ -407,6 +527,22 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               if (currentFolders.isEmpty) ListTile(title: Text('settings.no_folders'.tr())),
+
+              _section(context, 'home.servers'.tr()),
+              ListTile(
+                leading: const Icon(Icons.dns),
+                title: Text('home.servers'.tr()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen())),
+              ),
+
+              _section(context, 'subtitle.search_title'.tr()),
+              ListTile(
+                leading: const Icon(Icons.subtitles),
+                title: Text('subtitle.search_title'.tr()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
+              ),
 
               _section(context, 'settings.section_subtitles'.tr()),
               SwitchListTile(
