@@ -1645,7 +1645,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final token = DownloadCancellationToken();
     String? received;
     String? total;
-    final dialogCompleter = Completer<void>();
+    double? progress;
+    void Function(void Function())? refreshDialog;
+    var lastDialogUpdateMs = 0;
+    var isDialogOpen = true;
 
     unawaited(
       showDialog<void>(
@@ -1653,15 +1656,13 @@ class _HomeScreenState extends State<HomeScreen> {
         barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setDialogState) {
-            dialogCompleter.future.then((_) {
-              if (ctx.mounted) Navigator.of(ctx).pop();
-            });
+            refreshDialog = setDialogState;
             return AlertDialog(
               title: Text('downloads.downloading'.tr()),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const LinearProgressIndicator(),
+                  LinearProgressIndicator(value: progress),
                   const SizedBox(height: 12),
                   Text(received != null && total != null ? '$received / $total' : v.displayName, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
                 ],
@@ -1670,7 +1671,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton(
                   onPressed: () {
                     token.cancel();
-                    if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+                    Navigator.of(ctx).pop();
                   },
                   child: Text('common.cancel'.tr()),
                 ),
@@ -1678,7 +1679,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-      ),
+      ).whenComplete(() => isDialogOpen = false),
     );
 
     try {
@@ -1688,16 +1689,27 @@ class _HomeScreenState extends State<HomeScreen> {
         onProgress: (r, t, name) {
           received = SmbDownloadService.formatBytes(r);
           total = t > 0 ? SmbDownloadService.formatBytes(t) : '?';
+          progress = t > 0 ? (r / t).clamp(0.0, 1.0) : null;
+
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (refreshDialog != null && (now - lastDialogUpdateMs >= 100 || t > 0 && r >= t)) {
+            lastDialogUpdateMs = now;
+            refreshDialog!.call(() {});
+          }
         },
         cancellationToken: token,
       );
-      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (isDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       if (!mounted) return;
       if (!token.isCancelled) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_done'.tr(args: [v.displayName]))));
       }
     } catch (e) {
-      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (isDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       if (!mounted) return;
       if (!token.isCancelled) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: [e.toString()]))));

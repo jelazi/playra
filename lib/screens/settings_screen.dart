@@ -246,24 +246,24 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<String?> _showTextInputDialog(BuildContext context, {required String title, required String initialValue, bool obscureText = false}) async {
-    final controller = TextEditingController(text: initialValue);
+    var currentValue = initialValue;
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: initialValue,
           obscureText: obscureText,
           autofocus: true,
           decoration: InputDecoration(labelText: title),
+          onChanged: (value) => currentValue = value,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.cancel'.tr())),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(controller.text.trim()), child: Text('common.save'.tr())),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(currentValue.trim()), child: Text('common.save'.tr())),
         ],
       ),
     );
-    controller.dispose();
     return result;
   }
 

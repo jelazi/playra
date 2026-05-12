@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:smb_connect/smb_connect.dart';
@@ -66,7 +67,45 @@ class SmbBrowserService {
   Future<Stream<Uint8List>> openRead(ServerConnection server, String path, {int start = 0, int? end}) async {
     final c = await _ensureConnected(server);
     final file = await c.file(path);
-    return c.openRead(file, start, end);
+    final raf = await c.open(file);
+    final controller = StreamController<Uint8List>(sync: true);
+    final effectiveEnd = end ?? file.size;
+    final totalLength = max(0, effectiveEnd - start);
+    const chunkSize = 64 * 1024;
+
+    unawaited(() async {
+      try {
+        if (start > 0) {
+          await raf.setPosition(start);
+        }
+
+        var remaining = totalLength;
+        while (remaining > 0) {
+          final toRead = remaining > chunkSize ? chunkSize : remaining;
+          final chunk = await raf.read(toRead);
+          if (chunk.isEmpty) {
+            break;
+          }
+          controller.add(chunk);
+          remaining -= chunk.length;
+          if (chunk.length < toRead) {
+            break;
+          }
+        }
+        await raf.close();
+        await controller.close();
+      } catch (e, st) {
+        try {
+          await raf.close();
+        } catch (_) {}
+        if (!controller.isClosed) {
+          controller.addError(e, st);
+          await controller.close();
+        }
+      }
+    }());
+
+    return controller.stream;
   }
 
   /// Get file size in bytes.
