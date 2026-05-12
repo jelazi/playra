@@ -144,6 +144,8 @@
         "view_info": "Zobrazit informace",
         "library": "Knihovna",
         "remove_from_recent": "Odebrat z naposledy přehraných",
+        "collapse_recent": "Sbalit naposledy přehrané",
+        "expand_recent": "Rozbalit naposledy přehrané",
         "refresh_library": "Aktualizovat knihovnu",
         "sync_now": "Synchronizovat v síti",
         "sync_not_configured": "Vyplňte v nastavení jméno a heslo pro synchronizaci.",
@@ -195,6 +197,8 @@
         "gestures": "Gesta",
         "gestures_hint": "Levá strana = jas, pravá strana = hlasitost.",
         "gestures_desktop_forced_off": "Na desktopu jsou gesta vypnuta. Aktivní jsou jen na mobilu/tabletu.",
+        "touch_seek_sensitivity": "Citlivost tažení pro posun videa",
+        "touch_seek_sensitivity_hint": "Vyšší hodnota = rychlejší posun při tažení doleva/doprava.",
         "keep_screen_on": "Nechat displej zapnutý",
         "desktop_shortcuts_enabled": "Povolit desktop klávesové zkratky a kolečko",
         "desktop_key_play_pause": "Klávesa přehrát/pozastavit",
@@ -267,5 +271,19 @@
     },
     "subtitle_manager": {
         "title": "Správa titulků"
+    },
+    "downloads": {
+        "title": "Stažené soubory",
+        "empty": "Žádné stažené soubory.\nPouži tlačítko stáhnout v přehrávači při sledování SMB videa.",
+        "delete": "Smazat",
+        "delete_title": "Smazat soubor",
+        "delete_confirm": "Smazat \"{}\" včetně titulků?",
+        "deleted": "Smazáno: {}",
+        "play": "Přehrát",
+        "refresh": "Obnovit",
+        "download_to_device": "Stáhnout do zařízení",
+        "downloading": "Stahuji…",
+        "download_done": "Stažení dokončeno: {}",
+        "download_error": "Stažení selhalo: {}"
     }
 }

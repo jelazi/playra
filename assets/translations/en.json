@@ -144,6 +144,8 @@
         "view_info": "View info",
         "library": "Library",
         "remove_from_recent": "Remove from recently played",
+        "collapse_recent": "Collapse recently played",
+        "expand_recent": "Expand recently played",
         "refresh_library": "Refresh library",
         "sync_now": "Sync on LAN",
         "sync_not_configured": "Fill sync username and password in settings.",
@@ -195,6 +197,8 @@
         "gestures": "Gestures",
         "gestures_hint": "Left side = brightness, right side = volume.",
         "gestures_desktop_forced_off": "Gestures are disabled on desktop. They are only active on phone/tablet.",
+        "touch_seek_sensitivity": "Swipe seek sensitivity",
+        "touch_seek_sensitivity_hint": "Higher value = faster seek when swiping left/right.",
         "keep_screen_on": "Keep screen on",
         "desktop_shortcuts_enabled": "Enable desktop keyboard shortcuts and mouse wheel",
         "desktop_key_play_pause": "Play/Pause key",
@@ -267,5 +271,19 @@
     },
     "subtitle_manager": {
         "title": "Subtitle manager"
+    },
+    "downloads": {
+        "title": "Downloads",
+        "empty": "No downloaded files yet.\nUse the download button in the player when watching an SMB video.",
+        "delete": "Delete",
+        "delete_title": "Delete file",
+        "delete_confirm": "Delete \"{}\" and its subtitle files?",
+        "deleted": "Deleted: {}",
+        "play": "Play",
+        "refresh": "Refresh",
+        "download_to_device": "Download to device",
+        "downloading": "Downloading…",
+        "download_done": "Download complete: {}",
+        "download_error": "Download failed: {}"
     }
 }

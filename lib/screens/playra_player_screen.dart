@@ -22,6 +22,7 @@ import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/episode_continuation_service.dart';
 import '../services/playra_storage.dart';
+import '../services/smb_download_service.dart';
 import '../services/video_hash_service.dart';
 import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
@@ -85,6 +86,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   bool _preferredTracksApplied = false;
   int _preferredTrackRestoreAttempts = 0;
 
+  bool _isDownloading = false;
+  DownloadCancellationToken? _downloadToken;
+
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<Duration>? _durationSub;
@@ -118,6 +122,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _overlayTimer?.cancel();
     _resumePersistTimer?.cancel();
     _syncSessionTimer?.cancel();
+    _downloadToken?.cancel();
     unawaited(_persistResumeNow());
     unawaited(_pushSessionUpdate(force: true));
     _keyboardFocusNode.dispose();
@@ -693,7 +698,14 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       return;
     }
 
-    _toggleFullscreenFit();
+    if (_playing) {
+      await _player.pause();
+      _flashOverlay(Icons.pause, 'Pause');
+    } else {
+      await _player.play();
+      _flashOverlay(Icons.play_arrow, 'Play');
+    }
+    _startHideTimer();
   }
 
   String _formatShortcutFromKeyEvent(KeyEvent event) {
@@ -915,8 +927,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
   }
 
-  void _onHorizontalDrag(DragUpdateDetails d) {
-    final delta = Duration(milliseconds: (d.primaryDelta ?? 0).toInt() * 1000 ~/ 5);
+  void _onHorizontalDrag(DragUpdateDetails d, PlayerSettings settings) {
+    final sensitivity = settings.touchSeekSensitivity.clamp(0.5, 5.0);
+    final baseDeltaMs = ((d.primaryDelta ?? 0) * 200).round();
+    final delta = Duration(milliseconds: (baseDeltaMs * sensitivity).round());
     final target = _position + delta;
     final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds));
     _player.seek(clamped);
@@ -968,7 +982,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                               onTap: _toggleControls,
                               onDoubleTap: _onDoubleTapToggleFullscreen,
                               onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, true) : null,
-                              onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                              onHorizontalDragUpdate: touchGesturesEnabled ? (d) => _onHorizontalDrag(d, settings.player) : null,
                             ),
                           ),
                           Expanded(
@@ -977,7 +991,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                               onTap: _toggleControls,
                               onDoubleTap: _onDoubleTapToggleFullscreen,
                               onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, false) : null,
-                              onHorizontalDragUpdate: touchGesturesEnabled ? _onHorizontalDrag : null,
+                              onHorizontalDragUpdate: touchGesturesEnabled ? (d) => _onHorizontalDrag(d, settings.player) : null,
                             ),
                           ),
                         ],
@@ -1039,6 +1053,94 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     );
   }
 
+  /// Downloads the current SMB video (and subtitle sidecars) to the device's
+  /// local documents folder. Shows a progress dialog while downloading.
+  Future<void> _downloadToDevice() async {
+    if (_isDownloading) return;
+
+    final proxyUrl = widget.video.uri;
+    final videoName = widget.video.name;
+
+    final token = DownloadCancellationToken();
+    setState(() {
+      _isDownloading = true;
+      _downloadToken = token;
+    });
+
+    String? received;
+    String? total;
+
+    final dialogCompleter = Completer<void>();
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              dialogCompleter.future.then((_) {
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              });
+              return AlertDialog(
+                title: Text('downloads.downloading'.tr()),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                    Text(received != null && total != null ? '$received / $total' : videoName, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      token.cancel();
+                      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+                    },
+                    child: Text('common.cancel'.tr()),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+
+    try {
+      await SmbDownloadService.downloadVideo(
+        videoProxyUrl: proxyUrl,
+        videoName: videoName,
+        onProgress: (r, t, name) {
+          received = SmbDownloadService.formatBytes(r);
+          total = t > 0 ? SmbDownloadService.formatBytes(t) : '?';
+        },
+        cancellationToken: token,
+      );
+
+      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (!mounted) return;
+
+      if (!token.isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_done'.tr(args: [widget.video.displayName]))));
+      }
+    } catch (e) {
+      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (!mounted) return;
+      if (!token.isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: [e.toString()]))));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadToken = null;
+        });
+      }
+    }
+  }
+
   Widget _buildTopBar() {
     return Container(
       padding: EdgeInsets.fromLTRB(8, MediaQuery.of(context).padding.top + 4, 8, 8),
@@ -1079,6 +1181,14 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
               icon: const Icon(Icons.skip_next, color: Colors.white),
               tooltip: 'video.continue_next_episode'.tr(),
               onPressed: _playNextEpisode,
+            ),
+          if (!_isDesktopPlatform && widget.video.source == VideoSource.smb)
+            IconButton(
+              icon: _isDownloading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.download, color: Colors.white),
+              tooltip: 'downloads.download_to_device'.tr(),
+              onPressed: _isDownloading ? null : _downloadToDevice,
             ),
         ],
       ),

@@ -28,6 +28,7 @@ class PlayraStorage {
   static const String _resumeMetaKey = 'resume_meta';
   static const String _resumeByHashMetaKey = 'resume_by_hash_meta';
   static const String _trackPrefsByHashMetaKey = 'track_prefs_by_hash_meta';
+  static const String _trackPrefsBySeriesMetaKey = 'track_prefs_by_series_meta';
   static const String _durationMetaKey = 'duration_meta';
   static const String _videoIdentityMetaKey = 'video_identity_meta';
   static const String _recentByHashMetaKey = 'recent_by_hash_meta';
@@ -393,11 +394,19 @@ class PlayraStorage {
     }
 
     final hash = getVideoHash(videoId);
-    if (hash == null || hash.isEmpty) return null;
-    final byHash = _readMap(_trackPrefsByHashMetaKey);
-    final byHashPref = byHash[hash];
-    if (byHashPref is! Map) return null;
-    final value = byHashPref['audio'];
+    if (hash != null && hash.isNotEmpty) {
+      final byHash = _readMap(_trackPrefsByHashMetaKey);
+      final byHashPref = byHash[hash];
+      if (byHashPref is Map) {
+        final value = byHashPref['audio'];
+        if (value is String && value.isNotEmpty) return value;
+      }
+    }
+
+    final bySeries = _readMap(_trackPrefsBySeriesMetaKey);
+    final seriesPref = bySeries[_seriesTrackKey(videoId)];
+    if (seriesPref is! Map) return null;
+    final value = seriesPref['audio'];
     return value is String && value.isNotEmpty ? value : null;
   }
 
@@ -410,11 +419,19 @@ class PlayraStorage {
     }
 
     final hash = getVideoHash(videoId);
-    if (hash == null || hash.isEmpty) return null;
-    final byHash = _readMap(_trackPrefsByHashMetaKey);
-    final byHashPref = byHash[hash];
-    if (byHashPref is! Map) return null;
-    final value = byHashPref['subtitle'];
+    if (hash != null && hash.isNotEmpty) {
+      final byHash = _readMap(_trackPrefsByHashMetaKey);
+      final byHashPref = byHash[hash];
+      if (byHashPref is Map) {
+        final value = byHashPref['subtitle'];
+        if (value is String && value.isNotEmpty) return value;
+      }
+    }
+
+    final bySeries = _readMap(_trackPrefsBySeriesMetaKey);
+    final seriesPref = bySeries[_seriesTrackKey(videoId)];
+    if (seriesPref is! Map) return null;
+    final value = seriesPref['subtitle'];
     return value is String && value.isNotEmpty ? value : null;
   }
 
@@ -427,18 +444,25 @@ class PlayraStorage {
     final hashMap = _readMap(_trackPrefsByHashMetaKey);
     final hash = getVideoHash(videoId);
     final hashPref = hash != null && hashMap[hash] is Map ? Map<String, dynamic>.from(hashMap[hash] as Map) : <String, dynamic>{};
+    final seriesMap = _readMap(_trackPrefsBySeriesMetaKey);
+    final seriesKey = _seriesTrackKey(videoId);
+    final seriesPref = seriesMap[seriesKey] is Map ? Map<String, dynamic>.from(seriesMap[seriesKey] as Map) : <String, dynamic>{};
     if (trackKey == null || trackKey.isEmpty) {
       pref.remove('audio');
       metaPref.remove('audio');
       metaPref.remove('audioUpdatedAt');
       hashPref.remove('audio');
       hashPref.remove('audioUpdatedAt');
+      seriesPref.remove('audio');
+      seriesPref.remove('audioUpdatedAt');
     } else {
       pref['audio'] = trackKey;
       metaPref['audio'] = trackKey;
       metaPref['audioUpdatedAt'] = now;
       hashPref['audio'] = trackKey;
       hashPref['audioUpdatedAt'] = now;
+      seriesPref['audio'] = trackKey;
+      seriesPref['audioUpdatedAt'] = now;
     }
     if (pref.isEmpty) {
       all.remove(videoId);
@@ -458,9 +482,15 @@ class PlayraStorage {
         hashMap[hash] = hashPref;
       }
     }
+    if (seriesPref.isEmpty) {
+      seriesMap.remove(seriesKey);
+    } else {
+      seriesMap[seriesKey] = seriesPref;
+    }
     await _saveTrackPrefsMap(all);
     await _writeMap(_trackPrefsMetaKey, meta);
     await _writeMap(_trackPrefsByHashMetaKey, hashMap);
+    await _writeMap(_trackPrefsBySeriesMetaKey, seriesMap);
   }
 
   static Future<void> savePreferredSubtitleTrackKey(String videoId, String? trackKey) async {
@@ -472,18 +502,25 @@ class PlayraStorage {
     final hashMap = _readMap(_trackPrefsByHashMetaKey);
     final hash = getVideoHash(videoId);
     final hashPref = hash != null && hashMap[hash] is Map ? Map<String, dynamic>.from(hashMap[hash] as Map) : <String, dynamic>{};
+    final seriesMap = _readMap(_trackPrefsBySeriesMetaKey);
+    final seriesKey = _seriesTrackKey(videoId);
+    final seriesPref = seriesMap[seriesKey] is Map ? Map<String, dynamic>.from(seriesMap[seriesKey] as Map) : <String, dynamic>{};
     if (trackKey == null || trackKey.isEmpty) {
       pref.remove('subtitle');
       metaPref.remove('subtitle');
       metaPref.remove('subtitleUpdatedAt');
       hashPref.remove('subtitle');
       hashPref.remove('subtitleUpdatedAt');
+      seriesPref.remove('subtitle');
+      seriesPref.remove('subtitleUpdatedAt');
     } else {
       pref['subtitle'] = trackKey;
       metaPref['subtitle'] = trackKey;
       metaPref['subtitleUpdatedAt'] = now;
       hashPref['subtitle'] = trackKey;
       hashPref['subtitleUpdatedAt'] = now;
+      seriesPref['subtitle'] = trackKey;
+      seriesPref['subtitleUpdatedAt'] = now;
     }
     if (pref.isEmpty) {
       all.remove(videoId);
@@ -503,9 +540,15 @@ class PlayraStorage {
         hashMap[hash] = hashPref;
       }
     }
+    if (seriesPref.isEmpty) {
+      seriesMap.remove(seriesKey);
+    } else {
+      seriesMap[seriesKey] = seriesPref;
+    }
     await _saveTrackPrefsMap(all);
     await _writeMap(_trackPrefsMetaKey, meta);
     await _writeMap(_trackPrefsByHashMetaKey, hashMap);
+    await _writeMap(_trackPrefsBySeriesMetaKey, seriesMap);
   }
 
   static Map<String, dynamic> _readMap(String key) {
@@ -534,6 +577,7 @@ class PlayraStorage {
       'resumeByHash': _readMap(_resumeByHashMetaKey),
       'tracks': _readMap(_trackPrefsMetaKey),
       'tracksByHash': _readMap(_trackPrefsByHashMetaKey),
+      'tracksBySeries': _readMap(_trackPrefsBySeriesMetaKey),
       'videoIdentity': _readMap(_videoIdentityMetaKey),
       'mediaByHash': _readMap(_mediaByHashMetaKey),
     };
@@ -562,6 +606,7 @@ class PlayraStorage {
     final incomingResumeByHash = snapshot['resumeByHash'] is Map ? Map<String, dynamic>.from(snapshot['resumeByHash'] as Map) : <String, dynamic>{};
     final incomingTracks = snapshot['tracks'] is Map ? Map<String, dynamic>.from(snapshot['tracks'] as Map) : <String, dynamic>{};
     final incomingTracksByHash = snapshot['tracksByHash'] is Map ? Map<String, dynamic>.from(snapshot['tracksByHash'] as Map) : <String, dynamic>{};
+    final incomingTracksBySeries = snapshot['tracksBySeries'] is Map ? Map<String, dynamic>.from(snapshot['tracksBySeries'] as Map) : <String, dynamic>{};
     final incomingVideoIdentity = snapshot['videoIdentity'] is Map ? Map<String, dynamic>.from(snapshot['videoIdentity'] as Map) : <String, dynamic>{};
     final incomingMediaByHash = snapshot['mediaByHash'] is Map ? Map<String, dynamic>.from(snapshot['mediaByHash'] as Map) : <String, dynamic>{};
 
@@ -787,6 +832,44 @@ class PlayraStorage {
       }
     });
 
+    final localTracksBySeries = _readMap(_trackPrefsBySeriesMetaKey);
+    incomingTracksBySeries.forEach((seriesKey, incomingValue) {
+      if (incomingValue is! Map) return;
+      final local = localTracksBySeries[seriesKey] is Map ? Map<String, dynamic>.from(localTracksBySeries[seriesKey] as Map) : <String, dynamic>{};
+
+      final incomingAudioAt = _fieldUpdatedAtFromEntry(incomingValue, 'audioUpdatedAt');
+      final localAudioAt = _fieldUpdatedAtFromEntry(local, 'audioUpdatedAt');
+      if (incomingAudioAt >= localAudioAt && incomingAudioAt > 0) {
+        final incomingAudio = incomingValue['audio'];
+        if (incomingAudio is String && incomingAudio.isNotEmpty) {
+          local['audio'] = incomingAudio;
+          local['audioUpdatedAt'] = incomingAudioAt;
+        } else {
+          local.remove('audio');
+          local.remove('audioUpdatedAt');
+        }
+      }
+
+      final incomingSubtitleAt = _fieldUpdatedAtFromEntry(incomingValue, 'subtitleUpdatedAt');
+      final localSubtitleAt = _fieldUpdatedAtFromEntry(local, 'subtitleUpdatedAt');
+      if (incomingSubtitleAt >= localSubtitleAt && incomingSubtitleAt > 0) {
+        final incomingSubtitle = incomingValue['subtitle'];
+        if (incomingSubtitle is String && incomingSubtitle.isNotEmpty) {
+          local['subtitle'] = incomingSubtitle;
+          local['subtitleUpdatedAt'] = incomingSubtitleAt;
+        } else {
+          local.remove('subtitle');
+          local.remove('subtitleUpdatedAt');
+        }
+      }
+
+      if (local.isEmpty) {
+        localTracksBySeries.remove(seriesKey);
+      } else {
+        localTracksBySeries[seriesKey] = local;
+      }
+    });
+
     // Propagate hash-based track preferences to known local video IDs.
     localTracksByHash.forEach((hash, value) {
       if (value is! Map) return;
@@ -823,9 +906,65 @@ class PlayraStorage {
       }
     });
 
+    // Propagate series-based track preferences to known local video IDs.
+    localTracksBySeries.forEach((seriesKey, value) {
+      if (value is! Map) return;
+      localIdentity.forEach((videoId, _) {
+        if (_seriesTrackKey(videoId) != seriesKey) return;
+
+        final pref = (localTrackPrefs[videoId] is Map) ? Map<String, dynamic>.from(localTrackPrefs[videoId] as Map) : <String, dynamic>{};
+        final meta = (localTrackMeta[videoId] is Map) ? Map<String, dynamic>.from(localTrackMeta[videoId] as Map) : <String, dynamic>{};
+
+        final audio = value['audio'];
+        if (audio is String && audio.isNotEmpty) {
+          pref['audio'] = audio;
+          meta['audio'] = audio;
+          meta['audioUpdatedAt'] = _fieldUpdatedAtFromEntry(value, 'audioUpdatedAt');
+        }
+
+        final subtitle = value['subtitle'];
+        if (subtitle is String && subtitle.isNotEmpty) {
+          pref['subtitle'] = subtitle;
+          meta['subtitle'] = subtitle;
+          meta['subtitleUpdatedAt'] = _fieldUpdatedAtFromEntry(value, 'subtitleUpdatedAt');
+        }
+
+        if (pref.isEmpty) {
+          localTrackPrefs.remove(videoId);
+        } else {
+          localTrackPrefs[videoId] = pref;
+        }
+
+        if (meta.isEmpty) {
+          localTrackMeta.remove(videoId);
+        } else {
+          localTrackMeta[videoId] = meta;
+        }
+      });
+    });
+
     await _saveTrackPrefsMap(localTrackPrefs);
     await _writeMap(_trackPrefsMetaKey, localTrackMeta);
     await _writeMap(_trackPrefsByHashMetaKey, localTracksByHash);
+    await _writeMap(_trackPrefsBySeriesMetaKey, localTracksBySeries);
+  }
+
+  static String _seriesTrackKey(String videoId) {
+    final normalized = videoId.trim();
+    if (normalized.isEmpty) return '';
+
+    String candidate = normalized;
+    if (normalized.startsWith('smb://') || normalized.startsWith('http://') || normalized.startsWith('https://') || normalized.startsWith('file://')) {
+      try {
+        candidate = Uri.decodeComponent(Uri.parse(normalized).path);
+      } catch (_) {
+        candidate = normalized;
+      }
+    }
+
+    final parsed = VideoNameParser.parse(candidate);
+    final key = parsed.cleanName.trim().toLowerCase();
+    return key.isEmpty ? candidate.trim().toLowerCase() : key;
   }
 
   // --- Recent poster paths ---

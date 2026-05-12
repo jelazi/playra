@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -19,10 +20,12 @@ import '../models/video_item.dart';
 import '../services/lan_sync_service.dart';
 import '../services/media_lookup_service.dart';
 import '../services/playra_storage.dart';
+import '../services/smb_download_service.dart';
 import '../services/subtitle_file_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/video_hash_service.dart';
 import '../services/video_name_parser.dart';
+import 'downloads_screen.dart';
 import 'media_info_screen.dart';
 import 'player_launcher.dart';
 import 'server_browser_screen.dart';
@@ -42,6 +45,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static const Set<String> _supportedVideoExtensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp'};
+  static const String _recentsSectionKey = 'home_recently_played';
 
   List<VideoItem> _recents = [];
   Map<String, bool> _expandedSections = {};
@@ -355,8 +359,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Platform.isIOS || Platform.isAndroid;
   }
 
+  bool get _isRecentsExpanded => _expandedSections[_recentsSectionKey] ?? true;
+
   Widget _buildPosterThumbnail({required String? posterPath, required double width, required double height, required BorderRadius borderRadius, required Widget fallback}) {
-    if (posterPath == null || posterPath.isEmpty || _isMobileDevice) {
+    if (posterPath == null || posterPath.isEmpty) {
       return fallback;
     }
 
@@ -1090,6 +1096,12 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
             ),
           IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _addFolder),
+          if (_isMobileDevice)
+            IconButton(
+              tooltip: 'downloads.title'.tr(),
+              icon: const Icon(Icons.download_for_offline),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
+            ),
           IconButton(
             tooltip: 'subtitle.search_title'.tr(),
             icon: const Icon(Icons.subtitles),
@@ -1180,6 +1192,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Icon(Icons.history, size: 18),
                           const SizedBox(width: 8),
                           Text('home.recently_played'.tr(), style: Theme.of(context).textTheme.titleSmall),
+                          IconButton(
+                            tooltip: _isRecentsExpanded ? 'home.collapse_recent'.tr() : 'home.expand_recent'.tr(),
+                            icon: Icon(_isRecentsExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
+                            onPressed: () => _setSectionExpanded(_recentsSectionKey, !_isRecentsExpanded),
+                          ),
                           const Spacer(),
                           TextButton(
                             style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8)),
@@ -1193,17 +1210,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 140,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: _recents.length,
-                        itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id]),
+                  if (_isRecentsExpanded)
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 140,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: _recents.length,
+                          itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id]),
+                        ),
                       ),
                     ),
-                  ),
                   const SliverToBoxAdapter(child: Divider(height: 24)),
                 ],
                 if (hasFolders && !displayVideos.isNotEmpty)
@@ -1281,7 +1299,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             leading: const Icon(Icons.folder_open),
                             title: Text(entry.title ?? '', style: entry.highlighted ? const TextStyle(fontWeight: FontWeight.w700) : null),
                             subtitle: Text('${entry.count}'),
-                            trailing: const Icon(Icons.chevron_right),
                             onTap: () => setState(() => _structuredCurrentFolder = entry.path),
                           );
                         }
@@ -1314,7 +1331,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 _buildProgressPie(progress),
                                 const SizedBox(width: 8),
                                 IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
-                                Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
                               ],
                             ),
                             onTap: () => _openVideo(v),
@@ -1562,77 +1578,159 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: Text('home.file_info'.tr()),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showFileInfoDialog(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.movie_outlined),
-              title: const Text('Info o filmu'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showMovieInfoDialog(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.subtitles),
-              title: Text('home.edit_subtitles'.tr()),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _editSubtitles(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.file_copy_outlined),
-              title: Text('home.copy_file'.tr()),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await _copyVideoFile(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.drive_file_move_outline),
-              title: Text('home.move_file'.tr()),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await _moveVideoFile(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_all),
-              title: Text('home.copy_path'.tr()),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await _copyVideoPath(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.ios_share),
-              title: Text('home.share_file'.tr()),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await _shareVideoFile(v);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text('home.delete_file'.tr()),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                await _deleteVideoFile(v);
-              },
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text('home.file_info'.tr()),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _showFileInfoDialog(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.movie_outlined),
+                title: const Text('Info o filmu'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _showMovieInfoDialog(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.subtitles),
+                title: Text('home.edit_subtitles'.tr()),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _editSubtitles(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.file_copy_outlined),
+                title: Text('home.copy_file'.tr()),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _copyVideoFile(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.drive_file_move_outline),
+                title: Text('home.move_file'.tr()),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _moveVideoFile(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.copy_all),
+                title: Text('home.copy_path'.tr()),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _copyVideoPath(v);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.ios_share),
+                title: Text('home.share_file'.tr()),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _shareVideoFile(v);
+                },
+              ),
+              if (_isMobileDevice && v.source == VideoSource.smb)
+                ListTile(
+                  leading: const Icon(Icons.download),
+                  title: Text('downloads.download_to_device'.tr()),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    await _downloadSmbVideo(v);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: Text('home.delete_file'.tr()),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _deleteVideoFile(v);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _downloadSmbVideo(VideoItem v) async {
+    final proxyVideo = await context.read<PlayerLauncher>().resolveForHash(context, v);
+    if (!mounted) return;
+    if (proxyVideo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Could not resolve SMB URL']))));
+      return;
+    }
+
+    final token = DownloadCancellationToken();
+    String? received;
+    String? total;
+    final dialogCompleter = Completer<void>();
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            dialogCompleter.future.then((_) {
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            });
+            return AlertDialog(
+              title: Text('downloads.downloading'.tr()),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                  Text(received != null && total != null ? '$received / $total' : v.displayName, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    token.cancel();
+                    if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+                  },
+                  child: Text('common.cancel'.tr()),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+
+    try {
+      await SmbDownloadService.downloadVideo(
+        videoProxyUrl: proxyVideo.uri,
+        videoName: v.name,
+        onProgress: (r, t, name) {
+          received = SmbDownloadService.formatBytes(r);
+          total = t > 0 ? SmbDownloadService.formatBytes(t) : '?';
+        },
+        cancellationToken: token,
+      );
+      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (!mounted) return;
+      if (!token.isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_done'.tr(args: [v.displayName]))));
+      }
+    } catch (e) {
+      if (!dialogCompleter.isCompleted) dialogCompleter.complete();
+      if (!mounted) return;
+      if (!token.isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: [e.toString()]))));
+      }
+    }
   }
 
   String _formatSize(int bytes) {

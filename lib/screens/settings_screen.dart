@@ -212,6 +212,23 @@ class SettingsScreen extends StatelessWidget {
                 value: p.gesturesEnabled,
                 onChanged: _isDesktop ? null : (v) => context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(gesturesEnabled: v)),
               ),
+              ListTile(
+                title: Text('settings.touch_seek_sensitivity'.tr()),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('settings.touch_seek_sensitivity_hint'.tr()),
+                    Slider(
+                      min: 0.5,
+                      max: 5.0,
+                      divisions: 18,
+                      value: p.touchSeekSensitivity,
+                      label: p.touchSeekSensitivity.toStringAsFixed(1),
+                      onChanged: (v) => context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(touchSeekSensitivity: v)),
+                    ),
+                  ],
+                ),
+              ),
               SwitchListTile(
                 title: Text('settings.keep_screen_on'.tr()),
                 value: p.keepScreenOn,
