@@ -98,6 +98,66 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadRecents();
   }
 
+  String? _smbPathWithoutServerId(String uri) {
+    if (!uri.startsWith('smb://')) return null;
+    final rest = uri.substring(6);
+    final slash = rest.indexOf('/');
+    if (slash < 0) return null;
+    return rest.substring(slash);
+  }
+
+  VideoItem? _resolveVideoInLibrarySync(VideoItem input, List<VideoItem> videos) {
+    for (final v in videos) {
+      if (v.id == input.id) return v;
+    }
+
+    final inputUri = _normalizeFolderPath(input.uri);
+    for (final v in videos) {
+      if (_normalizeFolderPath(v.uri) == inputUri) return v;
+    }
+
+    if (input.source == VideoSource.smb) {
+      final inputSmbPath = _smbPathWithoutServerId(input.uri);
+      if (inputSmbPath != null) {
+        for (final v in videos) {
+          if (v.source != VideoSource.smb) continue;
+          if (_smbPathWithoutServerId(v.uri) == inputSmbPath) return v;
+        }
+      }
+    }
+
+    if (input.sizeBytes != null) {
+      final bySize = videos.where((v) => v.sizeBytes == input.sizeBytes).toList();
+      if (bySize.length == 1) return bySize.first;
+      final bySizeAndName = bySize.where((v) => v.displayName.toLowerCase() == input.displayName.toLowerCase()).toList();
+      if (bySizeAndName.isNotEmpty) return bySizeAndName.first;
+    }
+
+    return null;
+  }
+
+  Future<VideoItem?> _resolveVideoForRecentPlayback(VideoItem recent, List<VideoItem> videos) async {
+    final directMatch = _resolveVideoInLibrarySync(recent, videos);
+    if (directMatch != null) return directMatch;
+
+    final hash = PlayraStorage.getVideoHash(recent.id);
+    if (hash == null || hash.isEmpty) return null;
+
+    return _findVideoByHash(hash, videos, titleHint: recent.displayName, sizeBytesHint: recent.sizeBytes);
+  }
+
+  Future<void> _openRecentVideo(VideoItem recent, List<VideoItem> videos) async {
+    final resolved = await _resolveVideoForRecentPlayback(recent, videos);
+    if (!mounted) return;
+
+    if (resolved == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('home.continue_unavailable_here'.tr())));
+      return;
+    }
+
+    await _openVideo(resolved);
+  }
+
   Future<void> _addFolder() async {
     final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
     if (smbServers.isEmpty) {
@@ -242,7 +302,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final launcher = context.read<PlayerLauncher>();
 
     for (final video in candidates) {
+      if (!mounted) return null;
       final hashTarget = video.source == VideoSource.smb ? await launcher.resolveForHash(context, video) ?? video : video;
+      if (!mounted) return null;
       final computed = await VideoHashService.hashForVideo(hashTarget);
       if (computed == null || computed.isEmpty) continue;
       await PlayraStorage.bindVideoToHash(videoId: video.id, hash: computed, title: video.displayName, sizeBytes: video.sizeBytes);
@@ -803,9 +865,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   VideoItem? _resolveLastWatchedInLibrary(List<VideoItem> videos) {
     if (_recents.isEmpty || videos.isEmpty) return null;
-    final byId = <String, VideoItem>{for (final v in videos) v.id: v};
     for (final recent in _recents) {
-      final matched = byId[recent.id];
+      final matched = _resolveVideoInLibrarySync(recent, videos);
       if (matched != null) return matched;
     }
     return null;
@@ -946,7 +1007,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final folderCounts = <String, int>{};
     final files = <VideoItem>[];
-    final currentPrefix = '${effectiveCurrent}/';
+    final currentPrefix = '$effectiveCurrent/';
 
     for (final v in videos) {
       final uri = _normalizeFolderPath(v.uri);
@@ -971,7 +1032,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final parent = _structuredParentFolder(effectiveCurrent, roots);
 
     final entries = <_StructuredEntry>[];
-    entries.add(_StructuredEntry.parent(path: parent, highlighted: _isFolderOnPathToLastWatched(effectiveCurrent, lastWatchedVideoPath)));
+    entries.add(_StructuredEntry.parent(path: parent, highlighted: false));
     entries.addAll(
       folders.map((e) => _StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value, highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath))),
     );
@@ -1023,7 +1084,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 140,
                           height: 210,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(width: 140, height: 210, color: Theme.of(context).colorScheme.surfaceContainerHighest),
+                          errorBuilder: (_, _, _) => Container(width: 140, height: 210, color: Theme.of(context).colorScheme.surfaceContainerHighest),
                         ),
                       )
                     else
@@ -1190,7 +1251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           itemCount: _recents.length,
-                          itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id]),
+                          itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
                         ),
                       ),
                     ),
@@ -1451,9 +1512,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentCard(VideoItem v, String? posterPath) {
+  Widget _buildRecentCard(VideoItem v, String? posterPath, List<VideoItem> displayVideos) {
     return GestureDetector(
-      onTap: () => _openVideo(v),
+      onTap: () => _openRecentVideo(v, displayVideos),
       onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
       onLongPress: () => _showVideoMenu(v),
       child: Container(
