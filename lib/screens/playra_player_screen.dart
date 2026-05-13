@@ -88,6 +88,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   bool _isDownloading = false;
   DownloadCancellationToken? _downloadToken;
+  int? _dragSeekPositionMs;
 
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -978,15 +979,32 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
   }
 
+  void _onHorizontalDragStart(DragStartDetails _, PlayerSettings settings) {
+    if (_isDesktopPlatform || !settings.gesturesEnabled) return;
+    _dragSeekPositionMs = _position.inMilliseconds;
+  }
+
   void _onHorizontalDrag(DragUpdateDetails d, PlayerSettings settings) {
-    final sensitivity = settings.touchSeekSensitivity.clamp(0.5, 5.0);
-    final baseDeltaMs = ((d.primaryDelta ?? 0) * 200).round();
-    final delta = Duration(milliseconds: (baseDeltaMs * sensitivity).round());
-    final target = _position + delta;
-    final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds));
+    if (_isDesktopPlatform || !settings.gesturesEnabled) return;
+
+    final sensitivity = settings.touchSeekSensitivity.clamp(0.5, 12.0);
+    final baseDeltaMs = ((d.primaryDelta ?? 0) * 560).round();
+    final deltaMs = (baseDeltaMs * sensitivity).round();
+    final currentBase = _dragSeekPositionMs ?? _position.inMilliseconds;
+    final maxMs = _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds;
+    final targetMs = (currentBase + deltaMs).clamp(0, maxMs);
+    _dragSeekPositionMs = targetMs;
+
+    final clamped = Duration(milliseconds: targetMs);
     _player.seek(clamped);
+    setState(() => _position = clamped);
     _scheduleResumePersist();
-    _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
+    _flashOverlay(deltaMs.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails _, PlayerSettings settings) {
+    if (_isDesktopPlatform || !settings.gesturesEnabled) return;
+    _dragSeekPositionMs = null;
   }
 
   @override
@@ -1033,7 +1051,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                               onTap: _toggleControls,
                               onDoubleTap: _onDoubleTapToggleFullscreen,
                               onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, true) : null,
+                              onHorizontalDragStart: touchGesturesEnabled ? (d) => _onHorizontalDragStart(d, settings.player) : null,
                               onHorizontalDragUpdate: touchGesturesEnabled ? (d) => _onHorizontalDrag(d, settings.player) : null,
+                              onHorizontalDragEnd: touchGesturesEnabled ? (d) => _onHorizontalDragEnd(d, settings.player) : null,
                             ),
                           ),
                           Expanded(
@@ -1042,7 +1062,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                               onTap: _toggleControls,
                               onDoubleTap: _onDoubleTapToggleFullscreen,
                               onVerticalDragUpdate: touchGesturesEnabled ? (d) => _onVerticalDrag(d, false) : null,
+                              onHorizontalDragStart: touchGesturesEnabled ? (d) => _onHorizontalDragStart(d, settings.player) : null,
                               onHorizontalDragUpdate: touchGesturesEnabled ? (d) => _onHorizontalDrag(d, settings.player) : null,
+                              onHorizontalDragEnd: touchGesturesEnabled ? (d) => _onHorizontalDragEnd(d, settings.player) : null,
                             ),
                           ),
                         ],
@@ -1271,19 +1293,29 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
             children: [
               Text(_formatDuration(_position), style: const TextStyle(color: Colors.white, fontSize: 12)),
               Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(trackHeight: 3, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7), activeTrackColor: Colors.redAccent),
-                  child: Slider(
-                    value: _position.inMilliseconds.clamp(0, dur).toDouble(),
-                    max: dur.toDouble(),
-                    min: 0,
-                    onChanged: (v) {
-                      setState(() => _position = Duration(milliseconds: v.toInt()));
-                    },
-                    onChangeEnd: (v) {
-                      _player.seek(Duration(milliseconds: v.toInt()));
-                      _scheduleResumePersist();
-                    },
+                child: SizedBox(
+                  height: 64,
+                  child: Center(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 18,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+                        activeTrackColor: Colors.redAccent,
+                      ),
+                      child: Slider(
+                        value: _position.inMilliseconds.clamp(0, dur).toDouble(),
+                        max: dur.toDouble(),
+                        min: 0,
+                        onChanged: (v) {
+                          setState(() => _position = Duration(milliseconds: v.toInt()));
+                        },
+                        onChangeEnd: (v) {
+                          _player.seek(Duration(milliseconds: v.toInt()));
+                          _scheduleResumePersist();
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),

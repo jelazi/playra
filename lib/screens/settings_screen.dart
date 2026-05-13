@@ -314,8 +314,8 @@ class SettingsScreen extends StatelessWidget {
                     Text('settings.touch_seek_sensitivity_hint'.tr()),
                     Slider(
                       min: 0.5,
-                      max: 5.0,
-                      divisions: 18,
+                      max: 12.0,
+                      divisions: 23,
                       value: p.touchSeekSensitivity,
                       label: p.touchSeekSensitivity.toStringAsFixed(1),
                       onChanged: (v) => context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(touchSeekSensitivity: v)),

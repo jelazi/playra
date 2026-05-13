@@ -12,41 +12,61 @@ class SmbBrowserService {
   SmbConnect? _connect;
   ServerConnection? _server;
 
+  bool _sameConnectionTarget(ServerConnection a, ServerConnection b) {
+    return a.host == b.host && (a.username ?? '') == (b.username ?? '') && (a.password ?? '') == (b.password ?? '') && (a.port ?? 445) == (b.port ?? 445);
+  }
+
   bool isHiddenEntry(String name) {
     return name.trim().startsWith('.');
   }
 
   /// Returns the currently held connection or opens a new one.
   Future<SmbConnect> _ensureConnected(ServerConnection server) async {
-    if (_connect != null && _server?.id == server.id) return _connect!;
+    if (_connect != null && _server != null && _sameConnectionTarget(_server!, server)) {
+      return _connect!;
+    }
     await close();
     _connect = await SmbConnect.connectAuth(host: server.host, domain: '', username: server.username ?? '', password: server.password ?? '');
     _server = server;
     return _connect!;
   }
 
+  Future<T> _runWithReconnect<T>(ServerConnection server, Future<T> Function(SmbConnect c) action) async {
+    final reusedConnection = _connect != null && _server != null && _sameConnectionTarget(_server!, server);
+
+    try {
+      final c = await _ensureConnected(server);
+      return await action(c);
+    } catch (_) {
+      if (!reusedConnection) rethrow;
+      await close();
+      final c = await _ensureConnected(server);
+      return await action(c);
+    }
+  }
+
   /// List entries (folders + supported video files) at [path] (e.g. "/share/movies").
   Future<List<SmbEntry>> listPath(ServerConnection server, String path) async {
-    final c = await _ensureConnected(server);
+    return _runWithReconnect(server, (c) async {
+      if (path.isEmpty || path == '/') {
+        final shares = await c.listShares();
+        return shares.map((s) => SmbEntry(name: s.path.replaceAll('/', ''), path: s.path, isDirectory: true, sizeBytes: null)).toList();
+      }
 
-    if (path.isEmpty || path == '/') {
-      final shares = await c.listShares();
-      return shares.map((s) => SmbEntry(name: s.path.replaceAll('/', ''), path: s.path, isDirectory: true, sizeBytes: null)).toList();
-    }
+      final folder = await c.file(path);
+      final entries = await c.listFiles(folder);
+      final list = entries.map((e) {
+        final name = e.path.split('/').where((s) => s.isNotEmpty).last;
+        final isDir = e.isDirectory();
+        return SmbEntry(name: name, path: e.path, isDirectory: isDir, sizeBytes: isDir ? null : e.size);
+      }).toList();
 
-    final folder = await c.file(path);
-    final entries = await c.listFiles(folder);
-    final list = entries.map((e) {
-      final name = e.path.split('/').where((s) => s.isNotEmpty).last;
-      final isDir = e.isDirectory();
-      return SmbEntry(name: name, path: e.path, isDirectory: isDir, sizeBytes: isDir ? null : e.size);
-    }).toList();
-
-    list.sort((a, b) {
-      if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      list.sort((a, b) {
+        if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return list;
     });
-    return list;
   }
 
   /// Returns true if the entry's filename has a supported video extension.
@@ -65,9 +85,13 @@ class SmbBrowserService {
 
   /// Read a byte range from [path] on [server].
   Future<Stream<Uint8List>> openRead(ServerConnection server, String path, {int start = 0, int? end}) async {
-    final c = await _ensureConnected(server);
-    final file = await c.file(path);
-    final raf = await c.open(file);
+    final openResult = await _runWithReconnect(server, (c) async {
+      final file = await c.file(path);
+      final raf = await c.open(file);
+      return (file, raf);
+    });
+    final file = openResult.$1;
+    final raf = openResult.$2;
     final controller = StreamController<Uint8List>(sync: true);
     final effectiveEnd = end ?? file.size;
     final totalLength = max(0, effectiveEnd - start);
@@ -110,9 +134,10 @@ class SmbBrowserService {
 
   /// Get file size in bytes.
   Future<int> getSize(ServerConnection server, String path) async {
-    final c = await _ensureConnected(server);
-    final file = await c.file(path);
-    return file.size;
+    return _runWithReconnect(server, (c) async {
+      final file = await c.file(path);
+      return file.size;
+    });
   }
 
   Future<void> close() async {
