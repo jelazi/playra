@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../models/server_connection.dart';
@@ -79,7 +81,8 @@ class PlayerLauncher {
         _proxy.setCacheLimitMb(playerSettings.smbStreamCacheSizeMb);
         await _proxy.start();
         _proxy.register(server);
-        url = _proxy.urlFor(server, parsed.$2);
+        final candidateUrl = _proxy.urlFor(server, parsed.$2);
+        url = await _resolveReachableProxyUrl(candidateUrl);
         break;
     }
 
@@ -98,6 +101,42 @@ class PlayerLauncher {
 
   void _showError(BuildContext context, String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<String> _resolveReachableProxyUrl(String candidateUrl) async {
+    final candidates = <String>{candidateUrl, _replaceHost(candidateUrl, 'localhost'), _replaceHost(candidateUrl, '127.0.0.1'), _replaceHost(candidateUrl, '::1')}
+      ..removeWhere((url) => url.isEmpty);
+
+    for (final url in candidates) {
+      final reachable = await _canReachProxy(url);
+      if (reachable) return url;
+    }
+
+    return candidateUrl;
+  }
+
+  String _replaceHost(String url, String host) {
+    try {
+      final uri = Uri.parse(url);
+      return uri.replace(host: host).toString();
+    } catch (_) {
+      return url;
+    }
+  }
+
+  Future<bool> _canReachProxy(String url) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    try {
+      final req = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 2));
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      final res = await req.close().timeout(const Duration(seconds: 2));
+      await res.drain<void>();
+      return res.statusCode == 200 || res.statusCode == 206;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   // expose browser if needed by callers

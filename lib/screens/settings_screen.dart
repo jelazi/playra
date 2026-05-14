@@ -286,12 +286,12 @@ class SettingsScreen extends StatelessWidget {
                     Text('settings.smb_cache_size_hint'.tr()),
                     Slider(
                       min: 16,
-                      max: 1024,
-                      divisions: 63,
-                      value: p.smbStreamCacheSizeMb.toDouble().clamp(16, 1024),
+                      max: 512,
+                      divisions: 31,
+                      value: p.smbStreamCacheSizeMb.toDouble().clamp(16, 512),
                       label: '${p.smbStreamCacheSizeMb} MB',
                       onChanged: (v) {
-                        final rounded = ((v / 16).round() * 16).clamp(16, 1024);
+                        final rounded = ((v / 16).round() * 16).clamp(16, 512);
                         context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(smbStreamCacheSizeMb: rounded));
                       },
                     ),

@@ -26,6 +26,7 @@ class SmbProxyServer {
   final LinkedHashMap<String, _CachedChunk> _chunkCache = LinkedHashMap<String, _CachedChunk>();
 
   static const int _chunkSizeBytes = 1024 * 1024;
+  static const int _maxOpenEndedRangeBytes = 2 * 1024 * 1024;
   static const int _defaultCacheLimitBytes = 256 * 1024 * 1024;
   int _cacheLimitBytes = _defaultCacheLimitBytes;
   int _cachedBytes = 0;
@@ -34,7 +35,7 @@ class SmbProxyServer {
   bool get isRunning => _server != null;
 
   void setCacheLimitMb(int sizeMb) {
-    final normalizedMb = sizeMb.clamp(16, 2048);
+    final normalizedMb = sizeMb.clamp(16, 512);
     _cacheLimitBytes = normalizedMb * 1024 * 1024;
     _trimCache();
   }
@@ -63,8 +64,10 @@ class SmbProxyServer {
   /// start with `/`. Returns e.g. `http://127.0.0.1:54321/play/<id>/share/movies/foo.mkv`.
   String urlFor(ServerConnection server, String smbPath) {
     register(server);
-    final p = smbPath.startsWith('/') ? smbPath : '/$smbPath';
-    return 'http://127.0.0.1:${_server!.port}/play/${server.id}$p';
+    final normalizedPath = smbPath.startsWith('/') ? smbPath : '/$smbPath';
+    final smbSegments = normalizedPath.split('/').where((segment) => segment.isNotEmpty);
+    final uri = Uri(scheme: 'http', host: '127.0.0.1', port: _server!.port, pathSegments: <String>['play', server.id, ...smbSegments]);
+    return uri.toString();
   }
 
   Future<Response> _handle(Request req) async {
@@ -74,7 +77,9 @@ class SmbProxyServer {
     }
     final serverId = segments[1];
     final server = _registered[serverId];
-    if (server == null) return Response.notFound('server not registered');
+    if (server == null) {
+      return Response.notFound('server not registered');
+    }
 
     final smbPath = '/${segments.skip(2).join('/')}';
     final fileKeyPrefix = '$serverId|$smbPath';
@@ -90,14 +95,27 @@ class SmbProxyServer {
     int start = 0;
     int end = total - 1;
     bool partial = false;
+    bool openEndedRange = false;
 
     if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
       final spec = rangeHeader.substring(6);
       final parts = spec.split('-');
       if (parts.length == 2) {
         if (parts[0].isNotEmpty) start = int.tryParse(parts[0]) ?? 0;
-        if (parts[1].isNotEmpty) end = int.tryParse(parts[1]) ?? (total - 1);
+        if (parts[1].isNotEmpty) {
+          end = int.tryParse(parts[1]) ?? (total - 1);
+        } else {
+          openEndedRange = true;
+          end = total - 1;
+        }
         partial = true;
+      }
+    }
+
+    if (openEndedRange) {
+      final cappedEnd = start + _maxOpenEndedRangeBytes - 1;
+      if (cappedEnd < end) {
+        end = cappedEnd;
       }
     }
 
@@ -117,7 +135,7 @@ class SmbProxyServer {
 
     Uint8List bodyBytes;
     try {
-      bodyBytes = await _readRangeWithCache(server, fileKeyPrefix, smbPath, start: start, end: end);
+      bodyBytes = await _readRangeWithCache(server, fileKeyPrefix, smbPath, start: start, end: end, totalSize: total);
     } catch (e) {
       return Response.internalServerError(body: 'smb read error: $e');
     }
@@ -125,7 +143,7 @@ class SmbProxyServer {
     return Response(partial ? 206 : 200, body: Stream<List<int>>.value(bodyBytes), headers: headers);
   }
 
-  Future<Uint8List> _readRangeWithCache(ServerConnection server, String fileKeyPrefix, String smbPath, {required int start, required int end}) async {
+  Future<Uint8List> _readRangeWithCache(ServerConnection server, String fileKeyPrefix, String smbPath, {required int start, required int end, required int totalSize}) async {
     final expectedLength = end - start + 1;
     final buffer = BytesBuilder(copy: false);
 
@@ -138,7 +156,8 @@ class SmbProxyServer {
 
       var cached = _touchChunk(key);
       if (cached == null) {
-        cached = await _fetchChunk(server, smbPath, chunkStart, chunkEnd);
+        final fetchEnd = chunkEnd >= totalSize ? totalSize - 1 : chunkEnd;
+        cached = await _fetchChunk(server, smbPath, chunkStart, fetchEnd);
         _storeChunk(key, cached);
       }
 
