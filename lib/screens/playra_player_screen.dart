@@ -96,6 +96,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<Duration>? _durationSub;
   StreamSubscription<String>? _errorSub;
+  Timer? _subtitleDelayPopupTimer;
 
   VideoItem? _nextEpisode;
 
@@ -131,6 +132,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _resumePersistTimer?.cancel();
     _syncSessionTimer?.cancel();
     _downloadToken?.cancel();
+    _subtitleDelayPopupTimer?.cancel();
     unawaited(_persistResumeNow().catchError((error, stackTrace) {}));
     unawaited(_pushSessionUpdate(force: true).catchError((error, stackTrace) {}));
     _keyboardFocusNode.dispose();
@@ -1502,7 +1504,161 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.grey[900],
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetCtx) => _SubtitleOptionsSheet(player: _player, video: widget.video),
+      builder: (sheetCtx) => _SubtitleOptionsSheet(player: _player, video: widget.video, onOpenSubtitleDelayPopup: _showSubtitleDelayPopup),
+    );
+  }
+
+  Future<void> _setSubtitleDelayMs(int value) async {
+    final clamped = value.clamp(-120000, 120000);
+    await PlayraStorage.saveSubtitleDelayMs(widget.video.id, clamped);
+
+    final dynamic platform = _player.platform;
+    final seconds = (clamped / 1000.0).toStringAsFixed(3);
+    try {
+      await platform.setProperty('sub-delay', seconds);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
+      }
+    }
+  }
+
+  String _subtitleDelayLabel(int valueMs) {
+    final value = (valueMs / 1000).toStringAsFixed(2);
+    if (valueMs == 0) return '0.00 s';
+    return valueMs > 0 ? '+$value s' : '$value s';
+  }
+
+  void _restartSubtitleDelayPopupTimer(BuildContext dialogContext) {
+    _subtitleDelayPopupTimer?.cancel();
+    _subtitleDelayPopupTimer = Timer(const Duration(seconds: 10), () {
+      if (Navigator.of(dialogContext, rootNavigator: true).canPop()) {
+        Navigator.of(dialogContext, rootNavigator: true).pop();
+      }
+    });
+  }
+
+  Future<void> _showSubtitleDelayPopup() async {
+    var currentDelayMs = PlayraStorage.getSubtitleDelayMs(widget.video.id);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        _restartSubtitleDelayPopupTimer(dialogCtx);
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => Dialog(
+            insetPadding: const EdgeInsets.symmetric(horizontal: 72, vertical: 24),
+            backgroundColor: Colors.black.withValues(alpha: 0.72),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'settings.subtitle_delay'.tr(),
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _subtitleDelayLabel(currentDelayMs),
+                    style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      _delayActionButton(
+                        icon: Icons.remove_circle_outline,
+                        label: '-10',
+                        onTap: () async {
+                          _restartSubtitleDelayPopupTimer(dialogCtx);
+                          currentDelayMs = (currentDelayMs - 10000).clamp(-120000, 120000);
+                          await _setSubtitleDelayMs(currentDelayMs);
+                          if (!mounted) return;
+                          setDialogState(() {});
+                        },
+                      ),
+                      _delayActionButton(
+                        icon: Icons.exposure_neg_1,
+                        label: '-1',
+                        onTap: () async {
+                          _restartSubtitleDelayPopupTimer(dialogCtx);
+                          currentDelayMs = (currentDelayMs - 1000).clamp(-120000, 120000);
+                          await _setSubtitleDelayMs(currentDelayMs);
+                          if (!mounted) return;
+                          setDialogState(() {});
+                        },
+                      ),
+                      _delayActionButton(
+                        icon: Icons.restart_alt,
+                        label: '0',
+                        onTap: () async {
+                          _restartSubtitleDelayPopupTimer(dialogCtx);
+                          currentDelayMs = 0;
+                          await _setSubtitleDelayMs(currentDelayMs);
+                          if (!mounted) return;
+                          setDialogState(() {});
+                        },
+                      ),
+                      _delayActionButton(
+                        icon: Icons.exposure_plus_1,
+                        label: '+1',
+                        onTap: () async {
+                          _restartSubtitleDelayPopupTimer(dialogCtx);
+                          currentDelayMs = (currentDelayMs + 1000).clamp(-120000, 120000);
+                          await _setSubtitleDelayMs(currentDelayMs);
+                          if (!mounted) return;
+                          setDialogState(() {});
+                        },
+                      ),
+                      _delayActionButton(
+                        icon: Icons.add_circle_outline,
+                        label: '+10',
+                        onTap: () async {
+                          _restartSubtitleDelayPopupTimer(dialogCtx);
+                          currentDelayMs = (currentDelayMs + 10000).clamp(-120000, 120000);
+                          await _setSubtitleDelayMs(currentDelayMs);
+                          if (!mounted) return;
+                          setDialogState(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    _subtitleDelayPopupTimer?.cancel();
+  }
+
+  Widget _delayActionButton({required IconData icon, required String label, required Future<void> Function() onTap}) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () {
+          unawaited(onTap());
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1538,8 +1694,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 class _SubtitleOptionsSheet extends StatefulWidget {
   final Player player;
   final VideoItem video;
+  final Future<void> Function() onOpenSubtitleDelayPopup;
 
-  const _SubtitleOptionsSheet({required this.player, required this.video});
+  const _SubtitleOptionsSheet({required this.player, required this.video, required this.onOpenSubtitleDelayPopup});
 
   @override
   State<_SubtitleOptionsSheet> createState() => _SubtitleOptionsSheetState();
@@ -1561,124 +1718,6 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
     0x00000000,
     0x80000000,
   ];
-
-  late int _subtitleDelayMs;
-  Timer? _delayPopupTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _subtitleDelayMs = PlayraStorage.getSubtitleDelayMs(widget.video.id);
-  }
-
-  @override
-  void dispose() {
-    _delayPopupTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _setSubtitleDelayMs(int value) async {
-    final clamped = value.clamp(-120000, 120000);
-    setState(() => _subtitleDelayMs = clamped);
-    await PlayraStorage.saveSubtitleDelayMs(widget.video.id, clamped);
-
-    final dynamic platform = widget.player.platform;
-    final seconds = (clamped / 1000.0).toStringAsFixed(3);
-    try {
-      await platform.setProperty('sub-delay', seconds);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-      }
-    }
-  }
-
-  String _subtitleDelayLabel(int valueMs) {
-    final value = (valueMs / 1000).toStringAsFixed(2);
-    if (valueMs == 0) return '0.00 s';
-    return valueMs > 0 ? '+$value s' : '$value s';
-  }
-
-  void _restartDelayPopupTimer(BuildContext dialogContext) {
-    _delayPopupTimer?.cancel();
-    _delayPopupTimer = Timer(const Duration(seconds: 10), () {
-      if (Navigator.of(dialogContext, rootNavigator: true).canPop()) {
-        Navigator.of(dialogContext, rootNavigator: true).pop();
-      }
-    });
-  }
-
-  Future<void> _showSubtitleDelayPopup() async {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (dialogCtx) {
-        _restartDelayPopupTimer(dialogCtx);
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) => AlertDialog(
-            title: Text('settings.subtitle_delay'.tr()),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_subtitleDelayLabel(_subtitleDelayMs), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Text('settings.subtitle_delay_popup_hint'.tr()),
-              ],
-            ),
-            actionsAlignment: MainAxisAlignment.center,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline),
-                onPressed: () async {
-                  _restartDelayPopupTimer(dialogCtx);
-                  await _setSubtitleDelayMs(_subtitleDelayMs - 10000);
-                  if (!mounted) return;
-                  setDialogState(() {});
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.exposure_neg_1),
-                onPressed: () async {
-                  _restartDelayPopupTimer(dialogCtx);
-                  await _setSubtitleDelayMs(_subtitleDelayMs - 1000);
-                  if (!mounted) return;
-                  setDialogState(() {});
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.restart_alt),
-                onPressed: () async {
-                  _restartDelayPopupTimer(dialogCtx);
-                  await _setSubtitleDelayMs(0);
-                  if (!mounted) return;
-                  setDialogState(() {});
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.exposure_plus_1),
-                onPressed: () async {
-                  _restartDelayPopupTimer(dialogCtx);
-                  await _setSubtitleDelayMs(_subtitleDelayMs + 1000);
-                  if (!mounted) return;
-                  setDialogState(() {});
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                onPressed: () async {
-                  _restartDelayPopupTimer(dialogCtx);
-                  await _setSubtitleDelayMs(_subtitleDelayMs + 10000);
-                  if (!mounted) return;
-                  setDialogState(() {});
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    _delayPopupTimer?.cancel();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1745,9 +1784,14 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
               ),
               ListTile(
                 title: Text('settings.subtitle_delay'.tr(), style: const TextStyle(color: Colors.white)),
-                subtitle: Text(_subtitleDelayLabel(_subtitleDelayMs), style: const TextStyle(color: Colors.grey)),
+                subtitle: Text('settings.subtitle_delay_popup_hint'.tr(), style: const TextStyle(color: Colors.grey)),
                 trailing: const Icon(Icons.tune, color: Colors.white70),
-                onTap: _showSubtitleDelayPopup,
+                onTap: () async {
+                  final navigator = Navigator.of(context);
+                  navigator.pop();
+                  await Future<void>.delayed(const Duration(milliseconds: 120));
+                  await widget.onOpenSubtitleDelayPopup();
+                },
               ),
               ListTile(
                 title: Text('settings.subtitle_size'.tr(), style: const TextStyle(color: Colors.white)),

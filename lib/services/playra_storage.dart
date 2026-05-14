@@ -1144,7 +1144,10 @@ class PlayraStorage {
   }
 
   static Future<void> setLastOpenedDirectory(String? directory) async {
-    if (directory == null || directory.isEmpty) return;
+    if (directory == null || directory.isEmpty) {
+      await _player?.delete(_lastOpenedDirectoryKey);
+      return;
+    }
     await _player?.put(_lastOpenedDirectoryKey, directory);
   }
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -14,7 +13,6 @@ import 'package:share_plus/share_plus.dart';
 import '../bloc/library/library_cubit.dart';
 import '../models/media_info.dart';
 import '../models/player_settings.dart';
-import '../models/server_connection.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/lan_sync_service.dart';
@@ -28,7 +26,6 @@ import '../services/video_name_parser.dart';
 import 'downloads_screen.dart';
 import 'media_info_screen.dart';
 import 'player_launcher.dart';
-import 'server_browser_screen.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
@@ -42,13 +39,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const Set<String> _supportedVideoExtensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp'};
   static const String _recentsSectionKey = 'home_recently_played';
 
   List<VideoItem> _recents = [];
   Map<String, bool> _expandedSections = {};
   String? _structuredCurrentFolder;
-  bool _isHomeDragging = false;
   bool _isSyncing = false;
   bool _isDiscoveringPeerSessions = false;
 
@@ -59,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context.read<LibraryCubit>().load();
       _loadRecents();
       _loadExpandedSections();
+      _loadLastOpenedDirectory();
     });
   }
 
@@ -84,6 +80,18 @@ class _HomeScreenState extends State<HomeScreen> {
         _expandedSections = updated;
       });
     }
+  }
+
+  void _loadLastOpenedDirectory() {
+    final saved = PlayraStorage.getLastOpenedDirectory();
+    if (!mounted) return;
+    setState(() => _structuredCurrentFolder = saved);
+  }
+
+  Future<void> _setStructuredCurrentFolder(String? path) async {
+    await PlayraStorage.setLastOpenedDirectory(path);
+    if (!mounted) return;
+    setState(() => _structuredCurrentFolder = path);
   }
 
   Future<void> _openVideo(VideoItem v, {String? libraryMode, List<VideoItem>? allVideos}) async {
@@ -158,74 +166,30 @@ class _HomeScreenState extends State<HomeScreen> {
     await _openVideo(resolved);
   }
 
-  Future<void> _addFolder() async {
-    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
-    if (smbServers.isEmpty) {
-      await _addLocalFolder();
-      return;
-    }
-
-    final addedLocal = await _addLocalFolder();
-    if (addedLocal || !mounted) return;
-
-    final source = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(leading: const Icon(Icons.folder_open), title: const Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
-            ListTile(leading: const Icon(Icons.lan), title: const Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
-          ],
-        ),
-      ),
-    );
-
-    if (source == 'smb') {
-      await _addSmbFolder();
-      return;
-    }
-
-    if (source == 'local') {
-      await _addLocalFolder();
-    }
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+    if (mounted) setState(() {});
   }
 
-  Future<bool> _addLocalFolder() async {
-    final selected = await FilePicker.platform.getDirectoryPath();
-    if (selected != null) {
-      if (!mounted) return false;
-      await context.read<LibraryCubit>().addFolder(selected);
-      return true;
-    }
-    return false;
-  }
+  Future<void> _openSingleVideoFile() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
 
-  Future<void> _addSmbFolder() async {
-    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
-    if (smbServers.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nejprve přidejte SMB server v sekci Servery.')));
-      return;
-    }
+    final path = picked.files.single.path;
+    if (path == null || path.isEmpty || !mounted) return;
 
-    if (!mounted) return;
-    final selectedServer = await showModalBottomSheet<ServerConnection>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [for (final s in smbServers) ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s))],
-        ),
-      ),
+    final video = VideoItem(
+      id: path,
+      name: p.basename(path),
+      uri: path,
+      source: VideoSource.local,
     );
 
-    if (selectedServer == null || !mounted) return;
-
-    final selectedSmbFolderUri = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
-
-    if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !mounted) return;
-    await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
+    await context.read<PlayerLauncher>().launch(context, video);
+    _loadRecents();
   }
 
   Future<void> _updatePlayerSettings(PlayerSettings Function(PlayerSettings) updater) async {
@@ -394,15 +358,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadRecents();
   }
 
-  bool _isSupportedVideoPath(String filePath) {
-    return _supportedVideoExtensions.contains(p.extension(filePath).toLowerCase());
-  }
-
-  bool get _supportsDesktopDragDrop {
-    if (kIsWeb) return false;
-    return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
-  }
-
   bool get _isMobileDevice {
     if (kIsWeb) return false;
     return Platform.isIOS || Platform.isAndroid;
@@ -426,90 +381,6 @@ class _HomeScreenState extends State<HomeScreen> {
         cacheHeight: height.round() * 2,
         filterQuality: FilterQuality.low,
         errorBuilder: (context, error, stackTrace) => fallback,
-      ),
-    );
-  }
-
-  Future<void> _handleHomeDrop(List<String> droppedPaths) async {
-    String? firstVideoPath;
-
-    for (final dropped in droppedPaths) {
-      final type = FileSystemEntity.typeSync(dropped);
-      if (type == FileSystemEntityType.directory) {
-        await context.read<LibraryCubit>().addFolder(dropped);
-      } else if (type == FileSystemEntityType.file && _isSupportedVideoPath(dropped)) {
-        firstVideoPath ??= dropped;
-      }
-    }
-
-    if (firstVideoPath != null && mounted) {
-      final v = VideoItem(id: firstVideoPath, name: p.basename(firstVideoPath), uri: firstVideoPath, source: VideoSource.local);
-      await _openVideo(v);
-    }
-  }
-
-  Widget _buildMiniDropZone() {
-    if (!_supportsDesktopDragDrop) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-      child: DropTarget(
-        onDragEntered: (_) => setState(() => _isHomeDragging = true),
-        onDragExited: (_) => setState(() => _isHomeDragging = false),
-        onDragDone: (details) async {
-          setState(() => _isHomeDragging = false);
-          await _handleHomeDrop(details.files.map((f) => f.path).toList());
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: _isHomeDragging
-                ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45)
-                : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: _isHomeDragging ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor, width: _isHomeDragging ? 2 : 1),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 8),
-              Expanded(child: Text('Přetáhněte sem video nebo složku', style: Theme.of(context).textTheme.bodySmall)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildConfiguredFoldersCard(List<String> folders) {
-    if (folders.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.folder_open, size: 18),
-                  const SizedBox(width: 8),
-                  Text('home.library'.tr(), style: Theme.of(context).textTheme.titleSmall),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: folders
-                    .map((folder) => InputChip(avatar: const Icon(Icons.folder, size: 14), label: Text(_folderLabel(folder)), tooltip: folder, onPressed: () {}))
-                    .toList(),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1016,8 +887,7 @@ class _HomeScreenState extends State<HomeScreen> {
       effectiveCurrent = valid ? normalizedCurrent : null;
       if (effectiveCurrent != _structuredCurrentFolder) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() => _structuredCurrentFolder = effectiveCurrent);
+          unawaited(_setStructuredCurrentFolder(effectiveCurrent));
         });
       }
     }
@@ -1159,6 +1029,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final libraryMode = playerSettings.libraryViewMode;
     final visualMode = playerSettings.libraryVisualMode;
     final canSyncAcrossLan = _canSyncAcrossLan();
+    final showRecents = _recents.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -1183,13 +1054,17 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
             ),
           IconButton(
-            tooltip: 'home.settings'.tr(),
-            icon: const Icon(Icons.settings),
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              if (mounted) setState(() {});
-            },
+            tooltip: 'home.open_file'.tr(),
+            icon: const Icon(Icons.video_file_outlined),
+            onPressed: _openSingleVideoFile,
           ),
+          IconButton(tooltip: 'home.settings'.tr(), icon: const Icon(Icons.settings), onPressed: _openSettings),
+          if (showRecents)
+            IconButton(
+              tooltip: _isRecentsExpanded ? 'home.collapse_recent'.tr() : 'home.expand_recent'.tr(),
+              icon: Icon(_isRecentsExpanded ? Icons.history_toggle_off : Icons.history_toggle_off_outlined),
+              onPressed: () => _setSectionExpanded(_recentsSectionKey, !_isRecentsExpanded),
+            ),
         ],
       ),
       body: BlocBuilder<LibraryCubit, LibraryState>(
@@ -1213,15 +1088,13 @@ class _HomeScreenState extends State<HomeScreen> {
             if (state.folders.isEmpty) {
               return Column(
                 children: [
-                  _buildMiniDropZone(),
-                  _buildConfiguredFoldersCard(state.folders),
                   Expanded(
                     child: _emptyState(
                       icon: Icons.folder_open,
                       title: 'home.empty_title'.tr(),
                       subtitle: 'home.empty_subtitle'.tr(),
-                      actionLabel: 'home.add_folder'.tr(),
-                      onAction: _addFolder,
+                      actionLabel: 'home.settings'.tr(),
+                      onAction: _openSettings,
                     ),
                   ),
                 ],
@@ -1229,8 +1102,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }
             return Column(
               children: [
-                _buildMiniDropZone(),
-                _buildConfiguredFoldersCard(state.folders),
                 Expanded(
                   child: _emptyState(
                     icon: Icons.movie_outlined,
@@ -1250,9 +1121,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: CustomScrollView(
               slivers: [
-                SliverToBoxAdapter(child: _buildMiniDropZone()),
-                SliverToBoxAdapter(child: _buildConfiguredFoldersCard(state.folders)),
-                if (showRecents) ...[
+                if (showRecents && _isRecentsExpanded) ...[
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -1261,11 +1130,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Icon(Icons.history, size: 18),
                           const SizedBox(width: 8),
                           Text('home.recently_played'.tr(), style: Theme.of(context).textTheme.titleSmall),
-                          IconButton(
-                            tooltip: _isRecentsExpanded ? 'home.collapse_recent'.tr() : 'home.expand_recent'.tr(),
-                            icon: Icon(_isRecentsExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
-                            onPressed: () => _setSectionExpanded(_recentsSectionKey, !_isRecentsExpanded),
-                          ),
                           const Spacer(),
                           TextButton(
                             style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8)),
@@ -1279,18 +1143,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  if (_isRecentsExpanded)
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: 140,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          itemCount: _recents.length,
-                          itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
-                        ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 140,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: _recents.length,
+                        itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
                       ),
                     ),
+                  ),
                   const SliverToBoxAdapter(child: Divider(height: 24)),
                 ],
                 if (hasFolders && !displayVideos.isNotEmpty)
@@ -1301,8 +1164,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.movie_outlined,
                         title: 'home.no_videos_title'.tr(),
                         subtitle: 'home.no_videos_subtitle'.tr(),
-                        actionLabel: 'home.add_folder'.tr(),
-                        onAction: _addFolder,
+                        actionLabel: 'home.settings'.tr(),
+                        onAction: _openSettings,
                       ),
                     ),
                   ),
@@ -1342,7 +1205,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                           IconButton(icon: const Icon(Icons.refresh, size: 18), tooltip: 'home.refresh_library'.tr(), onPressed: _refreshLibrary),
-                          IconButton(icon: const Icon(Icons.add_circle_outline, size: 18), tooltip: 'home.add_folder'.tr(), onPressed: _addFolder),
                         ],
                       ),
                     ),
@@ -1358,7 +1220,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             tileColor: entry.highlighted ? Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.38) : null,
                             leading: const Icon(Icons.arrow_upward),
                             title: const Text('..'),
-                            onTap: () => setState(() => _structuredCurrentFolder = entry.path),
+                            onTap: () => _setStructuredCurrentFolder(entry.path),
                           );
                         }
 
@@ -1368,7 +1230,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             leading: const Icon(Icons.folder_open),
                             title: Text(entry.title ?? '', style: entry.highlighted ? const TextStyle(fontWeight: FontWeight.w700) : null),
                             subtitle: Text('${entry.count}'),
-                            onTap: () => setState(() => _structuredCurrentFolder = entry.path),
+                            onTap: () => _setStructuredCurrentFolder(entry.path),
                           );
                         }
 
@@ -1554,7 +1416,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
       onLongPress: () => _showVideoMenu(v),
       child: Container(
-        width: 100,
+        width: 92,
         margin: const EdgeInsets.symmetric(horizontal: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1567,15 +1429,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     _buildPosterThumbnail(
                       posterPath: posterPath,
-                      width: 100,
+                      width: 92,
                       height: 136,
                       borderRadius: BorderRadius.circular(8),
                       fallback: Container(
                         color: Colors.grey[300],
-                        child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                        child: const Icon(Icons.movie, size: 34, color: Colors.grey),
                       ),
                     ),
-                    const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 22)),
+                    const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 18)),
                     Positioned(
                       bottom: 4,
                       right: 4,
@@ -1587,7 +1449,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onTap: () => _showVideoMenu(v),
                           child: const Padding(
                             padding: EdgeInsets.all(3),
-                            child: Icon(Icons.more_vert, color: Colors.white, size: 14),
+                            child: Icon(Icons.more_vert, color: Colors.white, size: 12),
                           ),
                         ),
                       ),

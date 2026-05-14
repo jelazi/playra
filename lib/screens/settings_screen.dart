@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,10 +9,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../bloc/library/library_cubit.dart';
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/player_settings.dart';
-import '../models/server_connection.dart';
 import '../models/subtitle_style_settings.dart';
 import '../services/playra_storage.dart';
-import 'server_browser_screen.dart';
+import 'library_management_screen.dart';
 import 'servers_screen.dart';
 import 'subtitle_manager_screen.dart';
 import 'video_library_screen.dart';
@@ -92,66 +90,6 @@ class SettingsScreen extends StatelessWidget {
       default:
         return 'settings.default_track_language_none'.tr();
     }
-  }
-
-  Future<void> _addLibraryFolder(BuildContext context) async {
-    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
-    if (smbServers.isEmpty) {
-      await _addLocalLibraryFolder(context);
-      return;
-    }
-
-    final addedLocal = await _addLocalLibraryFolder(context);
-    if (addedLocal || !context.mounted) return;
-
-    final source = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(leading: const Icon(Icons.folder_open), title: const Text('Lokální složka'), onTap: () => Navigator.of(ctx).pop('local')),
-            ListTile(leading: const Icon(Icons.lan), title: const Text('SMB server'), onTap: () => Navigator.of(ctx).pop('smb')),
-          ],
-        ),
-      ),
-    );
-
-    if (source == 'smb') {
-      await _addSmbLibraryFolder(context);
-      return;
-    }
-
-    if (source == 'local') {
-      await _addLocalLibraryFolder(context);
-    }
-  }
-
-  Future<bool> _addLocalLibraryFolder(BuildContext context) async {
-    final selected = await FilePicker.platform.getDirectoryPath();
-    if (selected == null || !context.mounted) return false;
-    await context.read<LibraryCubit>().addFolder(selected);
-    return true;
-  }
-
-  Future<void> _addSmbLibraryFolder(BuildContext context) async {
-    final smbServers = PlayraStorage.getServers().where((s) => s.type == ServerType.smb).toList();
-    if (smbServers.isEmpty || !context.mounted) return;
-
-    final selectedServer = await showModalBottomSheet<ServerConnection>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [for (final s in smbServers) ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s))],
-        ),
-      ),
-    );
-
-    if (selectedServer == null || !context.mounted) return;
-    final selectedSmbFolderUri = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
-    if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !context.mounted) return;
-    await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
   }
 
   String _formatShortcut(KeyEvent event) {
@@ -308,7 +246,6 @@ class SettingsScreen extends StatelessWidget {
         builder: (context, state) {
           final p = state.player;
           final s = state.subtitleStyle;
-          final currentFolders = PlayraStorage.getLibraryFolders();
           return ListView(
             children: [
               _section(context, 'settings.section_player'.tr()),
@@ -571,21 +508,19 @@ class SettingsScreen extends StatelessWidget {
 
               _sectionSeparator(),
               _section(context, 'settings.section_library'.tr()),
-              ListTile(leading: const Icon(Icons.create_new_folder), title: Text('home.add_folder'.tr()), onTap: () => _addLibraryFolder(context)),
+              ListTile(
+                leading: const Icon(Icons.create_new_folder),
+                title: Text('settings.library_management_title'.tr()),
+                subtitle: Text('settings.library_management_hint'.tr()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LibraryManagementScreen())),
+              ),
               ListTile(
                 leading: const Icon(Icons.refresh),
                 title: Text('settings.refresh_library'.tr()),
                 subtitle: Text('settings.refresh_library_hint'.tr()),
                 onTap: () => context.read<LibraryCubit>().refresh(),
               ),
-              ...currentFolders.map(
-                (f) => ListTile(
-                  leading: const Icon(Icons.folder),
-                  title: Text(f, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => context.read<LibraryCubit>().removeFolder(f)),
-                ),
-              ),
-              if (currentFolders.isEmpty) ListTile(title: Text('settings.no_folders'.tr())),
 
               _sectionSeparator(),
               _section(context, 'home.servers'.tr()),
@@ -659,7 +594,7 @@ class SettingsScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
       child: Text(
         title.toUpperCase(),
-        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Theme.of(context).colorScheme.primary),
+        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 0.2, color: Theme.of(context).colorScheme.primary),
       ),
     );
   }
