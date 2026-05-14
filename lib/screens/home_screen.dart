@@ -172,21 +172,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openSingleVideoFile() async {
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp'],
-    );
+    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp']);
     if (picked == null || picked.files.isEmpty) return;
 
     final path = picked.files.single.path;
     if (path == null || path.isEmpty || !mounted) return;
 
-    final video = VideoItem(
-      id: path,
-      name: p.basename(path),
-      uri: path,
-      source: VideoSource.local,
-    );
+    final video = VideoItem(id: path, name: p.basename(path), uri: path, source: VideoSource.local);
 
     await context.read<PlayerLauncher>().launch(context, video);
     _loadRecents();
@@ -1053,11 +1045,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.download_for_offline),
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
             ),
-          IconButton(
-            tooltip: 'home.open_file'.tr(),
-            icon: const Icon(Icons.video_file_outlined),
-            onPressed: _openSingleVideoFile,
-          ),
+          IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file_outlined), onPressed: _openSingleVideoFile),
           IconButton(tooltip: 'home.settings'.tr(), icon: const Icon(Icons.settings), onPressed: _openSettings),
           if (showRecents)
             IconButton(
