@@ -10,6 +10,7 @@ class SubtitleStyleSettings {
   final int outlineColor; // ARGB
   final double outlineWidth; // 0 = no outline
   final bool bold;
+  final double bottomPadding; // distance from bottom edge in logical pixels
 
   const SubtitleStyleSettings({
     this.enabled = true,
@@ -20,6 +21,7 @@ class SubtitleStyleSettings {
     this.outlineColor = 0xFF000000,
     this.outlineWidth = 1.5,
     this.bold = false,
+    this.bottomPadding = 32,
   });
 
   SubtitleStyleSettings copyWith({
@@ -31,6 +33,7 @@ class SubtitleStyleSettings {
     int? outlineColor,
     double? outlineWidth,
     bool? bold,
+    double? bottomPadding,
   }) => SubtitleStyleSettings(
     enabled: enabled ?? this.enabled,
     fontSize: fontSize ?? this.fontSize,
@@ -40,6 +43,7 @@ class SubtitleStyleSettings {
     outlineColor: outlineColor ?? this.outlineColor,
     outlineWidth: outlineWidth ?? this.outlineWidth,
     bold: bold ?? this.bold,
+    bottomPadding: bottomPadding ?? this.bottomPadding,
   );
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +55,7 @@ class SubtitleStyleSettings {
     'outlineColor': outlineColor,
     'outlineWidth': outlineWidth,
     'bold': bold,
+    'bottomPadding': bottomPadding,
   };
 
   factory SubtitleStyleSettings.fromJson(Map<String, dynamic> j) => SubtitleStyleSettings(
@@ -62,6 +67,7 @@ class SubtitleStyleSettings {
     outlineColor: j['outlineColor'] as int? ?? 0xFF000000,
     outlineWidth: (j['outlineWidth'] as num?)?.toDouble() ?? 1.5,
     bold: j['bold'] as bool? ?? false,
+    bottomPadding: (j['bottomPadding'] as num?)?.toDouble() ?? 32,
   );
 
   String encode() => jsonEncode(toJson());

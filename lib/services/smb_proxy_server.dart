@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -22,9 +23,26 @@ class SmbProxyServer {
   final SmbBrowserService _browser;
   HttpServer? _server;
   final Map<String, ServerConnection> _registered = {};
+  final LinkedHashMap<String, _CachedChunk> _chunkCache = LinkedHashMap<String, _CachedChunk>();
+
+  static const int _chunkSizeBytes = 1024 * 1024;
+  static const int _defaultCacheLimitBytes = 256 * 1024 * 1024;
+  int _cacheLimitBytes = _defaultCacheLimitBytes;
+  int _cachedBytes = 0;
 
   int? get port => _server?.port;
   bool get isRunning => _server != null;
+
+  void setCacheLimitMb(int sizeMb) {
+    final normalizedMb = sizeMb.clamp(16, 2048);
+    _cacheLimitBytes = normalizedMb * 1024 * 1024;
+    _trimCache();
+  }
+
+  void clearCache() {
+    _chunkCache.clear();
+    _cachedBytes = 0;
+  }
 
   Future<void> start() async {
     if (_server != null) return;
@@ -35,6 +53,7 @@ class SmbProxyServer {
   Future<void> stop() async {
     await _server?.close(force: true);
     _server = null;
+    clearCache();
   }
 
   /// Register a server so its files can be streamed through the proxy.
@@ -58,6 +77,7 @@ class SmbProxyServer {
     if (server == null) return Response.notFound('server not registered');
 
     final smbPath = '/${segments.skip(2).join('/')}';
+    final fileKeyPrefix = '$serverId|$smbPath';
 
     int total;
     try {
@@ -95,33 +115,89 @@ class SmbProxyServer {
       return Response(partial ? 206 : 200, headers: headers);
     }
 
-    Stream<List<int>> body;
+    Uint8List bodyBytes;
     try {
-      final raw = await _browser.openRead(server, smbPath, start: start, end: end + 1);
-      body = raw.cast<List<int>>();
+      bodyBytes = await _readRangeWithCache(server, fileKeyPrefix, smbPath, start: start, end: end);
     } catch (e) {
       return Response.internalServerError(body: 'smb read error: $e');
     }
 
-    // Limit to the requested byte length so libmpv sees an exact match.
-    body = _limit(body, length);
-
-    return Response(partial ? 206 : 200, body: body, headers: headers);
+    return Response(partial ? 206 : 200, body: Stream<List<int>>.value(bodyBytes), headers: headers);
   }
 
-  Stream<List<int>> _limit(Stream<List<int>> source, int max) async* {
-    var sent = 0;
-    await for (final chunk in source) {
-      if (sent >= max) break;
-      final remaining = max - sent;
-      if (chunk.length <= remaining) {
-        sent += chunk.length;
-        yield chunk;
-      } else {
-        yield Uint8List.fromList(chunk.sublist(0, remaining));
-        sent += remaining;
-        break;
+  Future<Uint8List> _readRangeWithCache(ServerConnection server, String fileKeyPrefix, String smbPath, {required int start, required int end}) async {
+    final expectedLength = end - start + 1;
+    final buffer = BytesBuilder(copy: false);
+
+    var cursor = start;
+    while (cursor <= end) {
+      final chunkIndex = cursor ~/ _chunkSizeBytes;
+      final chunkStart = chunkIndex * _chunkSizeBytes;
+      final chunkEnd = chunkStart + _chunkSizeBytes - 1;
+      final key = '$fileKeyPrefix|$chunkIndex';
+
+      var cached = _touchChunk(key);
+      if (cached == null) {
+        cached = await _fetchChunk(server, smbPath, chunkStart, chunkEnd);
+        _storeChunk(key, cached);
+      }
+
+      final localStart = cursor - chunkStart;
+      final localEnd = (end < chunkEnd ? end : chunkEnd) - chunkStart;
+      final slice = Uint8List.sublistView(cached.bytes, localStart, localEnd + 1);
+      buffer.add(slice);
+      cursor = chunkEnd + 1;
+    }
+
+    final out = buffer.toBytes();
+    if (out.length == expectedLength) return out;
+    if (out.length > expectedLength) {
+      return Uint8List.sublistView(out, 0, expectedLength);
+    }
+    return out;
+  }
+
+  _CachedChunk? _touchChunk(String key) {
+    final existing = _chunkCache.remove(key);
+    if (existing == null) return null;
+    _chunkCache[key] = existing;
+    return existing;
+  }
+
+  Future<_CachedChunk> _fetchChunk(ServerConnection server, String smbPath, int chunkStart, int chunkEnd) async {
+    final raw = await _browser.openRead(server, smbPath, start: chunkStart, end: chunkEnd + 1);
+    final builder = BytesBuilder(copy: false);
+    await for (final part in raw) {
+      builder.add(part);
+    }
+    final bytes = builder.toBytes();
+    return _CachedChunk(start: chunkStart, bytes: bytes);
+  }
+
+  void _storeChunk(String key, _CachedChunk chunk) {
+    final prev = _chunkCache.remove(key);
+    if (prev != null) {
+      _cachedBytes -= prev.bytes.length;
+    }
+    _chunkCache[key] = chunk;
+    _cachedBytes += chunk.bytes.length;
+    _trimCache();
+  }
+
+  void _trimCache() {
+    while (_cachedBytes > _cacheLimitBytes && _chunkCache.isNotEmpty) {
+      final oldestKey = _chunkCache.keys.first;
+      final removed = _chunkCache.remove(oldestKey);
+      if (removed != null) {
+        _cachedBytes -= removed.bytes.length;
       }
     }
   }
+}
+
+class _CachedChunk {
+  const _CachedChunk({required this.start, required this.bytes});
+
+  final int start;
+  final Uint8List bytes;
 }

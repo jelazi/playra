@@ -330,7 +330,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
   Widget _buildVideoList() {
     final isPhone = !_isTabletOrDesktop(context);
-    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders;
+    final libraryFolders = PlayraStorage.getLibraryFolders();
     final entries = _buildFolderEntries();
 
     return Stack(
@@ -852,11 +852,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     final selected = await FilePicker.platform.getDirectoryPath();
     if (selected == null || selected.isEmpty) return;
 
-    final settings = PlayraStorage.getPlayerSettings();
-    if (!settings.libraryFolders.contains(selected)) {
-      final updated = settings.copyWith(libraryFolders: [...settings.libraryFolders, selected]);
-      await PlayraStorage.savePlayerSettings(updated);
-    }
+    await PlayraStorage.addLibraryFolder(selected);
 
     await _addVideosFromDirectory(selected);
     if (mounted) setState(() {});
@@ -952,7 +948,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
   List<_FolderEntry> _buildFolderEntries() {
     final rootNodes = <String, _FolderNode>{};
-    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders.toList()..sort((a, b) => b.length.compareTo(a.length));
+    final libraryFolders = PlayraStorage.getLibraryFolders().toList()..sort((a, b) => b.length.compareTo(a.length));
 
     for (final v in _videos) {
       final rootPath = _resolveLibraryRootForPath(v.path, libraryFolders) ?? path.dirname(v.path);

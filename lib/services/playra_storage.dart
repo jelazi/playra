@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,11 +16,13 @@ import 'video_name_parser.dart';
 /// Uses untyped JSON-string boxes to avoid relying on generated adapters.
 class PlayraStorage {
   static const String _playerBox = 'playra_player';
+  static const String _libraryFoldersBox = 'playra_library_folders';
   static const String _resumeBox = 'playra_resume';
   static const String _styleBox = 'playra_style';
   static const String _serversBox = 'playra_servers';
 
   static const String _playerKey = 'settings';
+  static const String _libraryFoldersKey = 'folders';
   static const String _styleKey = 'style';
   static const String _recentsKey = 'recents';
   static const String _recentMetaKey = 'recent_meta';
@@ -29,6 +32,7 @@ class PlayraStorage {
   static const String _resumeByHashMetaKey = 'resume_by_hash_meta';
   static const String _trackPrefsByHashMetaKey = 'track_prefs_by_hash_meta';
   static const String _trackPrefsBySeriesMetaKey = 'track_prefs_by_series_meta';
+  static const String _subtitleDelayMetaKey = 'subtitle_delay_meta';
   static const String _durationMetaKey = 'duration_meta';
   static const String _videoIdentityMetaKey = 'video_identity_meta';
   static const String _recentByHashMetaKey = 'recent_by_hash_meta';
@@ -45,6 +49,7 @@ class PlayraStorage {
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
   static Box<String>? _player;
+  static Box<String>? _libraryFolders;
   static Box<int>? _resume;
   static Box<String>? _style;
   static Box<String>? _servers;
@@ -52,6 +57,7 @@ class PlayraStorage {
   /// Initialise Hive (callable after Hive.initFlutter has been called).
   static Future<void> init() async {
     _player = await Hive.openBox<String>(_playerBox);
+    _libraryFolders = await Hive.openBox<String>(_libraryFoldersBox);
     _resume = await Hive.openBox<int>(_resumeBox);
     _style = await Hive.openBox<String>(_styleBox);
     _servers = await Hive.openBox<String>(_serversBox);
@@ -62,14 +68,63 @@ class PlayraStorage {
     final raw = _player?.get(_playerKey);
     if (raw == null) return const PlayerSettings();
     try {
-      return PlayerSettings.decode(raw);
+      final settings = PlayerSettings.decode(raw);
+      return settings.copyWith(libraryFolders: getLibraryFolders());
     } catch (_) {
       return const PlayerSettings();
     }
   }
 
   static Future<void> savePlayerSettings(PlayerSettings s) async {
-    await _player?.put(_playerKey, s.encode());
+    final merged = s.copyWith(libraryFolders: getLibraryFolders());
+    await _player?.put(_playerKey, merged.encode());
+  }
+
+  static List<String> getLibraryFolders() {
+    final raw = _libraryFolders?.get(_libraryFoldersKey);
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return decoded.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+        }
+      } catch (_) {}
+    }
+
+    final legacyRaw = _player?.get(_playerKey);
+    final legacy = legacyRaw == null
+        ? const <String>[]
+        : (() {
+            try {
+              return PlayerSettings.decode(legacyRaw).libraryFolders;
+            } catch (_) {
+              return const <String>[];
+            }
+          })();
+    if (legacy.isNotEmpty) {
+      unawaited(_libraryFolders?.put(_libraryFoldersKey, jsonEncode(_normalizeFolders(legacy))));
+    }
+    return _normalizeFolders(legacy);
+  }
+
+  static Future<void> setLibraryFolders(List<String> folders) async {
+    final normalized = _normalizeFolders(folders);
+    await _libraryFolders?.put(_libraryFoldersKey, jsonEncode(normalized));
+    final settings = getPlayerSettings();
+    await _player?.put(_playerKey, settings.copyWith(libraryFolders: normalized).encode());
+  }
+
+  static Future<void> addLibraryFolder(String folder) async {
+    final normalizedFolder = _normalizeFolder(folder);
+    final folders = getLibraryFolders();
+    if (folders.any((f) => _normalizeFolder(f) == normalizedFolder)) return;
+    await setLibraryFolders([...folders, normalizedFolder]);
+  }
+
+  static Future<void> removeLibraryFolder(String folder) async {
+    final normalizedFolder = _normalizeFolder(folder);
+    final folders = getLibraryFolders().where((f) => _normalizeFolder(f) != normalizedFolder).toList();
+    await setLibraryFolders(folders);
   }
 
   // --- Subtitle style ---
@@ -85,6 +140,25 @@ class PlayraStorage {
 
   static Future<void> saveStyle(SubtitleStyleSettings s) async {
     await _style?.put(_styleKey, s.encode());
+  }
+
+  static List<String> _normalizeFolders(List<String> folders) {
+    final out = <String>[];
+    for (final folder in folders) {
+      final normalized = _normalizeFolder(folder);
+      if (normalized.isEmpty) continue;
+      if (out.contains(normalized)) continue;
+      out.add(normalized);
+    }
+    return out;
+  }
+
+  static String _normalizeFolder(String folder) {
+    var value = folder.trim();
+    while (value.length > 1 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
   }
 
   // --- Video identity map (videoId -> stable content hash) ---
@@ -549,6 +623,24 @@ class PlayraStorage {
     await _writeMap(_trackPrefsMetaKey, meta);
     await _writeMap(_trackPrefsByHashMetaKey, hashMap);
     await _writeMap(_trackPrefsBySeriesMetaKey, seriesMap);
+  }
+
+  static int getSubtitleDelayMs(String videoId) {
+    final map = _readMap(_subtitleDelayMetaKey);
+    final entry = map[videoId];
+    if (entry is int) return entry;
+    if (entry is num) return entry.toInt();
+    return 0;
+  }
+
+  static Future<void> saveSubtitleDelayMs(String videoId, int delayMs) async {
+    final map = _readMap(_subtitleDelayMetaKey);
+    if (delayMs == 0) {
+      map.remove(videoId);
+    } else {
+      map[videoId] = delayMs;
+    }
+    await _writeMap(_subtitleDelayMetaKey, map);
   }
 
   static Map<String, dynamic> _readMap(String key) {

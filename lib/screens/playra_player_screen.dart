@@ -65,6 +65,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   String? _overlayText;
   bool _playing = false;
   bool _isReady = false;
+  bool _hasFatalPlaybackError = false;
+  String? _fatalPlaybackMessage;
   String _videoFitMode = 'scaleDown';
   double _videoZoom = 1.0;
 
@@ -102,6 +104,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
   }
 
+  bool get _isTouchPlatform {
+    if (kIsWeb) return false;
+    return Platform.isAndroid || Platform.isIOS;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -124,8 +131,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _resumePersistTimer?.cancel();
     _syncSessionTimer?.cancel();
     _downloadToken?.cancel();
-    unawaited(_persistResumeNow());
-    unawaited(_pushSessionUpdate(force: true));
+    unawaited(_persistResumeNow().catchError((error, stackTrace) {}));
+    unawaited(_pushSessionUpdate(force: true).catchError((error, stackTrace) {}));
     _keyboardFocusNode.dispose();
     _player.dispose();
     super.dispose();
@@ -161,48 +168,109 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     });
 
     _errorSub = _player.stream.error.listen((e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Player error: $e')));
+      _handlePlayerError(e, markFatal: _isCodecError(e));
     });
   }
 
-  Future<void> _openMedia() async {
-    final settings = PlayraStorage.getPlayerSettings();
+  bool _isCodecError(String message) {
+    final normalized = message.toLowerCase();
+    return normalized.contains('codec') ||
+        normalized.contains('decoder') ||
+        normalized.contains('decode') ||
+        normalized.contains('ffmpeg') ||
+        normalized.contains('hwdec') ||
+        normalized.contains('mediacodec');
+  }
 
-    await _player.open(Media(widget.video.uri));
-
-    final resume = PlayraStorage.getResume(widget.video.id);
-    if (settings.resumePlayback && resume != null && resume > 0) {
-      _pendingInitialResume = Duration(milliseconds: resume);
-      await _applyInitialResumeIfNeeded();
-    } else {
-      _initialResumeResolved = true;
+  Future<bool> _runPlayerAction(Future<void> Function() action, {required String operation, bool markFatal = false}) async {
+    try {
+      await action();
+      return true;
+    } catch (e, st) {
+      debugPrint('Playra player action failed [$operation]: $e\n$st');
+      _handlePlayerError(e.toString(), markFatal: markFatal || _isCodecError(e.toString()));
+      return false;
     }
+  }
 
-    _pendingAudioTrackPref = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
-    _pendingSubtitleTrackPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+  void _handlePlayerError(String rawError, {bool markFatal = false}) {
+    if (!mounted) return;
 
-    await _attachAutoSubtitleIfAvailable();
+    final codecError = _isCodecError(rawError);
+    final message = codecError ? 'Codec error during playback. Try another file or encoding.' : 'Playback error: $rawError';
 
-    await _restorePreferredTracks();
-
-    _videoHash = await VideoHashService.hashForVideo(widget.video);
-    if (_videoHash != null) {
-      await PlayraStorage.bindVideoToHash(videoId: widget.video.id, hash: _videoHash!, title: widget.video.displayName, sizeBytes: widget.video.sizeBytes);
-      await PlayraStorage.addRecent(widget.video);
-    }
-
-    final next = await EpisodeContinuationService.findNextEpisode(widget.video);
-    if (mounted) {
+    if (markFatal || codecError) {
       setState(() {
-        _nextEpisode = next;
+        _hasFatalPlaybackError = true;
+        _fatalPlaybackMessage = message;
         _isReady = true;
       });
     }
 
-    _startHideTimer();
-    _scheduleSessionSync();
-    _schedulePreferredTrackRestore();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openMedia() async {
+    try {
+      final settings = PlayraStorage.getPlayerSettings();
+
+      setState(() {
+        _hasFatalPlaybackError = false;
+        _fatalPlaybackMessage = null;
+        _isReady = false;
+      });
+
+      final opened = await _runPlayerAction(() => _player.open(Media(widget.video.uri)), operation: 'open media', markFatal: true);
+      if (!opened || !mounted) return;
+
+      final resume = PlayraStorage.getResume(widget.video.id);
+      if (settings.resumePlayback && resume != null && resume > 0) {
+        _pendingInitialResume = Duration(milliseconds: resume);
+        await _applyInitialResumeIfNeeded();
+      } else {
+        _initialResumeResolved = true;
+      }
+
+      _pendingAudioTrackPref = PlayraStorage.getPreferredAudioTrackKey(widget.video.id);
+      _pendingSubtitleTrackPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+
+      await _applyStoredSubtitleDelay();
+
+      await _attachAutoSubtitleIfAvailable();
+
+      await _restorePreferredTracks();
+
+      _videoHash = await VideoHashService.hashForVideo(widget.video);
+      if (_videoHash != null) {
+        await PlayraStorage.bindVideoToHash(videoId: widget.video.id, hash: _videoHash!, title: widget.video.displayName, sizeBytes: widget.video.sizeBytes);
+        await PlayraStorage.addRecent(widget.video);
+      }
+
+      final next = await EpisodeContinuationService.findNextEpisode(widget.video);
+      if (mounted) {
+        setState(() {
+          _nextEpisode = next;
+          _isReady = true;
+        });
+      }
+
+      _startHideTimer();
+      _scheduleSessionSync();
+      _schedulePreferredTrackRestore();
+    } catch (e, st) {
+      debugPrint('Playra player open media flow failed: $e\n$st');
+      _handlePlayerError(e.toString(), markFatal: true);
+    }
+  }
+
+  Future<void> _applyStoredSubtitleDelay() async {
+    final delayMs = PlayraStorage.getSubtitleDelayMs(widget.video.id);
+    final seconds = (delayMs / 1000.0).toStringAsFixed(3);
+    final dynamic platform = _player.platform;
+    try {
+      await platform.setProperty('sub-delay', seconds);
+    } catch (_) {}
   }
 
   Future<void> _applyInitialResumeIfNeeded() async {
@@ -231,7 +299,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     final clampedTarget = Duration(milliseconds: targetMs);
     for (var attempt = 0; attempt < 4; attempt++) {
-      await _player.seek(clampedTarget);
+      final moved = await _runPlayerAction(() => _player.seek(clampedTarget), operation: 'initial resume seek');
+      if (!moved) break;
       await Future<void>.delayed(const Duration(milliseconds: 350));
 
       final currentMs = _player.state.position.inMilliseconds;
@@ -296,7 +365,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     final first = candidates.first;
     final track = SubtitleTrack.uri(first, title: p.basename(Uri.parse(first).path));
-    await _player.setSubtitleTrack(track);
+    final subtitleSet = await _runPlayerAction(() => _player.setSubtitleTrack(track), operation: 'set auto subtitle');
+    if (!subtitleSet) return;
     await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
   }
 
@@ -396,7 +466,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       final tracks = _player.state.tracks.audio;
       final matched = _matchAudioTrack(tracks, audioPref);
       if (matched != null) {
-        await _player.setAudioTrack(matched);
+        final setAudio = await _runPlayerAction(() => _player.setAudioTrack(matched), operation: 'restore preferred audio track');
+        if (!setAudio) return;
         appliedAudio = true;
       }
     } else {
@@ -405,7 +476,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
         final tracks = _player.state.tracks.audio;
         final matched = _matchAudioTrackByLanguage(tracks, defaultAudioLang);
         if (matched != null) {
-          await _player.setAudioTrack(matched);
+          final setAudio = await _runPlayerAction(() => _player.setAudioTrack(matched), operation: 'set default audio language track');
+          if (!setAudio) return;
           await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(matched));
           appliedAudio = true;
         }
@@ -416,7 +488,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
       final tracks = _player.state.tracks.subtitle;
       final matched = _matchSubtitleTrack(tracks, subPref);
       if (matched != null) {
-        await _player.setSubtitleTrack(matched);
+        final setSub = await _runPlayerAction(() => _player.setSubtitleTrack(matched), operation: 'restore preferred subtitle track');
+        if (!setSub) return;
         appliedSubtitle = true;
       }
     } else {
@@ -425,7 +498,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
         final tracks = _player.state.tracks.subtitle;
         final matched = _matchSubtitleTrackByLanguage(tracks, defaultSubtitleLang);
         if (matched != null) {
-          await _player.setSubtitleTrack(matched);
+          final setSub = await _runPlayerAction(() => _player.setSubtitleTrack(matched), operation: 'set default subtitle language track');
+          if (!setSub) return;
           await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(matched));
           appliedSubtitle = true;
         }
@@ -538,7 +612,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final target = _position + delta;
     final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
     final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
-    await _player.seek(clamped);
+    final seekOk = await _runPlayerAction(() => _player.seek(clamped), operation: 'relative seek');
+    if (!seekOk) return;
     _scheduleResumePersist();
     _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
   }
@@ -751,10 +826,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     }
 
     if (_playing) {
-      await _player.pause();
+      await _runPlayerAction(() => _player.pause(), operation: 'pause on double tap');
       _flashOverlay(Icons.pause, 'Pause');
     } else {
-      await _player.play();
+      await _runPlayerAction(() => _player.play(), operation: 'play on double tap');
       _flashOverlay(Icons.play_arrow, 'Play');
     }
     _startHideTimer();
@@ -844,7 +919,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     if (_tryHandleShortcut(event, settings.desktopPlayPauseShortcut, () {
-      _playing ? _player.pause() : _player.play();
+      unawaited(_runPlayerAction(() => _playing ? _player.pause() : _player.play(), operation: 'desktop shortcut play/pause'));
       _startHideTimer();
     })) {
       return KeyEventResult.handled;
@@ -996,7 +1071,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _dragSeekPositionMs = targetMs;
 
     final clamped = Duration(milliseconds: targetMs);
-    _player.seek(clamped);
+    unawaited(_runPlayerAction(() => _player.seek(clamped), operation: 'drag seek'));
     setState(() => _position = clamped);
     _scheduleResumePersist();
     _flashOverlay(deltaMs.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
@@ -1089,6 +1164,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                     if (_showControls) Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
                     if (_showControls) Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar(MediaQuery.of(context).size)),
 
+                    if (_hasFatalPlaybackError) Positioned.fill(child: _buildFatalPlaybackOverlay()),
+
                     if (!_isReady) const Center(child: CircularProgressIndicator(color: Colors.white)),
                   ],
                 ),
@@ -1097,6 +1174,51 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildFatalPlaybackOverlay() {
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            color: Colors.grey[900],
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Playback failed',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _fatalPlaybackMessage ?? 'An unexpected playback error occurred.',
+                    style: const TextStyle(color: Colors.white70),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back')),
+                      const SizedBox(width: 10),
+                      FilledButton(onPressed: _openMedia, child: const Text('Retry')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1122,7 +1244,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
             : null,
       ),
       textAlign: TextAlign.center,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+      padding: EdgeInsets.fromLTRB(16, 0, 16, s.bottomPadding),
     );
   }
 
@@ -1281,6 +1403,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
   Widget _buildBottomBar(Size size) {
     final dur = _duration.inMilliseconds == 0 ? 1 : _duration.inMilliseconds;
+    final trackHeight = _isTouchPlatform ? 18.0 : 4.0;
+    final thumbRadius = _isTouchPlatform ? 14.0 : 8.0;
+    final overlayRadius = _isTouchPlatform ? 24.0 : 14.0;
     return Container(
       padding: EdgeInsets.fromLTRB(8, 8, 8, MediaQuery.of(context).padding.bottom + 8),
       decoration: const BoxDecoration(
@@ -1298,9 +1423,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                   child: Center(
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
-                        trackHeight: 18,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+                        trackHeight: trackHeight,
+                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: thumbRadius),
+                        overlayShape: RoundSliderOverlayShape(overlayRadius: overlayRadius),
                         activeTrackColor: Colors.redAccent,
                       ),
                       child: Slider(
@@ -1311,7 +1436,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
                           setState(() => _position = Duration(milliseconds: v.toInt()));
                         },
                         onChangeEnd: (v) {
-                          _player.seek(Duration(milliseconds: v.toInt()));
+                          unawaited(_runPlayerAction(() => _player.seek(Duration(milliseconds: v.toInt())), operation: 'seek from progress bar'));
                           _scheduleResumePersist();
                         },
                       ),
@@ -1326,22 +1451,32 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
+                icon: const Icon(Icons.replay_30, color: Colors.white, size: 30),
+                onPressed: () => _seekRelative(const Duration(seconds: -30)),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
                 icon: const Icon(Icons.replay_10, color: Colors.white, size: 32),
                 onPressed: () => _seekRelative(const Duration(seconds: -10)),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               IconButton(
-                iconSize: 56,
+                iconSize: 72,
                 icon: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_filled, color: Colors.white),
                 onPressed: () {
-                  _playing ? _player.pause() : _player.play();
+                  unawaited(_runPlayerAction(() => _playing ? _player.pause() : _player.play(), operation: 'bottom controls play/pause'));
                   _startHideTimer();
                 },
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.forward_10, color: Colors.white, size: 32),
                 onPressed: () => _seekRelative(const Duration(seconds: 10)),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.forward_30, color: Colors.white, size: 30),
+                onPressed: () => _seekRelative(const Duration(seconds: 30)),
               ),
             ],
           ),
@@ -1355,7 +1490,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     final current = _player.state.track.audio;
     final picked = await _showTrackPicker<AudioTrack>(title: 'player.audio_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
     if (picked != null) {
-      await _player.setAudioTrack(picked);
+      final setAudio = await _runPlayerAction(() => _player.setAudioTrack(picked), operation: 'set picked audio track');
+      if (!setAudio) return;
       await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(picked));
     }
   }
@@ -1426,6 +1562,124 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
     0x80000000,
   ];
 
+  late int _subtitleDelayMs;
+  Timer? _delayPopupTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _subtitleDelayMs = PlayraStorage.getSubtitleDelayMs(widget.video.id);
+  }
+
+  @override
+  void dispose() {
+    _delayPopupTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _setSubtitleDelayMs(int value) async {
+    final clamped = value.clamp(-120000, 120000);
+    setState(() => _subtitleDelayMs = clamped);
+    await PlayraStorage.saveSubtitleDelayMs(widget.video.id, clamped);
+
+    final dynamic platform = widget.player.platform;
+    final seconds = (clamped / 1000.0).toStringAsFixed(3);
+    try {
+      await platform.setProperty('sub-delay', seconds);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
+      }
+    }
+  }
+
+  String _subtitleDelayLabel(int valueMs) {
+    final value = (valueMs / 1000).toStringAsFixed(2);
+    if (valueMs == 0) return '0.00 s';
+    return valueMs > 0 ? '+$value s' : '$value s';
+  }
+
+  void _restartDelayPopupTimer(BuildContext dialogContext) {
+    _delayPopupTimer?.cancel();
+    _delayPopupTimer = Timer(const Duration(seconds: 10), () {
+      if (Navigator.of(dialogContext, rootNavigator: true).canPop()) {
+        Navigator.of(dialogContext, rootNavigator: true).pop();
+      }
+    });
+  }
+
+  Future<void> _showSubtitleDelayPopup() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        _restartDelayPopupTimer(dialogCtx);
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: Text('settings.subtitle_delay'.tr()),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_subtitleDelayLabel(_subtitleDelayMs), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text('settings.subtitle_delay_popup_hint'.tr()),
+              ],
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed: () async {
+                  _restartDelayPopupTimer(dialogCtx);
+                  await _setSubtitleDelayMs(_subtitleDelayMs - 10000);
+                  if (!mounted) return;
+                  setDialogState(() {});
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.exposure_neg_1),
+                onPressed: () async {
+                  _restartDelayPopupTimer(dialogCtx);
+                  await _setSubtitleDelayMs(_subtitleDelayMs - 1000);
+                  if (!mounted) return;
+                  setDialogState(() {});
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.restart_alt),
+                onPressed: () async {
+                  _restartDelayPopupTimer(dialogCtx);
+                  await _setSubtitleDelayMs(0);
+                  if (!mounted) return;
+                  setDialogState(() {});
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.exposure_plus_1),
+                onPressed: () async {
+                  _restartDelayPopupTimer(dialogCtx);
+                  await _setSubtitleDelayMs(_subtitleDelayMs + 1000);
+                  if (!mounted) return;
+                  setDialogState(() {});
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                onPressed: () async {
+                  _restartDelayPopupTimer(dialogCtx);
+                  await _setSubtitleDelayMs(_subtitleDelayMs + 10000);
+                  if (!mounted) return;
+                  setDialogState(() {});
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    _delayPopupTimer?.cancel();
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
@@ -1465,7 +1719,15 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   if (res != null && res.files.isNotEmpty && res.files.first.path != null) {
                     final path = res.files.first.path!;
                     final track = SubtitleTrack.uri(Uri.file(path).toString(), title: res.files.first.name);
-                    await widget.player.setSubtitleTrack(track);
+                    try {
+                      await widget.player.setSubtitleTrack(track);
+                    } catch (e, st) {
+                      debugPrint('Playra subtitle track set failed [file picker]: $e\n$st');
+                      if (context.mounted) {
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
+                      }
+                      return;
+                    }
                     await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
                     if (context.mounted) Navigator.of(context).pop();
                   }
@@ -1482,6 +1744,12 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                 onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(enabled: v)),
               ),
               ListTile(
+                title: Text('settings.subtitle_delay'.tr(), style: const TextStyle(color: Colors.white)),
+                subtitle: Text(_subtitleDelayLabel(_subtitleDelayMs), style: const TextStyle(color: Colors.grey)),
+                trailing: const Icon(Icons.tune, color: Colors.white70),
+                onTap: _showSubtitleDelayPopup,
+              ),
+              ListTile(
                 title: Text('settings.subtitle_size'.tr(), style: const TextStyle(color: Colors.white)),
                 subtitle: Slider(
                   min: 10,
@@ -1490,6 +1758,23 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   value: s.fontSize,
                   label: s.fontSize.toStringAsFixed(0),
                   onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontSize: v)),
+                ),
+              ),
+              ListTile(
+                title: Text('settings.subtitle_bottom_padding'.tr(), style: const TextStyle(color: Colors.white)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('settings.subtitle_bottom_padding_hint'.tr(), style: const TextStyle(color: Colors.grey)),
+                    Slider(
+                      min: 8,
+                      max: 160,
+                      divisions: 76,
+                      value: s.bottomPadding.clamp(8, 160),
+                      label: s.bottomPadding.toStringAsFixed(0),
+                      onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(bottomPadding: v)),
+                    ),
+                  ],
                 ),
               ),
               ListTile(
@@ -1582,7 +1867,15 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
         leading: Icon(t == current ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white),
         title: Text(label, style: const TextStyle(color: Colors.white)),
         onTap: () async {
-          await widget.player.setSubtitleTrack(t);
+          try {
+            await widget.player.setSubtitleTrack(t);
+          } catch (e, st) {
+            debugPrint('Playra subtitle track set failed [sheet select]: $e\n$st');
+            if (mounted) {
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
+            }
+            return;
+          }
           await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(t));
           if (mounted) setState(() {});
         },

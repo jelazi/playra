@@ -27,6 +27,69 @@ class LibraryService {
     return _folderScanTimeout;
   }
 
+  Future<void> _collectVideosSafely(String rootPath, List<File> out, {required bool recursive}) async {
+    final toVisit = <String>[rootPath];
+    final visited = <String>{};
+
+    while (toVisit.isNotEmpty) {
+      final currentPath = p.normalize(toVisit.removeLast());
+      if (!visited.add(currentPath)) continue;
+
+      final currentDir = Directory(currentPath);
+      try {
+        await for (final entity in currentDir.list(recursive: false, followLinks: false)) {
+          if (entity is File) {
+            final base = p.basename(entity.path);
+            if (base.startsWith('.')) continue;
+            final ext = p.extension(entity.path).toLowerCase().replaceFirst('.', '');
+            if (!kSupportedVideoExtensions.contains(ext)) continue;
+
+            try {
+              final stat = await entity.stat();
+              if (stat.size >= _minVideoBytes) {
+                out.add(entity);
+              }
+            } catch (_) {
+              // Skip files that cannot be accessed.
+            }
+            continue;
+          }
+
+          if (!recursive) continue;
+
+          if (entity is Directory) {
+            toVisit.add(entity.path);
+            continue;
+          }
+
+          if (entity is Link) {
+            try {
+              final resolved = await entity.resolveSymbolicLinks();
+              final resolvedType = FileSystemEntity.typeSync(resolved);
+              if (resolvedType == FileSystemEntityType.directory) {
+                toVisit.add(resolved);
+              } else if (resolvedType == FileSystemEntityType.file) {
+                final file = File(resolved);
+                final base = p.basename(file.path);
+                if (base.startsWith('.')) continue;
+                final ext = p.extension(file.path).toLowerCase().replaceFirst('.', '');
+                if (!kSupportedVideoExtensions.contains(ext)) continue;
+                final stat = await file.stat();
+                if (stat.size >= _minVideoBytes) {
+                  out.add(file);
+                }
+              }
+            } catch (_) {
+              // Skip broken or inaccessible links.
+            }
+          }
+        }
+      } catch (_) {
+        // Skip unreadable directories but continue scanning others.
+      }
+    }
+  }
+
   /// List videos in a single directory (non-recursive by default; set [recursive] to walk subtree).
   Future<List<VideoItem>> listFolder(String folderPath, {bool recursive = false}) async {
     if (folderPath.startsWith('smb://')) {
@@ -37,22 +100,7 @@ class LibraryService {
     if (!await dir.exists()) return const [];
 
     final files = <File>[];
-    try {
-      await for (final entity in dir.list(recursive: recursive, followLinks: false)) {
-        if (entity is File) {
-          final base = p.basename(entity.path);
-          if (base.startsWith('.')) continue;
-          final ext = p.extension(entity.path).toLowerCase().replaceFirst('.', '');
-          if (kSupportedVideoExtensions.contains(ext)) {
-            final stat = await entity.stat();
-            if (stat.size < _minVideoBytes) continue;
-            files.add(entity);
-          }
-        }
-      }
-    } catch (_) {
-      // ignore permission errors etc.
-    }
+    await _collectVideosSafely(folderPath, files, recursive: recursive);
 
     files.sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
 
@@ -133,7 +181,16 @@ class LibraryService {
     final all = <VideoItem>[];
     for (final f in folders) {
       try {
-        all.addAll(await listFolder(f, recursive: recursive).timeout(_scanTimeoutForFolder(f)));
+        var loaded = await listFolder(f, recursive: recursive).timeout(_scanTimeoutForFolder(f));
+
+        // Mounted SMB volumes on macOS can be slow to wake after app start.
+        // Wait a moment before retrying so the OS has time to trigger the automount.
+        if (loaded.isEmpty && Platform.isMacOS && f.startsWith('/Volumes/')) {
+          await Future<void>.delayed(const Duration(seconds: 3));
+          loaded = await listFolder(f, recursive: recursive).timeout(const Duration(minutes: 4));
+        }
+
+        all.addAll(loaded);
       } on TimeoutException {
         // Skip folders that are currently unreachable (for example offline SMB paths).
       } catch (_) {

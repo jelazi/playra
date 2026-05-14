@@ -36,6 +36,7 @@ class PlayerSettings {
   final double desktopWheelStep;
   final String libraryViewMode;
   final String libraryVisualMode;
+  final int smbStreamCacheSizeMb;
   final String syncUsername;
   final String syncPassword;
 
@@ -58,6 +59,7 @@ class PlayerSettings {
     this.desktopWheelStep = 10,
     this.libraryViewMode = 'structured',
     this.libraryVisualMode = 'list',
+    this.smbStreamCacheSizeMb = 256,
     this.syncUsername = '',
     this.syncPassword = '',
   });
@@ -81,6 +83,7 @@ class PlayerSettings {
     double? desktopWheelStep,
     String? libraryViewMode,
     String? libraryVisualMode,
+    int? smbStreamCacheSizeMb,
     String? syncUsername,
     String? syncPassword,
   }) => PlayerSettings(
@@ -102,6 +105,7 @@ class PlayerSettings {
     desktopWheelStep: desktopWheelStep ?? this.desktopWheelStep,
     libraryViewMode: libraryViewMode ?? this.libraryViewMode,
     libraryVisualMode: libraryVisualMode ?? this.libraryVisualMode,
+    smbStreamCacheSizeMb: smbStreamCacheSizeMb ?? this.smbStreamCacheSizeMb,
     syncUsername: syncUsername ?? this.syncUsername,
     syncPassword: syncPassword ?? this.syncPassword,
   );
@@ -125,6 +129,7 @@ class PlayerSettings {
     'desktopWheelStep': desktopWheelStep,
     'libraryViewMode': libraryViewMode,
     'libraryVisualMode': libraryVisualMode,
+    'smbStreamCacheSizeMb': smbStreamCacheSizeMb,
     'syncUsername': syncUsername,
     'syncPassword': syncPassword,
   };
@@ -148,6 +153,7 @@ class PlayerSettings {
     desktopWheelStep: (j['desktopWheelStep'] as num?)?.toDouble() ?? 10,
     libraryViewMode: (j['libraryViewMode'] as String?) ?? 'structured',
     libraryVisualMode: (j['libraryVisualMode'] as String?) ?? 'list',
+    smbStreamCacheSizeMb: (j['smbStreamCacheSizeMb'] as num?)?.toInt() ?? 256,
     syncUsername: (j['syncUsername'] as String?) ?? '',
     syncPassword: (j['syncPassword'] as String?) ?? '',
   );

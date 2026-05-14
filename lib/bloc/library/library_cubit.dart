@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -25,21 +27,45 @@ class LibraryCubit extends Cubit<LibraryState> {
 
   final LibraryService _service;
 
-  String _normalizeFolder(String folder) {
-    var value = folder.trim();
-    while (value.length > 1 && value.endsWith('/')) {
-      value = value.substring(0, value.length - 1);
-    }
-    return value;
+  // Retry delays for background scans when initial load returns empty.
+  static const List<Duration> _retryDelays = [Duration(seconds: 4), Duration(seconds: 12), Duration(seconds: 30), Duration(seconds: 60)];
+
+  Timer? _retryTimer;
+  int _retryAttempt = 0;
+
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryAttempt = 0;
+  }
+
+  void _scheduleRetryIfNeeded(List<String> folders) {
+    if (folders.isEmpty) return;
+    if (_retryAttempt >= _retryDelays.length) return;
+
+    final delay = _retryDelays[_retryAttempt];
+    _retryAttempt++;
+    _retryTimer = Timer(delay, () async {
+      if (isClosed) return;
+      await _loadInternal(isRetry: true);
+    });
   }
 
   Future<void> refresh() async {
+    _cancelRetry();
     await load();
   }
 
   Future<void> load() async {
-    final folders = PlayraStorage.getPlayerSettings().libraryFolders;
-    emit(state.copyWith(loading: true, folders: folders, error: null));
+    _cancelRetry();
+    await _loadInternal(isRetry: false);
+  }
+
+  Future<void> _loadInternal({required bool isRetry}) async {
+    final folders = PlayraStorage.getLibraryFolders();
+    if (!isRetry) {
+      emit(state.copyWith(loading: true, folders: folders, error: null));
+    }
     try {
       final loadedVideos = await _service.listFolders(folders, recursive: true);
 
@@ -48,30 +74,41 @@ class LibraryCubit extends Cubit<LibraryState> {
         acc.add(video);
         return acc;
       });
-      emit(state.copyWith(loading: false, videos: videos));
+
+      if (!isClosed) {
+        emit(state.copyWith(loading: false, videos: videos, folders: folders));
+      }
+
+      // Schedule a background retry if no videos were found but folders are configured.
+      if (videos.isEmpty && folders.isNotEmpty) {
+        _scheduleRetryIfNeeded(folders);
+      }
     } catch (e) {
-      emit(state.copyWith(loading: false, error: e.toString()));
+      if (!isClosed) {
+        emit(state.copyWith(loading: false, error: e.toString()));
+      }
+      // Retry even after errors (network mounts can fail transiently).
+      if (folders.isNotEmpty) {
+        _scheduleRetryIfNeeded(folders);
+      }
     }
   }
 
   Future<void> addFolder(String folder) async {
-    final settings = PlayraStorage.getPlayerSettings();
-    final normalizedFolder = _normalizeFolder(folder);
-    final existingFolders = settings.libraryFolders.map(_normalizeFolder).toList();
-    if (existingFolders.contains(normalizedFolder)) {
-      await load();
-      return;
-    }
-    final updated = settings.copyWith(libraryFolders: [...settings.libraryFolders, normalizedFolder]);
-    await PlayraStorage.savePlayerSettings(updated);
+    _cancelRetry();
+    await PlayraStorage.addLibraryFolder(folder);
     await load();
   }
 
   Future<void> removeFolder(String folder) async {
-    final settings = PlayraStorage.getPlayerSettings();
-    final normalizedFolder = _normalizeFolder(folder);
-    final updated = settings.copyWith(libraryFolders: settings.libraryFolders.where((f) => _normalizeFolder(f) != normalizedFolder).toList());
-    await PlayraStorage.savePlayerSettings(updated);
+    _cancelRetry();
+    await PlayraStorage.removeLibraryFolder(folder);
     await load();
+  }
+
+  @override
+  Future<void> close() {
+    _cancelRetry();
+    return super.close();
   }
 }

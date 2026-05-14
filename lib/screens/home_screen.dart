@@ -481,6 +481,39 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildConfiguredFoldersCard(List<String> folders) {
+    if (folders.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.folder_open, size: 18),
+                  const SizedBox(width: 8),
+                  Text('home.library'.tr(), style: Theme.of(context).textTheme.titleSmall),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: folders
+                    .map((folder) => InputChip(avatar: const Icon(Icons.folder, size: 14), label: Text(_folderLabel(folder)), tooltip: folder, onPressed: () {}))
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   VideoInfo _toVideoInfo(VideoItem v) {
     final file = File(v.uri);
     return VideoInfo(path: v.uri, name: v.name, directory: file.parent.path);
@@ -764,7 +797,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // structured - group by library folder (ignore nested subfolders)
     final byDir = <String, List<VideoItem>>{};
-    final libraryFolders = PlayraStorage.getPlayerSettings().libraryFolders.toSet();
+    final libraryFolders = PlayraStorage.getLibraryFolders().toSet();
     for (final v in videos) {
       String displayDir = p.dirname(v.uri);
       // Try to find which library folder this file belongs to
@@ -1181,6 +1214,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return Column(
                 children: [
                   _buildMiniDropZone(),
+                  _buildConfiguredFoldersCard(state.folders),
                   Expanded(
                     child: _emptyState(
                       icon: Icons.folder_open,
@@ -1196,13 +1230,14 @@ class _HomeScreenState extends State<HomeScreen> {
             return Column(
               children: [
                 _buildMiniDropZone(),
+                _buildConfiguredFoldersCard(state.folders),
                 Expanded(
                   child: _emptyState(
                     icon: Icons.movie_outlined,
                     title: 'home.no_videos_title'.tr(),
                     subtitle: 'home.no_videos_subtitle'.tr(),
-                    actionLabel: 'home.add_folder'.tr(),
-                    onAction: _addFolder,
+                    actionLabel: 'settings.refresh_library'.tr(),
+                    onAction: _refreshLibrary,
                   ),
                 ),
               ],
@@ -1216,6 +1251,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(child: _buildMiniDropZone()),
+                SliverToBoxAdapter(child: _buildConfiguredFoldersCard(state.folders)),
                 if (showRecents) ...[
                   SliverToBoxAdapter(
                     child: Padding(

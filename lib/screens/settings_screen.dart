@@ -267,6 +267,39 @@ class SettingsScreen extends StatelessWidget {
     return result;
   }
 
+  Future<void> _showAppInfoDialog(BuildContext context) async {
+    final info = await PackageInfo.fromPlatform();
+    if (!context.mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('settings.section_about'.tr()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${'settings.app_name'.tr()}: ${info.appName}'),
+            Text('${'settings.app_version'.tr()}: ${info.version}+${info.buildNumber}'),
+            Text('${'settings.app_build'.tr()}: ${info.buildNumber}'),
+            Text('${'settings.app_package'.tr()}: ${info.packageName}'),
+            Text('${'settings.app_copyright'.tr()}: © 2026 Playra'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              showLicensePage(context: context, applicationName: info.appName, applicationVersion: '${info.version}+${info.buildNumber}');
+            },
+            child: Text('settings.app_licenses'.tr()),
+          ),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('common.ok'.tr())),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,24 +308,9 @@ class SettingsScreen extends StatelessWidget {
         builder: (context, state) {
           final p = state.player;
           final s = state.subtitleStyle;
-          final currentFolders = PlayraStorage.getPlayerSettings().libraryFolders;
+          final currentFolders = PlayraStorage.getLibraryFolders();
           return ListView(
             children: [
-              _section(context, 'settings.section_general'.tr()),
-              ListTile(
-                title: Text('settings.language'.tr()),
-                trailing: DropdownButton<String>(
-                  value: context.locale.languageCode,
-                  items: const [
-                    DropdownMenuItem(value: 'cs', child: Text('Čeština')),
-                    DropdownMenuItem(value: 'en', child: Text('English')),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) context.setLocale(Locale(v));
-                  },
-                ),
-              ),
-
               _section(context, 'settings.section_player'.tr()),
               SwitchListTile(
                 title: Text('settings.resume_playback'.tr()),
@@ -319,6 +337,26 @@ class SettingsScreen extends StatelessWidget {
                       value: p.touchSeekSensitivity,
                       label: p.touchSeekSensitivity.toStringAsFixed(1),
                       onChanged: (v) => context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(touchSeekSensitivity: v)),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                title: Text('settings.smb_cache_size'.tr()),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('settings.smb_cache_size_hint'.tr()),
+                    Slider(
+                      min: 16,
+                      max: 1024,
+                      divisions: 63,
+                      value: p.smbStreamCacheSizeMb.toDouble().clamp(16, 1024),
+                      label: '${p.smbStreamCacheSizeMb} MB',
+                      onChanged: (v) {
+                        final rounded = ((v / 16).round() * 16).clamp(16, 1024);
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(smbStreamCacheSizeMb: rounded));
+                      },
                     ),
                   ],
                 ),
@@ -366,6 +404,7 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               if (_isDesktop) ...[
+                _sectionSeparator(),
                 _section(context, 'settings.section_desktop_controls'.tr()),
                 SwitchListTile(
                   title: Text('settings.desktop_shortcuts_enabled'.tr()),
@@ -460,91 +499,15 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
               ],
-              _section(context, 'settings.section_sync'.tr()),
-              ListTile(
-                title: Text('settings.sync_username'.tr()),
-                subtitle: Text(p.syncUsername.isEmpty ? 'settings.sync_not_configured'.tr() : p.syncUsername),
-                trailing: const Icon(Icons.edit),
-                onTap: () async {
-                  final value = await _showTextInputDialog(context, title: 'settings.sync_username'.tr(), initialValue: p.syncUsername);
-                  if (value != null && context.mounted) {
-                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncUsername: value));
-                  }
-                },
-              ),
-              ListTile(
-                title: Text('settings.sync_password'.tr()),
-                subtitle: Text(p.syncPassword.isEmpty ? 'settings.sync_not_configured'.tr() : '••••••••'),
-                trailing: const Icon(Icons.edit),
-                onTap: () async {
-                  final value = await _showTextInputDialog(context, title: 'settings.sync_password'.tr(), initialValue: p.syncPassword, obscureText: true);
-                  if (value != null && context.mounted) {
-                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncPassword: value));
-                  }
-                },
-              ),
-              ListTile(leading: const Icon(Icons.sync), title: Text('settings.sync_hint'.tr())),
 
-              _section(context, 'settings.section_about'.tr()),
-              FutureBuilder<PackageInfo>(
-                future: PackageInfo.fromPlatform(),
-                builder: (context, snap) {
-                  final info = snap.data;
-                  return Column(
-                    children: [
-                      ListTile(title: Text('settings.app_name'.tr()), subtitle: Text(info?.appName ?? 'Playra')),
-                      ListTile(title: Text('settings.app_version'.tr()), subtitle: Text(info == null ? '-' : '${info.version}+${info.buildNumber}')),
-                      ListTile(title: Text('settings.app_build'.tr()), subtitle: Text(info?.buildNumber ?? '-')),
-                      ListTile(title: Text('settings.app_package'.tr()), subtitle: Text(info?.packageName ?? '-')),
-                      ListTile(title: Text('settings.app_copyright'.tr()), subtitle: const Text('© 2026 Playra')),
-                      ListTile(
-                        title: Text('settings.app_licenses'.tr()),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => showLicensePage(
-                          context: context,
-                          applicationName: info?.appName ?? 'Playra',
-                          applicationVersion: info == null ? '' : '${info.version}+${info.buildNumber}',
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-
-              _section(context, 'settings.section_library'.tr()),
-              ListTile(leading: const Icon(Icons.create_new_folder), title: Text('home.add_folder'.tr()), onTap: () => _addLibraryFolder(context)),
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: Text('settings.refresh_library'.tr()),
-                subtitle: Text('settings.refresh_library_hint'.tr()),
-                onTap: () => context.read<LibraryCubit>().refresh(),
-              ),
-              ...currentFolders.map(
-                (f) => ListTile(
-                  leading: const Icon(Icons.folder),
-                  title: Text(f, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => context.read<LibraryCubit>().removeFolder(f)),
-                ),
-              ),
-              if (currentFolders.isEmpty) ListTile(title: Text('settings.no_folders'.tr())),
-
-              _section(context, 'home.servers'.tr()),
-              ListTile(
-                leading: const Icon(Icons.dns),
-                title: Text('home.servers'.tr()),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen())),
-              ),
-
-              _section(context, 'subtitle.search_title'.tr()),
+              _sectionSeparator(),
+              _section(context, 'settings.section_subtitles'.tr()),
               ListTile(
                 leading: const Icon(Icons.subtitles),
                 title: Text('subtitle.search_title'.tr()),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
               ),
-
-              _section(context, 'settings.section_subtitles'.tr()),
               SwitchListTile(
                 title: Text('settings.subtitles_enabled'.tr()),
                 value: s.enabled,
@@ -598,13 +561,89 @@ class SettingsScreen extends StatelessWidget {
                 allowTransparent: true,
               ),
               _colorTile(context, 'settings.subtitle_outline_color'.tr(), s.outlineColor, (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineColor: c))),
-
               ListTile(
                 leading: const Icon(Icons.cloud_download),
                 title: Text('settings.subtitle_manager'.tr()),
                 subtitle: Text('settings.subtitle_manager_hint'.tr()),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SubtitleManagerScreen())),
+              ),
+
+              _sectionSeparator(),
+              _section(context, 'settings.section_library'.tr()),
+              ListTile(leading: const Icon(Icons.create_new_folder), title: Text('home.add_folder'.tr()), onTap: () => _addLibraryFolder(context)),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: Text('settings.refresh_library'.tr()),
+                subtitle: Text('settings.refresh_library_hint'.tr()),
+                onTap: () => context.read<LibraryCubit>().refresh(),
+              ),
+              ...currentFolders.map(
+                (f) => ListTile(
+                  leading: const Icon(Icons.folder),
+                  title: Text(f, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => context.read<LibraryCubit>().removeFolder(f)),
+                ),
+              ),
+              if (currentFolders.isEmpty) ListTile(title: Text('settings.no_folders'.tr())),
+
+              _sectionSeparator(),
+              _section(context, 'home.servers'.tr()),
+              ListTile(
+                leading: const Icon(Icons.dns),
+                title: Text('home.servers'.tr()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen())),
+              ),
+
+              _sectionSeparator(),
+              _section(context, 'settings.section_sync'.tr()),
+              ListTile(
+                title: Text('settings.sync_username'.tr()),
+                subtitle: Text(p.syncUsername.isEmpty ? 'settings.sync_not_configured'.tr() : p.syncUsername),
+                trailing: const Icon(Icons.edit),
+                onTap: () async {
+                  final value = await _showTextInputDialog(context, title: 'settings.sync_username'.tr(), initialValue: p.syncUsername);
+                  if (value != null && context.mounted) {
+                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncUsername: value));
+                  }
+                },
+              ),
+              ListTile(
+                title: Text('settings.sync_password'.tr()),
+                subtitle: Text(p.syncPassword.isEmpty ? 'settings.sync_not_configured'.tr() : '••••••••'),
+                trailing: const Icon(Icons.edit),
+                onTap: () async {
+                  final value = await _showTextInputDialog(context, title: 'settings.sync_password'.tr(), initialValue: p.syncPassword, obscureText: true);
+                  if (value != null && context.mounted) {
+                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(syncPassword: value));
+                  }
+                },
+              ),
+              ListTile(leading: const Icon(Icons.sync), title: Text('settings.sync_hint'.tr())),
+
+              _sectionSeparator(),
+              _section(context, 'settings.section_general'.tr()),
+              ListTile(
+                title: Text('settings.language'.tr()),
+                trailing: DropdownButton<String>(
+                  value: context.locale.languageCode,
+                  items: const [
+                    DropdownMenuItem(value: 'cs', child: Text('Čeština')),
+                    DropdownMenuItem(value: 'en', child: Text('English')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) context.setLocale(Locale(v));
+                  },
+                ),
+              ),
+
+              _sectionSeparator(),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text('settings.section_about'.tr()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showAppInfoDialog(context),
               ),
 
               const SizedBox(height: 32),
@@ -617,12 +656,16 @@ class SettingsScreen extends StatelessWidget {
 
   Widget _section(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
       child: Text(
         title.toUpperCase(),
         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Theme.of(context).colorScheme.primary),
       ),
     );
+  }
+
+  Widget _sectionSeparator() {
+    return const Padding(padding: EdgeInsets.fromLTRB(16, 14, 16, 0), child: Divider(height: 1, thickness: 1));
   }
 
   Widget _colorTile(BuildContext context, String title, int currentColor, ValueChanged<int> onChanged, {bool allowTransparent = false}) {

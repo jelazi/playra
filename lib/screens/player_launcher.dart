@@ -75,6 +75,8 @@ class PlayerLauncher {
           _showError(context, 'Server not found');
           return null;
         }
+        final playerSettings = PlayraStorage.getPlayerSettings();
+        _proxy.setCacheLimitMb(playerSettings.smbStreamCacheSizeMb);
         await _proxy.start();
         _proxy.register(server);
         url = _proxy.urlFor(server, parsed.$2);
