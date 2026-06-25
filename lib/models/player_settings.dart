@@ -16,6 +16,13 @@ const List<String> kDesktopDoubleClickActionOptions = [
 const List<String> kLibraryViewModeOptions = ['structured', 'flat', 'smart'];
 const List<String> kLibraryVisualModeOptions = ['list', 'iconsSmall', 'iconsLarge'];
 
+/// How movies fetched via Torrentio are acquired.
+/// `auto` picks Real-Debrid on mobile and the native torrent client on desktop.
+const List<String> kAcquisitionModeOptions = ['auto', 'torrent', 'realdebrid'];
+
+/// Preferred maximum/target quality filter for Torrentio streams ('' = any).
+const List<String> kPreferredQualityOptions = ['', '2160p', '1080p', '720p', '480p'];
+
 /// Player-related settings.
 class PlayerSettings {
   final bool resumePlayback; // remember last position per video
@@ -39,6 +46,12 @@ class PlayerSettings {
   final int smbStreamCacheSizeMb;
   final String syncUsername;
   final String syncPassword;
+  // Movie acquisition (Torrentio + Real-Debrid / native torrent)
+  final String realDebridApiKey;
+  final String acquisitionMode; // 'auto' | 'torrent' | 'realdebrid'
+  final int minSeeders; // hide Torrentio streams below this seeder count
+  final String preferredQuality; // '' = any, otherwise e.g. '1080p'
+  final bool enableTorrentStreaming; // stream-while-download on desktop (Phase 2b)
 
   const PlayerSettings({
     this.resumePlayback = true,
@@ -62,6 +75,11 @@ class PlayerSettings {
     this.smbStreamCacheSizeMb = 256,
     this.syncUsername = '',
     this.syncPassword = '',
+    this.realDebridApiKey = '',
+    this.acquisitionMode = 'auto',
+    this.minSeeders = 0,
+    this.preferredQuality = '',
+    this.enableTorrentStreaming = false,
   });
 
   PlayerSettings copyWith({
@@ -86,6 +104,11 @@ class PlayerSettings {
     int? smbStreamCacheSizeMb,
     String? syncUsername,
     String? syncPassword,
+    String? realDebridApiKey,
+    String? acquisitionMode,
+    int? minSeeders,
+    String? preferredQuality,
+    bool? enableTorrentStreaming,
   }) => PlayerSettings(
     resumePlayback: resumePlayback ?? this.resumePlayback,
     gesturesEnabled: gesturesEnabled ?? this.gesturesEnabled,
@@ -108,6 +131,11 @@ class PlayerSettings {
     smbStreamCacheSizeMb: smbStreamCacheSizeMb ?? this.smbStreamCacheSizeMb,
     syncUsername: syncUsername ?? this.syncUsername,
     syncPassword: syncPassword ?? this.syncPassword,
+    realDebridApiKey: realDebridApiKey ?? this.realDebridApiKey,
+    acquisitionMode: acquisitionMode ?? this.acquisitionMode,
+    minSeeders: minSeeders ?? this.minSeeders,
+    preferredQuality: preferredQuality ?? this.preferredQuality,
+    enableTorrentStreaming: enableTorrentStreaming ?? this.enableTorrentStreaming,
   );
 
   Map<String, dynamic> toJson() => {
@@ -132,6 +160,11 @@ class PlayerSettings {
     'smbStreamCacheSizeMb': smbStreamCacheSizeMb,
     'syncUsername': syncUsername,
     'syncPassword': syncPassword,
+    'realDebridApiKey': realDebridApiKey,
+    'acquisitionMode': acquisitionMode,
+    'minSeeders': minSeeders,
+    'preferredQuality': preferredQuality,
+    'enableTorrentStreaming': enableTorrentStreaming,
   };
 
   factory PlayerSettings.fromJson(Map<String, dynamic> j) => PlayerSettings(
@@ -156,6 +189,11 @@ class PlayerSettings {
     smbStreamCacheSizeMb: (j['smbStreamCacheSizeMb'] as num?)?.toInt() ?? 256,
     syncUsername: (j['syncUsername'] as String?) ?? '',
     syncPassword: (j['syncPassword'] as String?) ?? '',
+    realDebridApiKey: (j['realDebridApiKey'] as String?) ?? '',
+    acquisitionMode: (j['acquisitionMode'] as String?) ?? 'auto',
+    minSeeders: (j['minSeeders'] as num?)?.toInt() ?? 0,
+    preferredQuality: (j['preferredQuality'] as String?) ?? '',
+    enableTorrentStreaming: j['enableTorrentStreaming'] as bool? ?? false,
   );
 
   String encode() => jsonEncode(toJson());

@@ -5,6 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/server_connection.dart';
+import 'smb_browser_service.dart';
+
 /// Represents a file that has been downloaded to the app's local downloads folder.
 class DownloadedFile {
   final String path;
@@ -127,42 +130,6 @@ class SmbDownloadService {
     }
   }
 
-  /// Streams [url] to [targetPath], invoking [onProgress] with (received, total).
-  static Future<void> _downloadFile(String url, String targetPath, void Function(int received, int total)? onProgress, DownloadCancellationToken? token) async {
-    final request = http.Request('GET', Uri.parse(url));
-    final streamedResponse = await request.send();
-    if (streamedResponse.statusCode != HttpStatus.ok && streamedResponse.statusCode != HttpStatus.partialContent) {
-      throw Exception('HTTP ${streamedResponse.statusCode}');
-    }
-
-    final total = streamedResponse.contentLength ?? -1;
-    var received = 0;
-    final sink = File(targetPath).openWrite();
-
-    // Trigger immediate UI update (0 / total) before first data chunk arrives.
-    onProgress?.call(received, total);
-
-    try {
-      await for (final chunk in streamedResponse.stream) {
-        if (token?.isCancelled == true) {
-          throw const _CancelledException();
-        }
-        sink.add(chunk);
-        received += chunk.length;
-        onProgress?.call(received, total);
-      }
-    } on _CancelledException {
-      final f = File(targetPath);
-      if (await f.exists()) {
-        await f.delete();
-      }
-      rethrow;
-    } finally {
-      await sink.flush();
-      await sink.close();
-    }
-  }
-
   static Future<void> _downloadOptionalFile(String url, String targetPath, DownloadCancellationToken? token) async {
     final request = http.Request('GET', Uri.parse(url));
     final streamedResponse = await request.send();
@@ -192,7 +159,12 @@ class SmbDownloadService {
     }
   }
 
-  static Future<void> _downloadSubtitleSidecars({required String videoProxyUrl, required String downloadsDirPath, DownloadCancellationToken? cancellationToken}) async {
+  static Future<void> _downloadSubtitleSidecars({required String videoProxyUrl, required String downloadsDirPath, DownloadCancellationToken? cancellationToken, SmbBrowserService? browser, ServerConnection? server, String? smbPath}) async {
+    if (browser != null && server != null && smbPath != null) {
+      await _downloadSubtitleSidecarsDirect(downloadsDirPath: downloadsDirPath, cancellationToken: cancellationToken, browser: browser, server: server, videoSmbPath: smbPath);
+      return;
+    }
+
     final candidates = subtitleCandidatesFor(videoProxyUrl);
     await Future.wait(
       candidates.map((candidateUrl) async {
@@ -209,15 +181,45 @@ class SmbDownloadService {
     );
   }
 
-  /// Downloads video from [videoProxyUrl] (SMB proxy HTTP URL) plus any available
-  /// subtitle sidecars to the app downloads folder.
+  static Future<void> _downloadSubtitleSidecarsDirect({required String downloadsDirPath, required SmbBrowserService browser, required ServerConnection server, required String videoSmbPath, DownloadCancellationToken? cancellationToken}) async {
+    final dir = p.dirname(videoSmbPath);
+    final base = p.basenameWithoutExtension(videoSmbPath);
+    final names = <String>['$base.srt', '$base.cs.srt', '$base.cz.srt', '$base.czech.srt', '$base.en.srt', '$base.english.srt'];
+
+    for (final name in names) {
+      if (cancellationToken?.isCancelled == true) return;
+      final subSmbPath = p.posix.join(dir, name);
+      final targetPath = p.join(downloadsDirPath, name);
+      try {
+        final size = await browser.getSize(server, subSmbPath);
+        if (size <= 0) continue;
+        final stream = await browser.openRead(server, subSmbPath, start: 0, end: size);
+        final sink = File(targetPath).openWrite();
+        try {
+          await for (final chunk in stream) {
+            if (cancellationToken?.isCancelled == true) break;
+            sink.add(chunk);
+          }
+        } finally {
+          await sink.flush();
+          await sink.close();
+        }
+      } catch (_) {
+        // Subtitle download failure is non-fatal.
+      }
+    }
+  }
+
+  /// Downloads video directly from SMB using [browser] for [server] at [smbPath].
+  /// Much more reliable than going through the proxy server, especially for
+  /// large files on mobile where connections may be interrupted.
   ///
+  /// Supports cancellation via [cancellationToken] and progress via [onProgress].
   /// Returns the local path of the downloaded video file, or throws on error.
-  ///
-  /// [onProgress] is called with (receivedBytes, totalBytes, currentFileName).
-  /// Pass a [cancellationToken] to allow the caller to abort the download.
-  static Future<String> downloadVideo({
-    required String videoProxyUrl,
+  static Future<String> downloadVideoDirect({
+    required SmbBrowserService browser,
+    required ServerConnection server,
+    required String smbPath,
     required String videoName,
     void Function(int received, int total, String fileName)? onProgress,
     DownloadCancellationToken? cancellationToken,
@@ -225,11 +227,40 @@ class SmbDownloadService {
     final dir = await getDownloadsDir();
     final targetVideoPath = p.join(dir.path, videoName);
 
-    // Download the main video file.
-    await _downloadFile(videoProxyUrl, targetVideoPath, (r, t) => onProgress?.call(r, t, videoName), cancellationToken);
+    final fileSize = await browser.getSize(server, smbPath);
+    var received = 0;
+    final sink = File(targetVideoPath).openWrite();
 
-    // Keep completion fast: subtitle sidecars download in background.
-    unawaited(_downloadSubtitleSidecars(videoProxyUrl: videoProxyUrl, downloadsDirPath: dir.path, cancellationToken: cancellationToken));
+    onProgress?.call(received, fileSize, videoName);
+
+    try {
+      final stream = await browser.openRead(server, smbPath, start: 0, end: fileSize);
+
+      try {
+        await for (final chunk in stream) {
+          if (cancellationToken?.isCancelled == true) {
+            throw const _CancelledException();
+          }
+          sink.add(chunk);
+          received += chunk.length;
+          onProgress?.call(received, fileSize, videoName);
+        }
+      } catch (e) {
+        if (e is _CancelledException) rethrow;
+        rethrow;
+      }
+    } on _CancelledException {
+      final f = File(targetVideoPath);
+      if (await f.exists()) {
+        await f.delete();
+      }
+      rethrow;
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
+
+    unawaited(_downloadSubtitleSidecars(videoProxyUrl: '', downloadsDirPath: dir.path, cancellationToken: cancellationToken, browser: browser, server: server, smbPath: smbPath));
 
     return targetVideoPath;
   }

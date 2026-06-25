@@ -4,12 +4,13 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../bloc/downloads/downloads_cubit.dart';
 import '../models/video_item.dart';
 import '../services/playra_storage.dart';
 import '../services/smb_download_service.dart';
 import 'player_launcher.dart';
 
-/// Screen for managing locally downloaded SMB files. Mobile/tablet only.
+/// Screen for managing active and completed local downloads.
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
 
@@ -75,11 +76,56 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         title: Text('downloads.title'.tr()),
         actions: [IconButton(icon: const Icon(Icons.refresh), tooltip: 'downloads.refresh'.tr(), onPressed: _refresh)],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _files.isEmpty
-          ? _buildEmpty()
-          : RefreshIndicator(onRefresh: _refresh, child: _buildList()),
+      body: BlocConsumer<DownloadsCubit, DownloadsState>(
+        listenWhen: (prev, curr) => prev.tasks.any((t) => t.status == DownloadStatus.downloading) && curr.active.length != prev.active.length,
+        listener: (context, state) => _refresh(),
+        builder: (context, state) {
+          final active = state.active;
+          return Column(
+            children: [
+              if (state.tasks.isNotEmpty) _buildActiveDownloads(context, state.tasks),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : (_files.isEmpty && active.isEmpty)
+                        ? _buildEmpty()
+                        : RefreshIndicator(onRefresh: _refresh, child: _buildList()),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildActiveDownloads(BuildContext context, List<DownloadTask> tasks) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: tasks.map((task) {
+        final subtitle = switch (task.status) {
+          DownloadStatus.completed => 'downloads.download_done_short'.tr(),
+          DownloadStatus.failed => 'downloads.download_error'.tr(args: [task.error ?? '']),
+          DownloadStatus.cancelled => 'downloads.download_cancelled'.tr(),
+          DownloadStatus.downloading => task.statusLabel != null
+              ? 'movies.status_${task.statusLabel}'.tr()
+              : (task.total > 0
+                  ? '${SmbDownloadService.formatBytes(task.received)} / ${SmbDownloadService.formatBytes(task.total)}'
+                  : SmbDownloadService.formatBytes(task.received)),
+        };
+        return ListTile(
+          leading: task.status == DownloadStatus.downloading
+              ? SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3, value: task.progress))
+              : Icon(
+                  task.status == DownloadStatus.completed ? Icons.check_circle : Icons.error_outline,
+                  color: task.status == DownloadStatus.completed ? Colors.green : Colors.red,
+                ),
+          title: Text(task.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: task.status == DownloadStatus.downloading
+              ? IconButton(icon: const Icon(Icons.close), tooltip: 'common.cancel'.tr(), onPressed: () => context.read<DownloadsCubit>().cancel(task.id))
+              : IconButton(icon: const Icon(Icons.clear), tooltip: 'downloads.dismiss'.tr(), onPressed: () => context.read<DownloadsCubit>().dismiss(task.id)),
+        );
+      }).toList(),
     );
   }
 
@@ -103,7 +149,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   Widget _buildList() {
     return ListView.separated(
       itemCount: _files.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final file = _files[index];
         return ListTile(

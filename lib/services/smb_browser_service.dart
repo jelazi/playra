@@ -11,6 +11,11 @@ import '../models/video_item.dart';
 class SmbBrowserService {
   SmbConnect? _connect;
   ServerConnection? _server;
+  DateTime? _lastConnectedAt;
+
+  static const Duration _connectionTimeout = Duration(seconds: 8);
+  static const Duration _readTimeout = Duration(seconds: 10);
+  static const int _maxReconnectAttempts = 3;
 
   bool _sameConnectionTarget(ServerConnection a, ServerConnection b) {
     return a.host == b.host && (a.username ?? '') == (b.username ?? '') && (a.password ?? '') == (b.password ?? '') && (a.port ?? 445) == (b.port ?? 445);
@@ -20,29 +25,41 @@ class SmbBrowserService {
     return name.trim().startsWith('.');
   }
 
+  bool get _isConnectionStale {
+    if (_lastConnectedAt == null) return false;
+    return DateTime.now().difference(_lastConnectedAt!) > const Duration(minutes: 2);
+  }
+
   /// Returns the currently held connection or opens a new one.
   Future<SmbConnect> _ensureConnected(ServerConnection server) async {
-    if (_connect != null && _server != null && _sameConnectionTarget(_server!, server)) {
+    if (_connect != null && _server != null && _sameConnectionTarget(_server!, server) && !_isConnectionStale) {
       return _connect!;
     }
     await close();
-    _connect = await SmbConnect.connectAuth(host: server.host, domain: '', username: server.username ?? '', password: server.password ?? '');
+    _connect = await SmbConnect.connectAuth(host: server.host, domain: '', username: server.username ?? '', password: server.password ?? '').timeout(_connectionTimeout);
     _server = server;
+    _lastConnectedAt = DateTime.now();
     return _connect!;
   }
 
   Future<T> _runWithReconnect<T>(ServerConnection server, Future<T> Function(SmbConnect c) action) async {
-    final reusedConnection = _connect != null && _server != null && _sameConnectionTarget(_server!, server);
+    final reusedConnection = _connect != null && _server != null && _sameConnectionTarget(_server!, server) && !_isConnectionStale;
 
-    try {
-      final c = await _ensureConnected(server);
-      return await action(c);
-    } catch (_) {
-      if (!reusedConnection) rethrow;
-      await close();
-      final c = await _ensureConnected(server);
-      return await action(c);
+    Exception? lastError;
+    for (var attempt = 0; attempt < _maxReconnectAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          await close();
+          await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+        }
+        final c = await _ensureConnected(server);
+        return await action(c).timeout(_readTimeout);
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        if (!reusedConnection && attempt == 0) rethrow;
+      }
     }
+    throw lastError ?? Exception('SMB operation failed after $_maxReconnectAttempts attempts');
   }
 
   /// List entries (folders + supported video files) at [path] (e.g. "/share/movies").
@@ -106,7 +123,7 @@ class SmbBrowserService {
         var remaining = totalLength;
         while (remaining > 0) {
           final toRead = remaining > chunkSize ? chunkSize : remaining;
-          final chunk = await raf.read(toRead);
+          final chunk = await raf.read(toRead).timeout(_readTimeout);
           if (chunk.isEmpty) {
             break;
           }
@@ -138,6 +155,18 @@ class SmbBrowserService {
       final file = await c.file(path);
       return file.size;
     });
+  }
+
+  Future<bool> isConnectedTo(ServerConnection server) async {
+    if (_connect == null || _server == null) return false;
+    if (!_sameConnectionTarget(_server!, server)) return false;
+    if (_isConnectionStale) return false;
+    try {
+      await _connect!.listShares().timeout(const Duration(seconds: 3));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> close() async {

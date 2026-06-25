@@ -17,6 +17,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/player_settings.dart';
+import '../models/server_connection.dart';
 import '../models/subtitle_style_settings.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
@@ -51,7 +52,7 @@ class PlayraPlayerScreen extends StatefulWidget {
   State<PlayraPlayerScreen> createState() => _PlayraPlayerScreenState();
 }
 
-class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
+class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBindingObserver {
   static const List<String> _videoFitModes = ['scaleDown', 'contain'];
 
   late final Player _player;
@@ -119,6 +120,28 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
 
     _bindPlayerStreams();
     _openMedia();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _persistResumeNow();
+    } else if (state == AppLifecycleState.resumed) {
+      _onAppResumed();
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (widget.video.source == VideoSource.smb) {
+      try {
+        await context.read<PlayerLauncher>().ensureSmbConnected(widget.video);
+      } catch (_) {}
+    }
+
+    if (_hasFatalPlaybackError && mounted) {
+      _openMedia();
+    }
   }
 
   @override
@@ -135,6 +158,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     _subtitleDelayPopupTimer?.cancel();
     unawaited(_persistResumeNow().catchError((error, stackTrace) {}));
     unawaited(_pushSessionUpdate(force: true).catchError((error, stackTrace) {}));
+    WidgetsBinding.instance.removeObserver(this);
     _keyboardFocusNode.dispose();
     _player.dispose();
     super.dispose();
@@ -1251,12 +1275,25 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
   }
 
   /// Downloads the current SMB video (and subtitle sidecars) to the device's
-  /// local documents folder. Shows a progress dialog while downloading.
+  /// local documents folder using direct SMB reads. Shows a progress dialog.
   Future<void> _downloadToDevice() async {
     if (_isDownloading) return;
 
-    final proxyUrl = widget.video.uri;
     final videoName = widget.video.name;
+    final uri = widget.video.id;
+    if (!uri.startsWith('smb://')) return;
+    final rest = uri.substring(6);
+    final slash = rest.indexOf('/');
+    if (slash < 0) return;
+    final serverId = rest.substring(0, slash);
+    final smbPath = rest.substring(slash);
+    final server = PlayraStorage.getServers().firstWhere(
+      (s) => s.id == serverId,
+      orElse: () => ServerConnection(id: '', name: '', type: ServerType.smb, host: ''),
+    );
+    if (server.id.isEmpty) return;
+
+    final launcher = context.read<PlayerLauncher>();
 
     final token = DownloadCancellationToken();
     setState(() {
@@ -1306,8 +1343,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> {
     );
 
     try {
-      await SmbDownloadService.downloadVideo(
-        videoProxyUrl: proxyUrl,
+      await SmbDownloadService.downloadVideoDirect(
+        browser: launcher.browser,
+        server: server,
+        smbPath: smbPath,
         videoName: videoName,
         onProgress: (r, t, name) {
           received = SmbDownloadService.formatBytes(r);

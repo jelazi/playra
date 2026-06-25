@@ -141,4 +141,27 @@ class PlayerLauncher {
 
   // expose browser if needed by callers
   SmbBrowserService get browser => _browser;
+
+  Future<bool> ensureSmbConnected(VideoItem video) async {
+    if (video.source != VideoSource.smb) return true;
+    final parsed = _parseSmbUri(video.id);
+    if (parsed == null) return true;
+    final server = PlayraStorage.getServers().firstWhere(
+      (s) => s.id == parsed.$1,
+      orElse: () => ServerConnection(id: '', name: '', type: ServerType.smb, host: ''),
+    );
+    if (server.id.isEmpty) return false;
+    final connected = await _browser.isConnectedTo(server);
+    if (connected) return true;
+    try {
+      await _browser.close();
+      await _proxy.start();
+      _proxy.register(server);
+      final candidateUrl = _proxy.urlFor(server, parsed.$2);
+      await _resolveReachableProxyUrl(candidateUrl);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

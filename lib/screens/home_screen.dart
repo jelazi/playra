@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import '../bloc/library/library_cubit.dart';
 import '../models/media_info.dart';
 import '../models/player_settings.dart';
+import '../models/server_connection.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/lan_sync_service.dart';
@@ -25,7 +26,9 @@ import '../services/video_hash_service.dart';
 import '../services/video_name_parser.dart';
 import 'downloads_screen.dart';
 import 'media_info_screen.dart';
+import 'movie_search_screen.dart';
 import 'player_launcher.dart';
+import 'widgets/download_status_bar.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
@@ -1024,6 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final showRecents = _recents.isNotEmpty;
 
     return Scaffold(
+      bottomNavigationBar: const DownloadStatusBar(),
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
@@ -1039,12 +1043,16 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: _isDiscoveringPeerSessions ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
               onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
             ),
-          if (_isMobileDevice)
-            IconButton(
-              tooltip: 'downloads.title'.tr(),
-              icon: const Icon(Icons.download_for_offline),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
-            ),
+          IconButton(
+            tooltip: 'movies.search_title'.tr(),
+            icon: const Icon(Icons.movie_filter_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MovieSearchScreen())),
+          ),
+          IconButton(
+            tooltip: 'downloads.title'.tr(),
+            icon: const Icon(Icons.download_for_offline),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DownloadsScreen())),
+          ),
           IconButton(tooltip: 'home.open_file'.tr(), icon: const Icon(Icons.video_file_outlined), onPressed: _openSingleVideoFile),
           IconButton(tooltip: 'home.settings'.tr(), icon: const Icon(Icons.settings), onPressed: _openSettings),
           if (showRecents)
@@ -1582,10 +1590,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _downloadSmbVideo(VideoItem v) async {
-    final proxyVideo = await context.read<PlayerLauncher>().resolveForHash(context, v);
+    final launcher = context.read<PlayerLauncher>();
+    final uri = v.id;
+    if (!uri.startsWith('smb://')) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Invalid SMB URI']))));
+      return;
+    }
+    final rest = uri.substring(6);
+    final slash = rest.indexOf('/');
+    if (slash < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Invalid SMB URI']))));
+      return;
+    }
+    final serverId = rest.substring(0, slash);
+    final smbPath = rest.substring(slash);
+    final server = PlayraStorage.getServers().firstWhere(
+      (s) => s.id == serverId,
+      orElse: () => ServerConnection(id: '', name: '', type: ServerType.smb, host: ''),
+    );
+    if (server.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Server not found']))));
+      return;
+    }
+
+    // Ensure proxy is started so SMB connection is initialized
+    final proxyVideo = await launcher.resolveForHash(context, v);
     if (!mounted) return;
     if (proxyVideo == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Could not resolve SMB URL']))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('downloads.download_error'.tr(args: ['Could not connect to server']))));
       return;
     }
 
@@ -1630,8 +1662,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-      await SmbDownloadService.downloadVideo(
-        videoProxyUrl: proxyVideo.uri,
+      await SmbDownloadService.downloadVideoDirect(
+        browser: launcher.browser,
+        server: server,
+        smbPath: smbPath,
         videoName: v.name,
         onProgress: (r, t, name) {
           received = SmbDownloadService.formatBytes(r);

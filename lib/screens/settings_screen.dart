@@ -532,6 +532,62 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               _sectionSeparator(),
+              _section(context, 'settings.section_movies'.tr()),
+              ListTile(
+                title: Text('settings.realdebrid_key'.tr()),
+                subtitle: Text(p.realDebridApiKey.isEmpty ? 'settings.realdebrid_key_hint'.tr() : '••••••••'),
+                trailing: const Icon(Icons.edit),
+                onTap: () async {
+                  final value = await _showTextInputDialog(context, title: 'settings.realdebrid_key'.tr(), initialValue: p.realDebridApiKey, obscureText: true);
+                  if (value != null && context.mounted) {
+                    context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(realDebridApiKey: value.trim()));
+                  }
+                },
+              ),
+              ListTile(
+                title: Text('settings.acquisition_mode'.tr()),
+                subtitle: Text('settings.acquisition_mode_hint'.tr()),
+                trailing: DropdownButton<String>(
+                  value: kAcquisitionModeOptions.contains(p.acquisitionMode) ? p.acquisitionMode : 'auto',
+                  items: kAcquisitionModeOptions.map((m) => DropdownMenuItem(value: m, child: Text('settings.acquisition_$m'.tr()))).toList(),
+                  onChanged: (v) {
+                    if (v != null) context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(acquisitionMode: v));
+                  },
+                ),
+              ),
+              ListTile(
+                title: Text('settings.preferred_quality'.tr()),
+                trailing: DropdownButton<String>(
+                  value: kPreferredQualityOptions.contains(p.preferredQuality) ? p.preferredQuality : '',
+                  items: kPreferredQualityOptions
+                      .map((q) => DropdownMenuItem(value: q, child: Text(q.isEmpty ? 'settings.quality_any'.tr() : q)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(preferredQuality: v));
+                  },
+                ),
+              ),
+              ListTile(
+                title: Text('settings.min_seeders'.tr()),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('settings.min_seeders_hint'.tr()),
+                    Slider(
+                      min: 0,
+                      max: 100,
+                      divisions: 20,
+                      value: p.minSeeders.toDouble().clamp(0, 100),
+                      label: '${p.minSeeders}',
+                      onChanged: (v) {
+                        final rounded = ((v / 5).round() * 5).clamp(0, 100);
+                        context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(minSeeders: rounded));
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              _sectionSeparator(),
               _section(context, 'settings.section_sync'.tr()),
               ListTile(
                 title: Text('settings.sync_username'.tr()),

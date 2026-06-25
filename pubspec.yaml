@@ -2,7 +2,7 @@ name: playra
 description: "Playra - cross-platform video player with subtitle management."
 publish_to: 'none'
 
-version: 2.0.0+1
+version: 2.0.1+2
 
 environment:
   sdk: ^3.10.4
