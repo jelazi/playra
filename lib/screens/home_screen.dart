@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -49,6 +50,13 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _structuredCurrentFolder;
   bool _isSyncing = false;
   bool _isDiscoveringPeerSessions = false;
+  final ScrollController _recentsScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _recentsScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -181,9 +189,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final path = picked.files.single.path;
     if (path == null || path.isEmpty || !mounted) return;
 
-    final video = VideoItem(id: path, name: p.basename(path), uri: path, source: VideoSource.local);
+    final video = VideoItem(id: path, name: p.basename(path), uri: path, source: VideoSource.local, folder: p.basename(p.dirname(path)));
 
+    // Register the opened file in the library so it can be replayed later and
+    // shows up under its containing folder in the structured (folders) view.
+    await PlayraStorage.addStandaloneFile(video);
+
+    if (!mounted) return;
     await context.read<PlayerLauncher>().launch(context, video);
+    if (!mounted) return;
+    await context.read<LibraryCubit>().refresh();
     _loadRecents();
   }
 
@@ -849,6 +864,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return best;
   }
 
+  /// Builds the list of roots for the structured (folders) view: the configured
+  /// library folders plus the parent directories of any standalone files that
+  /// don't fall under a configured folder (e.g. files opened via the picker).
+  List<String> _structuredRootsFor(List<VideoItem> videos, List<String> folders) {
+    final roots = folders.map(_normalizeFolderPath).toSet();
+    for (final v in videos) {
+      if (v.source != VideoSource.local) continue;
+      if (_bestRootForVideo(v, folders) != null) continue;
+      roots.add(_normalizeFolderPath(p.dirname(v.uri)));
+    }
+    return roots.toList();
+  }
+
   String _folderLabel(String path) {
     if (path.startsWith('smb://')) {
       final rest = path.substring(6);
@@ -1072,12 +1100,14 @@ class _HomeScreenState extends State<HomeScreen> {
           final durationById = PlayraStorage.getVideoDurationMap();
           final posterById = PlayraStorage.getRecentPosterPathMap([...displayVideos, ..._recents]);
           final hasFolders = state.folders.isNotEmpty;
-          final hasLibrary = hasFolders && displayVideos.isNotEmpty;
+          // Standalone opened files can populate the library even without configured folders.
+          final hasLibrary = displayVideos.isNotEmpty;
           final showRecents = _recents.isNotEmpty;
           final libraryEntries = _buildLibraryEntries(displayVideos, libraryMode, posterById);
           final lastWatchedInLibrary = _resolveLastWatchedInLibrary(displayVideos);
           final lastWatchedPath = lastWatchedInLibrary != null ? _normalizeFolderPath(lastWatchedInLibrary.uri) : null;
-          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, state.folders, lastWatchedPath) : const <_StructuredEntry>[];
+          final structuredRoots = _structuredRootsFor(displayVideos, state.folders);
+          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, structuredRoots, lastWatchedPath) : const <_StructuredEntry>[];
           final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
@@ -1141,12 +1171,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SliverToBoxAdapter(
                     child: SizedBox(
-                      height: 140,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: _recents.length,
-                        itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
+                      height: 296,
+                      child: Listener(
+                        onPointerSignal: (event) {
+                          // Translate vertical mouse-wheel scroll into horizontal scroll on desktop.
+                          if (event is PointerScrollEvent && _recentsScrollController.hasClients) {
+                            final delta = event.scrollDelta.dy != 0 ? event.scrollDelta.dy : event.scrollDelta.dx;
+                            final position = _recentsScrollController.position;
+                            final target = (_recentsScrollController.offset + delta).clamp(position.minScrollExtent, position.maxScrollExtent);
+                            _recentsScrollController.jumpTo(target);
+                          }
+                        },
+                        child: Scrollbar(
+                          controller: _recentsScrollController,
+                          thumbVisibility: true,
+                          child: GridView.builder(
+                            controller: _recentsScrollController,
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisExtent: 100, mainAxisSpacing: 8, crossAxisSpacing: 8),
+                            itemCount: _recents.length,
+                            itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
+                          ),
+                        ),
                       ),
                     ),
                   ),

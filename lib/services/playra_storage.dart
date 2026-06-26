@@ -42,6 +42,7 @@ class PlayraStorage {
   static const String _recentPosterBySeriesKey = 'recent_posters_by_series';
   static const String _lastOpenedDirectoryKey = 'last_opened_directory';
   static const String _librarySectionExpandedKey = 'library_section_expanded';
+  static const String _standaloneFilesKey = 'standalone_files';
 
   static const int _maxRecents = 20;
   static const int _maxNowPlayingAgeMs = 6 * 60 * 60 * 1000;
@@ -125,6 +126,45 @@ class PlayraStorage {
     final normalizedFolder = _normalizeFolder(folder);
     final folders = getLibraryFolders().where((f) => _normalizeFolder(f) != normalizedFolder).toList();
     await setLibraryFolders(folders);
+  }
+
+  // --- Standalone library files ---
+  // Individual files opened via the file picker (outside any library folder).
+  // They are merged into the library so they can be replayed and grouped by
+  // their parent folder in the structured (folders) view.
+
+  /// Reads the list of standalone library files.
+  static List<VideoItem> getStandaloneFiles() {
+    final raw = _player?.get(_standaloneFilesKey);
+    if (raw == null) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .map((e) {
+            try {
+              return VideoItem.fromJson(e as Map<String, dynamic>);
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<VideoItem>()
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Adds [video] to the standalone library files (deduplicated by id).
+  static Future<void> addStandaloneFile(VideoItem video) async {
+    final list = getStandaloneFiles().toList();
+    if (list.any((v) => v.id == video.id)) return;
+    list.add(video);
+    await _player?.put(_standaloneFilesKey, jsonEncode(list.map((v) => v.toJson()).toList()));
+  }
+
+  static Future<void> removeStandaloneFile(String videoId) async {
+    final list = getStandaloneFiles().where((v) => v.id != videoId).toList();
+    await _player?.put(_standaloneFilesKey, jsonEncode(list.map((v) => v.toJson()).toList()));
   }
 
   // --- Subtitle style ---

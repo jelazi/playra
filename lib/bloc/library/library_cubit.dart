@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -75,6 +76,10 @@ class LibraryCubit extends Cubit<LibraryState> {
         return acc;
       });
 
+      // Merge standalone files (opened via the file picker) into the library.
+      // Drop entries whose underlying local file no longer exists.
+      _mergeStandaloneFiles(videos);
+
       if (!isClosed) {
         emit(state.copyWith(loading: false, videos: videos, folders: folders));
       }
@@ -91,6 +96,21 @@ class LibraryCubit extends Cubit<LibraryState> {
       if (folders.isNotEmpty) {
         _scheduleRetryIfNeeded(folders);
       }
+    }
+  }
+
+  /// Merges standalone files into [videos], skipping duplicates and pruning
+  /// local files that no longer exist on disk.
+  void _mergeStandaloneFiles(List<VideoItem> videos) {
+    final standalone = PlayraStorage.getStandaloneFiles();
+    for (final file in standalone) {
+      if (!kSupportedVideoExtensions.contains(file.extension.toLowerCase())) continue;
+      if (file.source == VideoSource.local && !File(file.uri).existsSync()) {
+        unawaited(PlayraStorage.removeStandaloneFile(file.id));
+        continue;
+      }
+      if (videos.any((existing) => existing.id == file.id)) continue;
+      videos.add(file);
     }
   }
 

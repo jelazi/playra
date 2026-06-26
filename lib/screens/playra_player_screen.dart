@@ -1423,6 +1423,12 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
             tooltip: 'Video Scale',
             onPressed: _showVideoScaleOptions,
           ),
+          if (_isDesktopPlatform)
+            IconButton(
+              icon: const Icon(Icons.fullscreen, color: Colors.white),
+              tooltip: 'Fullscreen',
+              onPressed: _toggleDesktopFullscreen,
+            ),
           if (_nextEpisode != null)
             IconButton(
               icon: const Icon(Icons.skip_next, color: Colors.white),
@@ -1915,7 +1921,14 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   title: Text('player.download_subtitles'.tr(), style: const TextStyle(color: Colors.white)),
                   subtitle: Text('player.download_subtitles_hint'.tr(), style: const TextStyle(color: Colors.grey)),
                   trailing: const Icon(Icons.chevron_right, color: Colors.white),
-                  onTap: () {
+                  onTap: () async {
+                    // Pause playback before leaving the player to open subtitle search.
+                    try {
+                      await widget.player.pause();
+                    } catch (e, st) {
+                      debugPrint('Playra pause before subtitle search failed: $e\n$st');
+                    }
+                    if (!context.mounted) return;
                     Navigator.of(context).pop();
                     final videoInfo = VideoInfo(path: widget.video.uri, name: widget.video.name, directory: _dirOf(widget.video.uri));
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => SubtitleSearchScreen(videoInfo: videoInfo)));
