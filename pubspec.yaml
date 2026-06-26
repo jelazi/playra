@@ -51,10 +51,10 @@ dependencies:
 
   # Player UX – wakelock, brightness, volume, permissions
   wakelock_plus: ^1.2.8
-  screen_brightness: ^0.2.2
-  flutter_volume_controller: ^1.3.2
+  screen_brightness: ^2.1.11
+  flutter_volume_controller: ^2.0.1
   permission_handler: ^11.3.1
-  window_manager: ^0.4.3
+  window_manager: ^0.5.1
 
   # Network servers (SMB browsing + local HTTP streaming proxy)
   smb_connect: ^0.0.9

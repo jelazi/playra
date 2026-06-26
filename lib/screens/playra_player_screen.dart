@@ -1007,17 +1007,17 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
         break;
       case 'brightnessUp':
         try {
-          final current = await ScreenBrightness().current;
+          final current = await ScreenBrightness.instance.application;
           final next = (current + 0.1).clamp(0.0, 1.0);
-          await ScreenBrightness().setScreenBrightness(next);
+          await ScreenBrightness.instance.setApplicationScreenBrightness(next);
           _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
         } catch (_) {}
         break;
       case 'brightnessDown':
         try {
-          final current = await ScreenBrightness().current;
+          final current = await ScreenBrightness.instance.application;
           final next = (current - 0.1).clamp(0.0, 1.0);
-          await ScreenBrightness().setScreenBrightness(next);
+          await ScreenBrightness.instance.setApplicationScreenBrightness(next);
           _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
         } catch (_) {}
         break;
@@ -1049,10 +1049,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
     if (action == 'brightness') {
       try {
-        final current = await ScreenBrightness().current;
+        final current = await ScreenBrightness.instance.application;
         final delta = settings.desktopWheelStep / 100.0;
         final next = (current + (dir * delta)).clamp(0.0, 1.0);
-        await ScreenBrightness().setScreenBrightness(next);
+        await ScreenBrightness.instance.setApplicationScreenBrightness(next);
         _flashOverlay(Icons.brightness_6, '${(next * 100).round()}%');
       } catch (_) {}
     }
@@ -1065,9 +1065,9 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     final delta = -d.delta.dy / (size.height * 0.6);
     if (isLeft) {
       try {
-        final current = await ScreenBrightness().current;
+        final current = await ScreenBrightness.instance.application;
         final newVal = (current + delta).clamp(0.0, 1.0);
-        await ScreenBrightness().setScreenBrightness(newVal);
+        await ScreenBrightness.instance.setApplicationScreenBrightness(newVal);
         _flashOverlay(Icons.brightness_6, '${(newVal * 100).round()}%');
       } catch (_) {}
     } else {
