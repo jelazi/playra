@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -9,30 +10,71 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:fvp/fvp.dart';
+import 'package:fvp/mdk.dart' as mdk;
 import 'package:path/path.dart' as p;
+import 'package:video_player/video_player.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/player_settings.dart';
 import '../models/server_connection.dart';
+import '../models/subtitle_entry.dart';
 import '../models/subtitle_style_settings.dart';
 import '../models/video_info.dart';
 import '../models/video_item.dart';
 import '../services/episode_continuation_service.dart';
+import '../services/matroska_subtitle_extractor.dart';
 import '../services/playra_storage.dart';
 import '../services/smb_download_service.dart';
+import '../services/subtitle_parser.dart';
 import '../services/video_hash_service.dart';
 import 'player_launcher.dart';
 import 'subtitle_search_screen.dart';
+import 'widgets/styled_subtitle_overlay.dart';
 
 String _normalizeTrackPart(String? value) => (value ?? '').trim().toLowerCase();
 
-String _stableAudioTrackKey(AudioTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
+/// An audio track exposed by fvp's [mdk.MediaInfo].
+class AudioTrackInfo {
+  const AudioTrackInfo({required this.id, this.title, this.language});
 
-String _stableSubtitleTrackKey(SubtitleTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
+  /// Position within `MediaInfo.audio`; this is the value passed to `setAudioTracks`.
+  final int id;
+  final String? title;
+  final String? language;
+
+  String get key => '${_normalizeTrackPart(title)}|${_normalizeTrackPart(language)}';
+
+  String get label {
+    if ((title?.trim().isNotEmpty) ?? false) return title!.trim();
+    if ((language?.trim().isNotEmpty) ?? false) return language!.trim();
+    return 'Audio ${id + 1}';
+  }
+}
+
+/// A selectable subtitle source. Three kinds:
+///  - [isNone]: subtitles off.
+///  - [engineIndex] != null: rendered by the fvp engine (burned-in, unstyled).
+///    Used as a fallback for embedded subtitles we cannot extract (remote /
+///    non-Matroska containers, bitmap subtitles).
+///  - otherwise: rendered by Playra via [StyledSubtitleOverlay] (fully styled);
+///    [cues] are the parsed lines (external files or extracted embedded tracks).
+class SubtitleSource {
+  SubtitleSource({required this.key, required this.label, required this.cues, this.language, this.isNone = false, this.engineIndex});
+
+  factory SubtitleSource.none() => SubtitleSource(key: 'no', label: 'player.subtitles_off', cues: const [], isNone: true);
+
+  final String key;
+  final String label;
+  final List<SubtitleEntry> cues;
+  final String? language;
+  final bool isNone;
+  final int? engineIndex;
+
+  bool get isEngine => engineIndex != null;
+}
 
 ({String title, String language, String id}) _parseStoredTrackKey(String storedKey) {
   final parts = storedKey.split('|');
@@ -55,8 +97,14 @@ class PlayraPlayerScreen extends StatefulWidget {
 class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBindingObserver {
   static const List<String> _videoFitModes = ['scaleDown', 'contain'];
 
-  late final Player _player;
-  late final VideoController _videoController;
+  VideoPlayerController? _controller;
+  List<AudioTrackInfo> _audioTracks = [];
+  AudioTrackInfo? _currentAudioTrack;
+  List<SubtitleSource> _engineSubtitleSources = [];
+  List<SubtitleSource> _subtitleSources = [];
+  SubtitleSource? _currentSubtitle;
+  List<SubtitleEntry> _activeCues = const [];
+  Duration _subtitleDelay = Duration.zero;
 
   final FocusNode _keyboardFocusNode = FocusNode();
 
@@ -93,10 +141,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   DownloadCancellationToken? _downloadToken;
   int? _dragSeekPositionMs;
 
-  StreamSubscription<bool>? _playingSub;
-  StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration>? _durationSub;
-  StreamSubscription<String>? _errorSub;
+  String? _lastReportedError;
   Timer? _subtitleDelayPopupTimer;
 
   VideoItem? _nextEpisode;
@@ -115,10 +160,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   void initState() {
     super.initState();
 
-    _player = Player(configuration: const PlayerConfiguration(title: 'Playra'));
-    _videoController = VideoController(_player);
-
-    _bindPlayerStreams();
     _openMedia();
     WidgetsBinding.instance.addObserver(this);
   }
@@ -146,10 +187,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
   @override
   void dispose() {
-    _playingSub?.cancel();
-    _positionSub?.cancel();
-    _durationSub?.cancel();
-    _errorSub?.cancel();
+    _controller?.removeListener(_onControllerValue);
     _hideTimer?.cancel();
     _overlayTimer?.cancel();
     _resumePersistTimer?.cancel();
@@ -160,30 +198,36 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     unawaited(_pushSessionUpdate(force: true).catchError((error, stackTrace) {}));
     WidgetsBinding.instance.removeObserver(this);
     _keyboardFocusNode.dispose();
-    _player.dispose();
+    unawaited(_controller?.dispose());
     super.dispose();
   }
 
-  void _bindPlayerStreams() {
-    _playingSub = _player.stream.playing.listen((p) {
-      if (!mounted) return;
-      setState(() => _playing = p);
-      unawaited(_pushSessionUpdate());
-    });
+  /// Single listener replacing media_kit's per-property streams. [VideoPlayerController]
+  /// (fvp backend) exposes everything through [VideoPlayerController.value].
+  void _onControllerValue() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    final value = controller.value;
 
-    _positionSub = _player.stream.position.listen((pos) async {
-      if (!mounted) return;
-      setState(() => _position = pos);
+    // Playing state.
+    if (value.isPlaying != _playing) {
+      setState(() => _playing = value.isPlaying);
+      unawaited(_pushSessionUpdate());
+    }
+
+    // Position.
+    if (value.position != _position) {
+      setState(() => _position = value.position);
       if (_duration.inMilliseconds > 0 && _initialResumeResolved) {
         _scheduleResumePersist();
       }
       _scheduleSessionSync();
-    });
+    }
 
-    _durationSub = _player.stream.duration.listen((dur) {
-      if (!mounted) return;
-      setState(() => _duration = dur);
-      final durationMs = dur.inMilliseconds;
+    // Duration (fires once known, can update for live streams).
+    if (value.duration != _duration) {
+      setState(() => _duration = value.duration);
+      final durationMs = value.duration.inMilliseconds;
       if (durationMs > 0 && durationMs != _lastPersistedDurationMs) {
         _lastPersistedDurationMs = durationMs;
         unawaited(PlayraStorage.setVideoDuration(widget.video.id, durationMs));
@@ -191,11 +235,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
         unawaited(_restorePreferredTracks());
       }
       _scheduleSessionSync();
-    });
+    }
 
-    _errorSub = _player.stream.error.listen((e) {
-      _handlePlayerError(e, markFatal: _isCodecError(e));
-    });
+    // Errors.
+    if (value.hasError && value.errorDescription != null && value.errorDescription != _lastReportedError) {
+      _lastReportedError = value.errorDescription;
+      _handlePlayerError(value.errorDescription!, markFatal: _isCodecError(value.errorDescription!));
+    }
   }
 
   bool _isCodecError(String message) {
@@ -237,6 +283,57 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     messenger?.showSnackBar(SnackBar(content: Text(message)));
   }
 
+  VideoPlayerController _createController() {
+    final uri = widget.video.uri;
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      return VideoPlayerController.networkUrl(Uri.parse(uri));
+    }
+    if (uri.startsWith('file://')) {
+      return VideoPlayerController.file(File.fromUri(Uri.parse(uri)));
+    }
+    return VideoPlayerController.file(File(uri));
+  }
+
+  /// Reads container track metadata from fvp and builds the audio track list.
+  void _readMediaInfo() {
+    final controller = _controller;
+    if (controller == null) return;
+    mdk.MediaInfo? info;
+    try {
+      info = controller.getMediaInfo();
+    } catch (_) {}
+
+    final audio = <AudioTrackInfo>[];
+    final streams = info?.audio ?? const [];
+    for (var i = 0; i < streams.length; i++) {
+      final m = streams[i].metadata;
+      audio.add(AudioTrackInfo(id: i, title: m['title'], language: m['language']));
+    }
+    final active = controller.getActiveAudioTracks();
+    final currentId = (active != null && active.isNotEmpty) ? active.first : (audio.isNotEmpty ? audio.first.id : null);
+
+    // Embedded subtitle tracks rendered by the engine (fallback when we cannot
+    // extract them ourselves). For local MKV/WebM these get replaced by styled
+    // overlay tracks once extraction finishes.
+    final engineSubs = <SubtitleSource>[];
+    final subStreams = info?.subtitle ?? const [];
+    for (var i = 0; i < subStreams.length; i++) {
+      final m = subStreams[i].metadata;
+      final lang = m['language'];
+      final title = m['title'];
+      final label = (title?.trim().isNotEmpty ?? false) ? title!.trim() : (lang ?? 'Subtitle ${i + 1}');
+      engineSubs.add(SubtitleSource(key: 'engine:$i', label: label, cues: const [], language: lang, engineIndex: i));
+    }
+
+    if (mounted) {
+      setState(() {
+        _audioTracks = audio;
+        _currentAudioTrack = currentId == null ? null : audio.firstWhere((t) => t.id == currentId, orElse: () => audio.isNotEmpty ? audio.first : const AudioTrackInfo(id: 0));
+        _engineSubtitleSources = engineSubs;
+      });
+    }
+  }
+
   Future<void> _openMedia() async {
     try {
       final settings = PlayraStorage.getPlayerSettings();
@@ -247,8 +344,33 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
         _isReady = false;
       });
 
-      final opened = await _runPlayerAction(() => _player.open(Media(widget.video.uri)), operation: 'open media', markFatal: true);
+      // Dispose any previous controller (retry path).
+      final old = _controller;
+      if (old != null) {
+        old.removeListener(_onControllerValue);
+        unawaited(old.dispose());
+        _controller = null;
+      }
+
+      final controller = _createController();
+      _controller = controller;
+      final opened = await _runPlayerAction(() => controller.initialize(), operation: 'open media', markFatal: true);
       if (!opened || !mounted) return;
+      controller.addListener(_onControllerValue);
+
+      // Engine subtitle rendering (burned into the frame) is OFF by default —
+      // Playra renders subtitles itself via the styled overlay. The engine is
+      // only re-enabled as a fallback when we can't extract a text track
+      // (non-Matroska / bitmap subs), see [_loadEmbeddedSubtitlesIfPossible].
+      try {
+        controller.setSubtitleTracks(const []);
+      } catch (_) {}
+      _currentSubtitle = SubtitleSource.none();
+
+      _readMediaInfo();
+      setState(() => _duration = controller.value.duration);
+
+      await _runPlayerAction(() => controller.play(), operation: 'autoplay');
 
       final resume = PlayraStorage.getResume(widget.video.id);
       if (settings.resumePlayback && resume != null && resume > 0) {
@@ -262,6 +384,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       _pendingSubtitleTrackPref = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
 
       await _applyStoredSubtitleDelay();
+
+      await _buildSubtitleSources();
+      // Embedded text subtitle extraction (MKV/WebM, local only) runs in the
+      // background and appends extra sources once ready.
+      unawaited(_loadEmbeddedSubtitlesIfPossible());
 
       await _attachAutoSubtitleIfAvailable();
 
@@ -292,11 +419,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
   Future<void> _applyStoredSubtitleDelay() async {
     final delayMs = PlayraStorage.getSubtitleDelayMs(widget.video.id);
-    final seconds = (delayMs / 1000.0).toStringAsFixed(3);
-    final dynamic platform = _player.platform;
-    try {
-      await platform.setProperty('sub-delay', seconds);
-    } catch (_) {}
+    if (mounted) setState(() => _subtitleDelay = Duration(milliseconds: delayMs));
   }
 
   Future<void> _applyInitialResumeIfNeeded() async {
@@ -325,11 +448,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
     final clampedTarget = Duration(milliseconds: targetMs);
     for (var attempt = 0; attempt < 4; attempt++) {
-      final moved = await _runPlayerAction(() => _player.seek(clampedTarget), operation: 'initial resume seek');
+      final moved = await _runPlayerAction(() => _controller!.seekTo(clampedTarget), operation: 'initial resume seek');
       if (!moved) break;
       await Future<void>.delayed(const Duration(milliseconds: 350));
 
-      final currentMs = _player.state.position.inMilliseconds;
+      final currentMs = _controller!.value.position.inMilliseconds;
       if ((currentMs - targetMs).abs() <= 1500) {
         break;
       }
@@ -381,19 +504,175 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     final settings = PlayraStorage.getPlayerSettings();
     if (settings.defaultSubtitleLanguage.trim().isNotEmpty) return;
 
-    final current = _player.state.track.subtitle;
-    if (current.id != 'auto' && current.id != 'no') {
+    if (_currentSubtitle != null && !_currentSubtitle!.isNone) return;
+
+    // Prefer an external sidecar; otherwise fall back to the first embedded
+    // (engine-rendered) track so internal subtitles show by default.
+    SubtitleSource? pick;
+    for (final s in _subtitleSources) {
+      if (s.key.startsWith('external:')) {
+        pick = s;
+        break;
+      }
+    }
+    final isExternal = pick != null;
+    pick ??= _engineSubtitleSources.isNotEmpty ? _engineSubtitleSources.first : null;
+    if (pick == null) return;
+    await _selectSubtitle(pick);
+    // Only persist an explicit external choice; default embedded selection isn't a preference.
+    if (isExternal) {
+      await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, pick.key);
+    }
+  }
+
+  /// Builds the selectable subtitle source list: "off" + embedded (engine) tracks
+  /// + external sidecar files. Embedded MKV/WebM tracks are later upgraded to
+  /// styled overlay tracks by [_loadEmbeddedSubtitlesIfPossible].
+  Future<void> _buildSubtitleSources() async {
+    final controller = _controller;
+    final sources = <SubtitleSource>[SubtitleSource.none(), ..._engineSubtitleSources];
+    final candidates = await _subtitleCandidates();
+    for (final uri in candidates) {
+      sources.add(SubtitleSource(key: 'external:$uri', label: p.basename(Uri.parse(uri).path), cues: const []));
+    }
+
+    // Reflect the engine's currently active embedded subtitle (if it auto-selected one).
+    SubtitleSource? current;
+    final active = controller?.getActiveSubtitleTracks();
+    if (active != null && active.isNotEmpty) {
+      for (final s in _engineSubtitleSources) {
+        if (s.engineIndex == active.first) {
+          current = s;
+          break;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _subtitleSources = sources;
+        if (current != null && (_currentSubtitle == null || _currentSubtitle!.isNone)) {
+          _currentSubtitle = current;
+        }
+      });
+    }
+  }
+
+  /// Extracts embedded text subtitle tracks from local MKV/WebM and upgrades the
+  /// engine (unstyled) entries to styled overlay tracks. Other containers/remote
+  /// sources keep using the engine fallback.
+  Future<void> _loadEmbeddedSubtitlesIfPossible() async {
+    final uri = widget.video.uri;
+    final isHttp = uri.startsWith('http://') || uri.startsWith('https://');
+    final localPath = uri.startsWith('file://') ? File.fromUri(Uri.parse(uri)).path : uri;
+    // Determine the container extension from the path or the URL's last segment.
+    final nameForExt = isHttp ? Uri.parse(uri).path : localPath;
+    final ext = p.extension(nameForExt).toLowerCase();
+    if (ext != '.mkv' && ext != '.webm' && ext != '.mka') return;
+
+    final tracks = isHttp ? await MatroskaSubtitleExtractor.extractFromHttp(uri) : await MatroskaSubtitleExtractor.extractFromFile(localPath);
+    if (tracks.isEmpty || !mounted) return;
+
+    final wasEngineActive = _currentSubtitle?.isEngine ?? false;
+
+    // Replace engine embedded entries with styled overlay versions.
+    final extracted = <SubtitleSource>[];
+    for (final t in tracks) {
+      final label = (t.name?.trim().isNotEmpty ?? false) ? t.name!.trim() : (t.language ?? 'Subtitle ${t.trackNumber}');
+      extracted.add(SubtitleSource(key: 'embedded:${t.trackNumber}', label: label, cues: t.cues, language: t.language));
+    }
+    final sources = _subtitleSources.where((s) => !s.isEngine).toList();
+    sources.insertAll(1, extracted);
+    setState(() => _subtitleSources = sources);
+
+    final pref = _pendingSubtitleTrackPref ?? PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    if (pref != null && pref.startsWith('embedded:')) {
+      final matched = _matchSubtitleSource(pref);
+      if (matched != null) await _selectSubtitle(matched);
+      return;
+    }
+    if (pref == 'no') return;
+    if (pref != null && pref.startsWith('external:')) return; // external choice wins
+
+    // Switch the default-shown embedded subtitle to its styled version.
+    final nothingStyled = _currentSubtitle == null || _currentSubtitle!.isNone || _currentSubtitle!.isEngine;
+    if (extracted.isNotEmpty && (wasEngineActive || nothingStyled)) {
+      await _selectSubtitle(extracted.first);
+    }
+  }
+
+  /// Selects a subtitle source. Engine tracks are rendered by fvp (unstyled);
+  /// overlay tracks are rendered by Playra with full styling (and engine
+  /// subtitles are turned off to avoid double display).
+  Future<void> _selectSubtitle(SubtitleSource source) async {
+    final controller = _controller;
+
+    if (source.isNone) {
+      try {
+        controller?.setSubtitleTracks(const []);
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _currentSubtitle = source;
+          _activeCues = const [];
+        });
+      }
+      await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, 'no');
       return;
     }
 
-    final candidates = await _subtitleCandidates();
-    if (candidates.isEmpty) return;
+    if (source.isEngine) {
+      try {
+        controller?.setSubtitleTracks([source.engineIndex!]);
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _currentSubtitle = source;
+          _activeCues = const [];
+        });
+      }
+      await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, source.key);
+      return;
+    }
 
-    final first = candidates.first;
-    final track = SubtitleTrack.uri(first, title: p.basename(Uri.parse(first).path));
-    final subtitleSet = await _runPlayerAction(() => _player.setSubtitleTrack(track), operation: 'set auto subtitle');
-    if (!subtitleSet) return;
-    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
+    // Overlay-rendered (styled): disable engine subtitles to avoid double display.
+    try {
+      controller?.setSubtitleTracks(const []);
+    } catch (_) {}
+    var cues = source.cues;
+    if (cues.isEmpty && source.key.startsWith('external:')) {
+      cues = await _loadExternalSubtitle(source.key.substring('external:'.length));
+    }
+    if (!mounted) return;
+    setState(() {
+      _currentSubtitle = source;
+      _activeCues = cues;
+    });
+    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, source.key);
+  }
+
+  /// Loads and parses an external subtitle file (local path/file URI or http URL).
+  Future<List<SubtitleEntry>> _loadExternalSubtitle(String uri) async {
+    try {
+      String content;
+      if (uri.startsWith('http://') || uri.startsWith('https://')) {
+        final client = HttpClient();
+        try {
+          final req = await client.getUrl(Uri.parse(uri));
+          final res = await req.close();
+          content = await res.transform(const Utf8Decoder(allowMalformed: true)).join();
+        } finally {
+          client.close(force: true);
+        }
+      } else {
+        final path = uri.startsWith('file://') ? File.fromUri(Uri.parse(uri)).path : uri;
+        content = await File(path).readAsString();
+      }
+      return SubtitleParser.parse(content, name: uri);
+    } catch (e, st) {
+      debugPrint('Playra external subtitle load failed [$uri]: $e\n$st');
+      return const [];
+    }
   }
 
   Future<List<String>> _subtitleCandidates() async {
@@ -488,45 +767,46 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     var appliedAudio = audioPref == null;
     var appliedSubtitle = subPref == null;
 
+    // --- Audio ---
     if (audioPref != null) {
-      final tracks = _player.state.tracks.audio;
-      final matched = _matchAudioTrack(tracks, audioPref);
-      if (matched != null) {
-        final setAudio = await _runPlayerAction(() => _player.setAudioTrack(matched), operation: 'restore preferred audio track');
-        if (!setAudio) return;
+      final matched = _matchAudioTrack(_audioTracks, audioPref);
+      if (matched != null && await _applyAudioTrack(matched)) {
         appliedAudio = true;
       }
     } else {
       final defaultAudioLang = settings.defaultAudioLanguage.trim();
       if (defaultAudioLang.isNotEmpty) {
-        final tracks = _player.state.tracks.audio;
-        final matched = _matchAudioTrackByLanguage(tracks, defaultAudioLang);
-        if (matched != null) {
-          final setAudio = await _runPlayerAction(() => _player.setAudioTrack(matched), operation: 'set default audio language track');
-          if (!setAudio) return;
-          await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(matched));
+        final matched = _matchAudioTrackByLanguage(_audioTracks, defaultAudioLang);
+        if (matched != null && await _applyAudioTrack(matched)) {
+          await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, matched.key);
           appliedAudio = true;
         }
       }
     }
 
+    // --- Subtitle ---
     if (subPref != null) {
-      final tracks = _player.state.tracks.subtitle;
-      final matched = _matchSubtitleTrack(tracks, subPref);
-      if (matched != null) {
-        final setSub = await _runPlayerAction(() => _player.setSubtitleTrack(matched), operation: 'restore preferred subtitle track');
-        if (!setSub) return;
+      if (subPref == 'no') {
         appliedSubtitle = true;
+      } else {
+        final matched = _matchSubtitleSource(subPref);
+        if (matched != null) {
+          await _selectSubtitle(matched);
+          appliedSubtitle = true;
+        }
       }
     } else {
       final defaultSubtitleLang = settings.defaultSubtitleLanguage.trim();
       if (defaultSubtitleLang.isNotEmpty) {
-        final tracks = _player.state.tracks.subtitle;
-        final matched = _matchSubtitleTrackByLanguage(tracks, defaultSubtitleLang);
+        SubtitleSource? matched;
+        for (final s in _subtitleSources) {
+          if (!s.isNone && _isLanguageMatch(s.language, defaultSubtitleLang)) {
+            matched = s;
+            break;
+          }
+        }
         if (matched != null) {
-          final setSub = await _runPlayerAction(() => _player.setSubtitleTrack(matched), operation: 'set default subtitle language track');
-          if (!setSub) return;
-          await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(matched));
+          await _selectSubtitle(matched);
           appliedSubtitle = true;
         }
       }
@@ -535,6 +815,14 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     if (appliedAudio) _pendingAudioTrackPref = null;
     if (appliedSubtitle) _pendingSubtitleTrackPref = null;
     _preferredTracksApplied = appliedAudio && appliedSubtitle;
+  }
+
+  Future<bool> _applyAudioTrack(AudioTrackInfo track) async {
+    final controller = _controller;
+    if (controller == null) return false;
+    final ok = await _runPlayerAction(() async => controller.setAudioTracks([track.id]), operation: 'set audio track');
+    if (ok && mounted) setState(() => _currentAudioTrack = track);
+    return ok;
   }
 
   void _schedulePreferredTrackRestore() {
@@ -549,15 +837,15 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     });
   }
 
-  AudioTrack? _matchAudioTrack(List<AudioTrack> tracks, String storedKey) {
+  AudioTrackInfo? _matchAudioTrack(List<AudioTrackInfo> tracks, String storedKey) {
     final parsed = _parseStoredTrackKey(storedKey);
 
     for (final track in tracks) {
-      if (_audioTrackKey(track) == storedKey) return track;
+      if (track.key == storedKey) return track;
     }
 
     for (final track in tracks) {
-      if (_stableAudioTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
+      if (track.key == '${parsed.title}|${parsed.language}') return track;
     }
 
     if (parsed.title.isNotEmpty) {
@@ -575,42 +863,24 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     return null;
   }
 
-  AudioTrack? _matchAudioTrackByLanguage(List<AudioTrack> tracks, String languageCode) {
+  AudioTrackInfo? _matchAudioTrackByLanguage(List<AudioTrackInfo> tracks, String languageCode) {
     for (final track in tracks) {
       if (_isLanguageMatch(track.language, languageCode)) return track;
     }
     return null;
   }
 
-  SubtitleTrack? _matchSubtitleTrack(List<SubtitleTrack> tracks, String storedKey) {
+  /// Matches a stored subtitle preference key to an available [SubtitleSource].
+  /// Falls back to language matching for legacy `title|language` keys.
+  SubtitleSource? _matchSubtitleSource(String storedKey) {
+    for (final s in _subtitleSources) {
+      if (s.key == storedKey) return s;
+    }
     final parsed = _parseStoredTrackKey(storedKey);
-
-    for (final track in tracks) {
-      if (_subtitleTrackKey(track) == storedKey) return track;
-    }
-
-    for (final track in tracks) {
-      if (_stableSubtitleTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
-    }
-
-    if (parsed.title.isNotEmpty) {
-      for (final track in tracks) {
-        if (_normalizeTrackPart(track.title) == parsed.title) return track;
-      }
-    }
-
     if (parsed.language.isNotEmpty) {
-      for (final track in tracks) {
-        if (_normalizeTrackPart(track.language) == parsed.language) return track;
+      for (final s in _subtitleSources) {
+        if (!s.isNone && _normalizeTrackPart(s.language) == parsed.language) return s;
       }
-    }
-
-    return null;
-  }
-
-  SubtitleTrack? _matchSubtitleTrackByLanguage(List<SubtitleTrack> tracks, String languageCode) {
-    for (final track in tracks) {
-      if (_isLanguageMatch(track.language, languageCode)) return track;
     }
     return null;
   }
@@ -626,19 +896,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     return false;
   }
 
-  String _audioTrackKey(AudioTrack t) {
-    return _stableAudioTrackKey(t);
-  }
-
-  String _subtitleTrackKey(SubtitleTrack t) {
-    return _stableSubtitleTrackKey(t);
-  }
-
   Future<void> _seekRelative(Duration delta) async {
     final target = _position + delta;
     final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
     final clamped = Duration(milliseconds: target.inMilliseconds.clamp(0, maxMs));
-    final seekOk = await _runPlayerAction(() => _player.seek(clamped), operation: 'relative seek');
+    final seekOk = await _runPlayerAction(() => _controller!.seekTo(clamped), operation: 'relative seek');
     if (!seekOk) return;
     _scheduleResumePersist();
     _flashOverlay(delta.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
@@ -852,10 +1114,10 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     }
 
     if (_playing) {
-      await _runPlayerAction(() => _player.pause(), operation: 'pause on double tap');
+      await _runPlayerAction(() => _controller!.pause(), operation: 'pause on double tap');
       _flashOverlay(Icons.pause, 'Pause');
     } else {
-      await _runPlayerAction(() => _player.play(), operation: 'play on double tap');
+      await _runPlayerAction(() => _controller!.play(), operation: 'play on double tap');
       _flashOverlay(Icons.play_arrow, 'Play');
     }
     _startHideTimer();
@@ -945,7 +1207,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     if (_tryHandleShortcut(event, settings.desktopPlayPauseShortcut, () {
-      unawaited(_runPlayerAction(() => _playing ? _player.pause() : _player.play(), operation: 'desktop shortcut play/pause'));
+      unawaited(_runPlayerAction(() => _playing ? _controller!.pause() : _controller!.play(), operation: 'desktop shortcut play/pause'));
       _startHideTimer();
     })) {
       return KeyEventResult.handled;
@@ -1097,7 +1359,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     _dragSeekPositionMs = targetMs;
 
     final clamped = Duration(milliseconds: targetMs);
-    unawaited(_runPlayerAction(() => _player.seek(clamped), operation: 'drag seek'));
+    unawaited(_runPlayerAction(() => _controller!.seekTo(clamped), operation: 'drag seek'));
     setState(() => _position = clamped);
     _scheduleResumePersist();
     _flashOverlay(deltaMs.isNegative ? Icons.fast_rewind : Icons.fast_forward, _formatDuration(clamped));
@@ -1112,7 +1374,6 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   Widget build(BuildContext context) {
     return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
       builder: (context, settings) {
-        final subtitleCfg = _subtitleConfig(settings.subtitleStyle);
         final touchGesturesEnabled = settings.player.gesturesEnabled;
 
         return Focus(
@@ -1131,16 +1392,16 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                   children: [
                     Positioned.fill(
                       child: _videoZoom == 1.0
-                          ? Video(controller: _videoController, fit: _currentVideoBoxFit(), controls: (_) => const SizedBox.shrink(), subtitleViewConfiguration: subtitleCfg)
-                          : Transform.scale(
-                              scale: _videoZoom,
-                              child: Video(
-                                controller: _videoController,
-                                fit: _currentVideoBoxFit(),
-                                controls: (_) => const SizedBox.shrink(),
-                                subtitleViewConfiguration: subtitleCfg,
-                              ),
-                            ),
+                          ? _buildVideoSurface()
+                          : Transform.scale(scale: _videoZoom, child: _buildVideoSurface()),
+                    ),
+
+                    // Playra-rendered subtitles (styled, supports delay) on top of
+                    // the video but transparent to pointer events.
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: StyledSubtitleOverlay(cues: _activeCues, position: _position, style: settings.subtitleStyle, delay: _subtitleDelay),
+                      ),
                     ),
 
                     Positioned.fill(
@@ -1248,29 +1509,22 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     );
   }
 
-  SubtitleViewConfiguration _subtitleConfig(SubtitleStyleSettings s) {
-    if (!s.enabled) {
-      return const SubtitleViewConfiguration(visible: false);
+  /// Renders the fvp video texture, applying the selected fit mode.
+  Widget _buildVideoSurface() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
     }
-    return SubtitleViewConfiguration(
-      visible: true,
-      style: TextStyle(
-        height: 1.4,
-        fontSize: s.fontSize,
-        fontFamily: s.fontFamily,
-        color: Color(s.textColor),
-        fontWeight: s.bold ? FontWeight.bold : FontWeight.normal,
-        backgroundColor: Color(s.backgroundColor),
-        shadows: s.outlineWidth > 0
-            ? [
-                for (final dx in [-s.outlineWidth, 0.0, s.outlineWidth])
-                  for (final dy in [-s.outlineWidth, 0.0, s.outlineWidth])
-                    if (dx != 0 || dy != 0) Shadow(offset: Offset(dx, dy), color: Color(s.outlineColor), blurRadius: 0),
-              ]
-            : null,
+    final size = controller.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return const SizedBox.shrink();
+    }
+    return Center(
+      child: FittedBox(
+        fit: _currentVideoBoxFit(),
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(width: size.width, height: size.height, child: VideoPlayer(controller)),
       ),
-      textAlign: TextAlign.center,
-      padding: EdgeInsets.fromLTRB(16, 0, 16, s.bottomPadding),
     );
   }
 
@@ -1483,7 +1737,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                           setState(() => _position = Duration(milliseconds: v.toInt()));
                         },
                         onChangeEnd: (v) {
-                          unawaited(_runPlayerAction(() => _player.seek(Duration(milliseconds: v.toInt())), operation: 'seek from progress bar'));
+                          unawaited(_runPlayerAction(() => _controller!.seekTo(Duration(milliseconds: v.toInt())), operation: 'seek from progress bar'));
                           _scheduleResumePersist();
                         },
                       ),
@@ -1511,7 +1765,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                 iconSize: 72,
                 icon: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_filled, color: Colors.white),
                 onPressed: () {
-                  unawaited(_runPlayerAction(() => _playing ? _player.pause() : _player.play(), operation: 'bottom controls play/pause'));
+                  unawaited(_runPlayerAction(() => _playing ? _controller!.pause() : _controller!.play(), operation: 'bottom controls play/pause'));
                   _startHideTimer();
                 },
               ),
@@ -1533,13 +1787,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   }
 
   Future<void> _pickAudioTrack() async {
-    final tracks = _player.state.tracks.audio;
-    final current = _player.state.track.audio;
-    final picked = await _showTrackPicker<AudioTrack>(title: 'player.audio_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
+    if (_audioTracks.isEmpty) return;
+    final current = _currentAudioTrack;
+    final picked = await _showTrackPicker<AudioTrackInfo>(title: 'player.audio_track'.tr(), tracks: _audioTracks, current: current ?? _audioTracks.first, label: (t) => t.label);
     if (picked != null) {
-      final setAudio = await _runPlayerAction(() => _player.setAudioTrack(picked), operation: 'set picked audio track');
-      if (!setAudio) return;
-      await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, _audioTrackKey(picked));
+      if (await _applyAudioTrack(picked)) {
+        await PlayraStorage.savePreferredAudioTrackKey(widget.video.id, picked.key);
+      }
     }
   }
 
@@ -1549,23 +1803,29 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       isScrollControlled: true,
       backgroundColor: Colors.grey[900],
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetCtx) => _SubtitleOptionsSheet(player: _player, video: widget.video, onOpenSubtitleDelayPopup: _showSubtitleDelayPopup),
+      builder: (sheetCtx) => _SubtitleOptionsSheet(
+        video: widget.video,
+        sources: _subtitleSources,
+        current: _currentSubtitle,
+        onSelect: _selectSubtitle,
+        onLoadFile: _loadSubtitleFromFile,
+        onPauseForSearch: () async => _controller?.pause(),
+        onOpenSubtitleDelayPopup: _showSubtitleDelayPopup,
+      ),
     );
+  }
+
+  /// Loads an external subtitle file chosen by the user and selects it.
+  Future<void> _loadSubtitleFromFile(String path, String name) async {
+    final source = SubtitleSource(key: 'external:${Uri.file(path)}', label: name, cues: const []);
+    setState(() => _subtitleSources = [..._subtitleSources, source]);
+    await _selectSubtitle(source);
   }
 
   Future<void> _setSubtitleDelayMs(int value) async {
     final clamped = value.clamp(-120000, 120000);
     await PlayraStorage.saveSubtitleDelayMs(widget.video.id, clamped);
-
-    final dynamic platform = _player.platform;
-    final seconds = (clamped / 1000.0).toStringAsFixed(3);
-    try {
-      await platform.setProperty('sub-delay', seconds);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-      }
-    }
+    if (mounted) setState(() => _subtitleDelay = Duration(milliseconds: clamped));
   }
 
   String _subtitleDelayLabel(int valueMs) {
@@ -1737,17 +1997,39 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 }
 
 class _SubtitleOptionsSheet extends StatefulWidget {
-  final Player player;
   final VideoItem video;
+  final List<SubtitleSource> sources;
+  final SubtitleSource? current;
+  final Future<void> Function(SubtitleSource source) onSelect;
+  final Future<void> Function(String path, String name) onLoadFile;
+  final Future<void> Function() onPauseForSearch;
   final Future<void> Function() onOpenSubtitleDelayPopup;
 
-  const _SubtitleOptionsSheet({required this.player, required this.video, required this.onOpenSubtitleDelayPopup});
+  const _SubtitleOptionsSheet({
+    required this.video,
+    required this.sources,
+    required this.current,
+    required this.onSelect,
+    required this.onLoadFile,
+    required this.onPauseForSearch,
+    required this.onOpenSubtitleDelayPopup,
+  });
 
   @override
   State<_SubtitleOptionsSheet> createState() => _SubtitleOptionsSheetState();
 }
 
 class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
+  // Locally tracked selection so the radio updates immediately on tap (the
+  // parent's `current` is only passed once when the sheet opens).
+  String? _selectedKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedKey = widget.current?.key ?? 'no';
+  }
+
   static const List<int> _palette = [0xFFFFFFFF, 0xFFFFEB3B, 0xFFFF5252, 0xFF40C4FF, 0xFF69F0AE, 0xFFFFA726, 0xFFE040FB, 0xFFB0BEC5, 0xFF000000];
 
   static const List<int> _paletteWithTransparent = [
@@ -1802,17 +2084,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   );
                   if (res != null && res.files.isNotEmpty && res.files.first.path != null) {
                     final path = res.files.first.path!;
-                    final track = SubtitleTrack.uri(Uri.file(path).toString(), title: res.files.first.name);
-                    try {
-                      await widget.player.setSubtitleTrack(track);
-                    } catch (e, st) {
-                      debugPrint('Playra subtitle track set failed [file picker]: $e\n$st');
-                      if (context.mounted) {
-                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-                      }
-                      return;
-                    }
-                    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
+                    await widget.onLoadFile(path, res.files.first.name);
                     if (context.mounted) Navigator.of(context).pop();
                   }
                 },
@@ -1923,11 +2195,7 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
                   trailing: const Icon(Icons.chevron_right, color: Colors.white),
                   onTap: () async {
                     // Pause playback before leaving the player to open subtitle search.
-                    try {
-                      await widget.player.pause();
-                    } catch (e, st) {
-                      debugPrint('Playra pause before subtitle search failed: $e\n$st');
-                    }
+                    await widget.onPauseForSearch();
                     if (!context.mounted) return;
                     Navigator.of(context).pop();
                     final videoInfo = VideoInfo(path: widget.video.uri, name: widget.video.name, directory: _dirOf(widget.video.uri));
@@ -1941,14 +2209,9 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
     );
   }
 
-  String _subtitleTrackKey(SubtitleTrack t) {
-    return _stableSubtitleTrackKey(t);
-  }
-
   List<Widget> _buildTrackTiles(SubtitleStyleSettings s) {
-    final tracks = widget.player.state.tracks.subtitle;
-    final current = widget.player.state.track.subtitle;
-    if (tracks.isEmpty) {
+    final sources = widget.sources;
+    if (sources.isEmpty) {
       return [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1957,23 +2220,15 @@ class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
       ];
     }
 
-    return tracks.map((t) {
-      final label = t.title ?? t.language ?? t.id;
+    return sources.map((source) {
+      final selected = _selectedKey == source.key || (_selectedKey == null && source.isNone);
+      final label = source.isNone ? 'player.subtitles_off'.tr() : source.label;
       return ListTile(
-        leading: Icon(t == current ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white),
+        leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white),
         title: Text(label, style: const TextStyle(color: Colors.white)),
         onTap: () async {
-          try {
-            await widget.player.setSubtitleTrack(t);
-          } catch (e, st) {
-            debugPrint('Playra subtitle track set failed [sheet select]: $e\n$st');
-            if (mounted) {
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-            }
-            return;
-          }
-          await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(t));
-          if (mounted) setState(() {});
+          setState(() => _selectedKey = source.key);
+          await widget.onSelect(source);
         },
       );
     }).toList();

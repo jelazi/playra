@@ -82,7 +82,8 @@
         "load_subtitle_file": "Load subtitle file (.srt, .ass, .vtt)",
         "download_subtitles": "Download subtitles",
         "download_subtitles_hint": "Search and download from titulky.com",
-        "no_subtitle_tracks": "No embedded subtitle tracks"
+        "no_subtitle_tracks": "No embedded subtitle tracks",
+        "subtitles_off": "Off"
     },
     "editor": {
         "title": "Subtitle Editor",

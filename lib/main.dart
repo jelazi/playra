@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:fvp/fvp.dart' as fvp;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
@@ -33,6 +34,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   MediaKit.ensureInitialized();
+
+  // Register fvp (libmdk) as the backend for the official `video_player` plugin.
+  // This powers PlayraPlayerScreen; media_kit stays for the legacy editor screens.
+  fvp.registerWith();
 
   // Initialise Hive (legacy + new boxes)
   await Hive.initFlutter();

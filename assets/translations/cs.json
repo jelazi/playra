@@ -82,7 +82,8 @@
         "load_subtitle_file": "Načíst soubor titulků (.srt, .ass, .vtt)",
         "download_subtitles": "Stáhnout titulky",
         "download_subtitles_hint": "Vyhledat a stáhnout z titulky.com",
-        "no_subtitle_tracks": "Video neobsahuje vestavěné titulky"
+        "no_subtitle_tracks": "Video neobsahuje vestavěné titulky",
+        "subtitles_off": "Vypnuto"
     },
     "editor": {
         "title": "Editor titulků",
