@@ -2,6 +2,43 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 9) — fix: green the Android CI job by dropping a machine-local JDK path
+
+### What was done
+
+- **Removed `org.gradle.java.home` from `android/gradle.properties`.** The property pinned the
+  Gradle JVM to `/Applications/Android Studio.app/Contents/jbr/Contents/Home` — a path that has
+  been committed since the very first commit and only exists on this Mac. Flutter now supplies
+  the JDK itself: `flutter config --jdk-dir` (`/Library/Java/JavaVirtualMachines/jdk-20.jdk`)
+  locally, `actions/setup-java` on the runner.
+- **Bumped `actions/checkout` and `actions/setup-java` to v5** in `.github/workflows/ci.yml`
+  to clear the Node.js 20 deprecation warnings.
+
+### What was fixed
+
+- The `build (android)` job failed on every run since part 4 with
+  `Value '/Applications/Android Studio.app/Contents/jbr/Contents/Home' given for
+  org.gradle.java.home Gradle property is invalid (Java home supplied is invalid)`.
+  Gradle aborted before compiling anything, so the failure said nothing about the app code.
+  Nine consecutive CI runs were red for this one reason.
+- The remaining Node.js 20 annotation comes from `actions/github-script` pinned inside
+  `codecov/codecov-action@v5` and cannot be fixed from this repository.
+
+### Current state
+
+- `flutter build apk --debug` verified locally after the change: `✓ Built
+  build/app/outputs/flutter-apk/app-debug.apk` in 27.3s using jdk-20 instead of the Android
+  Studio JBR.
+- CI run 33870862440 on `8d61550`: **both jobs green** — `analyze-and-test` (format, analyze,
+  146 tests, coverage upload) and `build (android)`. First fully green run since the workflow
+  was extended.
+
+### Pending / next steps
+
+- The Gradle build still emits `source/target value 8 is obsolete` warnings from plugin
+  dependencies; harmless, but they will become errors on a future JDK.
+- No tags or releases yet; the repository `homepage` field is still empty.
+
 ## 2026-09-04 (part 8) — fix: repair the failing CI and extend it with format, coverage and a build job
 
 ### What was fixed
