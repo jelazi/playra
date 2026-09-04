@@ -2,6 +2,61 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 6) — docs: add README screenshots captured from the running macOS app
+
+### What was done
+
+- **`screenshots/`** — six captures from the real macOS build (1.3 MB total, metadata stripped):
+  `library.png`, `player.png`, `subtitle-search.png`, `subtitle-editor.png`, `media-info.png`,
+  `settings.png`.
+- **README** — a hero library shot plus a 2x2 table under the badges, each cell captioned, with a
+  note that the demo library is generated and a TMDB attribution line in the License section
+  (required now that TMDB posters are displayed).
+- **Capture rig** (all in the scratchpad, nothing installed on the machine): 11 demo videos built
+  from PIL title cards and encoded with ffmpeg; `.srt` sidecars; a Swift `click`/`scroll` helper
+  posting CGEvents, because Flutter windows expose no accessibility tree and AppleScript
+  `click at` does nothing on them; window placement and bounds via System Events; capture via
+  `screencapture -R`.
+- **Demo state was seeded through Hive** rather than by driving the folder picker: library folder,
+  `iconsLarge` view mode, a `Home NAS` SMB server entry, TMDB media-cache mappings and poster
+  images fetched into the app's own `poster_cache`.
+
+### What was fixed
+
+- `IMAX` was already added to the release-token lists in part 5; capturing surfaced a second case
+  of the same class: `Blade.Runner.2049.2017` parses as title "Blade Runner" with year **2049**,
+  because `_extractYear` takes `firstMatch` and 2049 matches `(19|20)\d{2}`. The TMDB lookup then
+  returns nothing. Not fixed — the demo file was swapped for `Tenet.2020` instead, so the bug is
+  still open and reported to the user.
+
+### Design decisions
+
+- **Generated demo library, not the real one.** The user's actual library would have put their
+  personal media titles into a public README. Films are represented by generated colour cards
+  carrying the title, so no copyrighted frame is published either.
+- **Live Hive data was moved aside and restored.** `~/Documents/playra_*.hive` plus `media_cache`
+  hold the user's real state; they were copied to a backup, renamed `.claudebak`, and restored
+  afterwards (sizes and mtimes verified identical). `settings.hive` was deliberately left in place
+  so the saved titulky.com login kept working. Demo posters added to `poster_cache` were removed
+  by diffing against the backup.
+- **The titulky.com password was never read.** A check printed only `HAS_USERNAME` / `HAS_PASSWORD`
+  booleans; the search screenshot then used the app's own auto-login.
+
+### Current state
+
+- `flutter analyze`: no issues found. `flutter test`: 146/146 passing.
+- Every screenshot was reviewed before being kept; the early ones were rejected (empty library,
+  hidden controls, missing subtitle, wrong tile) and recaptured.
+- The 256 KB `LibraryService._minVideoBytes` floor silently dropped the first batch of demo files;
+  they were re-encoded with CBR padding to clear it.
+- `~/Movies/Playra Demo Library` was deleted after capture.
+
+### Pending / next steps
+
+- The parser bug above (`Title YYYY` where the title itself ends in a year-like number).
+- Still open from the review: splitting the large screen files, `dart format --set-exit-if-changed`
+  and a build job in CI, coverage reporting, tagging a release, and the repo's social preview image.
+
 ## 2026-09-04 (part 5) — chore: translate remaining Czech comments and cover parsers and blocs with tests
 
 ### What was done

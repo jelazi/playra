@@ -12,6 +12,24 @@ to the video.
 
 Runs on iOS, Android, macOS, Windows and Linux from one codebase.
 
+<p align="center">
+  <img src="screenshots/library.png" alt="Library with TMDB posters" width="800">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/player.png" alt="Player with subtitles"><br><sub><b>Player</b> — rebindable controls, track selection, styled subtitles</sub></td>
+    <td width="50%"><img src="screenshots/subtitle-search.png" alt="Subtitle search with relevance ranking"><br><sub><b>Subtitle search</b> — titulky.com results ranked against the actual release</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="screenshots/subtitle-editor.png" alt="Subtitle editor"><br><sub><b>Subtitle editor</b> — global shift and key-point interpolation with live preview</sub></td>
+    <td width="50%"><img src="screenshots/media-info.png" alt="Media info from TMDB"><br><sub><b>Identification</b> — TMDB metadata and next-episode continuation</sub></td>
+  </tr>
+</table>
+
+<sub>The library in these screenshots is a generated demo set: the video files are colour cards, not
+real films. Posters and metadata come from TMDB.</sub>
+
 ## Playback
 
 Built on [media_kit](https://pub.dev/packages/media_kit), so it plays what libmpv plays.
@@ -165,3 +183,6 @@ Both run in CI on every push and pull request against `main`.
 ## License
 
 Released under the [MIT License](LICENSE).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB. Posters and metadata shown
+in the screenshots are supplied by [TMDB](https://www.themoviedb.org/).
