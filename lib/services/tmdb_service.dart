@@ -8,8 +8,13 @@ import 'translation_service.dart';
 class TmdbService {
   final Dio _dio;
   final TranslationService _translator;
-  static const String _apiKey = '***REMOVED***'; // Bude potřeba získat API klíč
+  /// Supplied at build time: `--dart-define=TMDB_API_KEY=...`.
+  static const String _apiKey = String.fromEnvironment('TMDB_API_KEY');
   static const String _baseUrl = 'https://api.themoviedb.org/3';
+
+  /// Without a build-time key every TMDB lookup returns empty, so callers can
+  /// check this to tell "nothing found" apart from "not configured".
+  static bool get isConfigured => _apiKey.isNotEmpty;
 
   TmdbService({Dio? dio, TranslationService? translator}) : _dio = dio ?? Dio(), _translator = translator ?? TranslationService() {
     _dio.options.baseUrl = _baseUrl;
@@ -19,6 +24,11 @@ class TmdbService {
 
   /// Vyhledat film nebo seriál podle názvu
   Future<List<MediaInfo>> search({required String query, required String language, bool searchMovies = true, bool searchTV = true, int? year}) async {
+    if (!isConfigured) {
+      debugPrint('TMDB: no API key. Pass --dart-define=TMDB_API_KEY=<key> at build time.');
+      return [];
+    }
+
     try {
       final results = <MediaInfo>[];
 

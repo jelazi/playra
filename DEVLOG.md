@@ -6,6 +6,25 @@
 
 ### What was done
 
+- **Took the TMDB API key out of the source.** `tmdb_service.dart` now reads
+  `String.fromEnvironment('TMDB_API_KEY')` instead of a hardcoded literal, and exposes
+  `TmdbService.isConfigured`. `search()` returns early with an explicit
+  `TMDB: no API key` log when the define is missing — previously every Dio error was swallowed into
+  an empty result list, so a missing key looked identical to "nothing found". Added `env.json` to
+  `.gitignore` for `--dart-define-from-file`.
+- **Rewrote the README from scratch** (251 -> 159 lines). The old one described a titulky.com
+  subtitle downloader and actively undersold the project: it called the app "a demonstration
+  implementation" with "illustrative" API endpoints, listed subtitle timing editing under *Future
+  Improvements* when `subtitle_editor_screen.dart` implements it, and documented a `lib/` tree with
+  a `bloc/video/` package that does not exist. It also had an unclosed code fence that swallowed the
+  `## Usage` heading. The new text is organised around what the app is — playback, library, network
+  sources, identification, subtitles, acquisition — with every claim taken from code:
+  `PlayerSettings` for the gesture/shortcut/wheel options, `SubtitleStyleSettings` for subtitle
+  appearance, `EpisodeContinuationService`, `SmbProxyServer`, `LanSyncService`, the Torrentio and
+  Real-Debrid services, and the eight blocs under `lib/bloc/`.
+- **Rewrote the TMDB setup instructions** in both the English and Czech halves of
+  `docs/TMDB_SETUP.md`; both told the reader to paste a key into `tmdb_service.dart`.
+
 - **Renamed the GitHub repository** `titulky_com` -> `playra` and repointed the local `origin`.
   GitHub keeps a redirect from the old URL. Set a description and ten topics; both were empty before.
 - **Rewrote the README identity.** It was still titled `# Titulky.com` and described the v1
@@ -65,13 +84,11 @@ Analyzer findings went from **422 to zero**.
 
 ### Pending / next steps
 
-- **The TMDB API key is still live and public.** `lib/services/tmdb_service.dart:10` holds
-  `***REMOVED***`, it is present in all 44 commits, and a request to
-  `api.themoviedb.org` with it still answers `HTTP 200`. Deleting the line changes nothing while the
-  history stands: **the key has to be revoked and reissued on themoviedb.org**, which only the account
-  owner can do. After that it should become `String.fromEnvironment('TMDB_API_KEY')`, and the README's
-  "Set up TMDB API key" section — which currently tells the reader to paste a key into the source —
-  needs rewriting to describe `--dart-define`.
+- **The TMDB key must still be rotated.** It is out of the working tree now (see below), but it sits
+  in all 44 commits of a public repository and answered `HTTP 200` when checked today. Taking it out
+  of `HEAD` does not revoke it: **the key has to be revoked and reissued on themoviedb.org**, which
+  only the account owner can do. Rewriting history with `git filter-repo` would stop further casual
+  discovery but is not a substitute for rotation.
 - No `screenshots/` yet; the README carries no images of the player or library.
 - God files remain: `playra_player_screen.dart` 75 KB, `home_screen.dart` 75 KB,
   `video_library_screen.dart` 69 KB, `playra_storage.dart` 46 KB, `subtitle_search_screen.dart` 41 KB.

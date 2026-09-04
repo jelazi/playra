@@ -25,16 +25,19 @@ TMDB (The Movie Database) is a free database that provides information about mov
    - After approval (usually instant), you'll see your API Key (v3 auth)
    - Copy the entire key
 
-4. **Add the key to the app**:
-   - Open file: `lib/services/tmdb_service.dart`
-   - Find line 7: `static const String _apiKey = '';`
-   - Paste your key between the quotes: `static const String _apiKey = 'your_api_key_here';`
-   - Save the file
+4. **Pass the key to the app at build time** — do not put it in the source:
+   - The app reads it through `String.fromEnvironment('TMDB_API_KEY')` in
+     `lib/services/tmdb_service.dart`, so it is compiled into your build and never committed.
+   - Store it in a git-ignored `env.json` in the project root and point Flutter at it.
 
 ### Example:
-```dart
-static const String _apiKey = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+```bash
+echo '{"TMDB_API_KEY": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"}' > env.json
+flutter run --dart-define-from-file=env.json
 ```
+
+A single run can also take the key inline: `flutter run --dart-define=TMDB_API_KEY=<key>`.
+`env.json` is already listed in `.gitignore`.
 
 ---
 
@@ -64,14 +67,15 @@ TMDB (The Movie Database) je bezplatná databáze, která poskytuje informace o 
    - Zkopírujte celý klíč
 
 4. **Přidejte klíč do aplikace**:
-   - Otevřete soubor: `lib/services/tmdb_service.dart`
-   - Najděte řádek 7: `static const String _apiKey = '';`
-   - Vložte váš klíč mezi uvozovky: `static const String _apiKey = 'vas_api_klic';`
+   - Aplikace klíč čte přes `String.fromEnvironment('TMDB_API_KEY')` v souboru
+     `lib/services/tmdb_service.dart`, takže se zkompiluje do buildu a nikdy nejde do repozitáře.
+   - Uložte ho do souboru `env.json` v kořeni projektu (je v `.gitignore`) a předejte ho Flutteru.
    - Uložte soubor
 
 ### Příklad:
-```dart
-static const String _apiKey = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+```bash
+echo '{"TMDB_API_KEY": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"}' > env.json
+flutter run --dart-define-from-file=env.json
 ```
 
 ---
