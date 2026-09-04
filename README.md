@@ -116,38 +116,40 @@ results and the app logs `TMDB: no API key`.
 
 1. Sign up at https://www.themoviedb.org/signup
 2. Get an API key at https://www.themoviedb.org/settings/api
-3. Start the app — it asks for the key on first launch, verifies it against TMDB and stores it. You
-   can change or remove it later under **Settings → Movie & TV metadata → TMDB API key**.
-
-That is all most people need; no build flags, and the key never touches the repository. It is kept
-in an AES-encrypted Hive box whose key lives in a separate owner-only file, so a copied or
-backed-up Hive file does not expose it, and it is stripped from every log line.
-
-For automated or reproducible builds you can supply it at build time instead, which takes precedence
-over the stored one and hides the Settings field:
+3. Put it in `env.json`, which is git-ignored:
 
 ```bash
-flutter run --dart-define=TMDB_API_KEY=your_key_here
-# or, from a git-ignored file:
-flutter run --dart-define-from-file=env.json
+cp env.example.json env.json    # then paste your key into it
 ```
 
-Resolution order is `--dart-define` first, then the key saved in Settings. Details in
+Every build started through the VS Code / IntelliJ run configurations or `scripts/flutter-env.sh`
+passes `--dart-define-from-file=env.json`, so the key is compiled into that build.
+
+**`env.json` is optional.** Leave the key empty, or skip the file entirely, and the app asks for a
+key on first launch, verifies it against TMDB and stores it — changeable later under
+**Settings → Movie & TV metadata → TMDB API key**. The stored key is kept in an AES-encrypted Hive
+box whose encryption key lives in a separate owner-only file, so a copied or backed-up Hive file
+does not expose it, and it is stripped from every log line.
+
+Resolution order is `env.json` / `--dart-define` first, then the key saved in Settings. When a
+build-time key is present the Settings field is read-only. Details in
 [docs/TMDB_SETUP.md](docs/TMDB_SETUP.md).
 
 ### 3. Run
 
 ```bash
-flutter run -d macos
+./scripts/flutter-env.sh run -d macos
 ```
 
-Swap `macos` for `ios`, `android`, `windows` or `linux`.
+Swap `macos` for `ios`, `android`, `windows` or `linux`. The script adds
+`--dart-define-from-file=env.json` when that file exists and runs plain `flutter` when it does not,
+so `flutter run -d macos` works too — you just get the in-app key prompt instead.
 
 ## Requirements
 
 - Flutter SDK ≥ 3.10.4
 - **iOS** 11.0+ · **Android** 5.0+ (API 21+) · **macOS** 10.14+ · **Windows** 10+ · **Linux** Ubuntu 20.04+
-- TMDB API key (free) — entered in the app on first launch
+- TMDB API key (free) — from `env.json` at build time, or entered in the app on first launch
 - Premium titulky.com account, for subtitle downloads only
 
 ## Development

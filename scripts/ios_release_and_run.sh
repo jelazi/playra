@@ -65,7 +65,12 @@ fi
 echo ""
 echo "flutter build ios --release"
 cd "$WORKSPACE_DIR"
-flutter build ios --release
+DEFINES=()
+if [[ -f "$WORKSPACE_DIR/env.json" ]]; then
+  DEFINES+=(--dart-define-from-file=env.json)
+  echo "Using build-time defines from env.json"
+fi
+flutter build ios --release "${DEFINES[@]+"${DEFINES[@]}"}"
 
 echo ""
 echo "xcodebuild: building Release app"

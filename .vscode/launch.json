@@ -1,0 +1,33 @@
+{
+    // Every configuration reads build-time defines from env.json. That file is
+    // git-ignored; a fresh clone needs `cp env.example.json env.json` once, or
+    // the launch fails with "Did not find the file passed to
+    // --dart-define-from-file". An empty TMDB_API_KEY there is fine — the app
+    // then asks for the key in Settings.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Playra",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "toolArgs": ["--dart-define-from-file=env.json"]
+        },
+        {
+            "name": "Playra (profile)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "flutterMode": "profile",
+            "toolArgs": ["--dart-define-from-file=env.json"]
+        },
+        {
+            "name": "Playra (release)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "flutterMode": "release",
+            "toolArgs": ["--dart-define-from-file=env.json"]
+        }
+    ]
+}

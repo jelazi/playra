@@ -2,6 +2,53 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 3) — chore: make env.json feed the build-time TMDB key automatically
+
+### What was done
+
+- **`env.example.json`** — a committed template holding an empty `TMDB_API_KEY`, so a fresh clone
+  can `cp env.example.json env.json` and every run configuration works immediately.
+- **`scripts/flutter-env.sh`** — wrapper that adds `--dart-define-from-file=env.json` only when
+  that file exists and otherwise runs plain `flutter`, so it never breaks a checkout without the
+  file. Usage: `./scripts/flutter-env.sh run -d macos`, `./scripts/flutter-env.sh build macos
+  --release`.
+- **`.vscode/launch.json`** — Playra / profile / release configurations, all with
+  `"toolArgs": ["--dart-define-from-file=env.json"]`, plus a comment explaining the
+  `cp env.example.json env.json` prerequisite.
+- **`.idea/runConfigurations/main_dart.xml`** — same define via `additionalArgs` (local only,
+  `.idea/` is git-ignored).
+- **`scripts/ios_release_and_run.sh`** — `flutter build ios --release` now passes the define when
+  `env.json` is present; previously release builds for the device shipped with no key at all.
+- **New `test/tmdb_key_test.dart`** — covers `TmdbService.isWellFormedKey` (length, case,
+  whitespace, non-hex) and asserts `isKeyFixedAtBuildTime` tracks the define.
+- **Docs.** README step 2/3 and `docs/TMDB_SETUP.md` (both languages) now describe the two ways to
+  supply the key and state that an empty `TMDB_API_KEY` in `env.json` counts as unset.
+
+### What was fixed
+
+- `env.json` existed and was documented, but nothing passed it to the compiler — the key only
+  arrived if `--dart-define-from-file=env.json` was typed by hand, so IDE runs and the iOS release
+  script silently built without a key.
+
+### Current state
+
+- `flutter analyze`: no issues found.
+- `flutter test`: 26/26 passing, both plain and via `./scripts/flutter-env.sh test`.
+- Define plumbing verified end to end with a throwaway test that printed the compiled-in value:
+  through the script `String.fromEnvironment('TMDB_API_KEY')` is 32 characters and matches the key
+  in `env.json`; with plain `flutter test` it is empty, which is the path that falls back to the
+  Settings field. The temporary test was deleted afterwards.
+- `bash -n` clean on both scripts.
+
+### Pending / next steps
+
+- `.vscode/launch.json` is committed and hardcodes the define, so a clone without `env.json` gets
+  "Did not find the file passed to --dart-define-from-file" from the IDE launch button. The
+  `cp env.example.json env.json` step is documented in the file itself and in the README; the
+  script path degrades gracefully instead.
+- Still unverified on a running app: the encrypted-box round trip, the key-file `chmod`, the
+  legacy-key migration and the first-launch dialog.
+
 ## 2026-09-04 (part 2) — feat: store the TMDB key in an encrypted Hive box and drop all torrent features
 
 ### What was done
