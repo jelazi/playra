@@ -1,11 +1,11 @@
 import '../models/subtitle.dart';
 import '../services/video_name_parser.dart';
 
-/// Služba pro výpočet relevance titulků k videu
+/// Scores how well a subtitle matches a video.
 class SubtitleRelevanceService {
-  /// Parsuje informace o sezóně a epizodě z názvu titulku
+  /// Parses season and episode numbers out of a subtitle name.
   static SubtitleSeasonInfo? parseSeasonEpisode(String title) {
-    // Různé formáty: S05E01, S5E1, 5x01, 5.01, Season 5 Episode 1
+    // Various formats: S05E01, S5E1, 5x01, 5.01, Season 5 Episode 1
     final patterns = [
       RegExp(r'[Ss](\d{1,2})[Ee](\d{1,2})'), // S05E01
       RegExp(r'(\d{1,2})[xX](\d{1,2})'), // 5x01
@@ -26,21 +26,21 @@ class SubtitleRelevanceService {
     return null;
   }
 
-  /// Vypočítá relevanci titulku k videu (0-100)
-  /// 100 = perfektní shoda (stejná sezóna a epizoda)
-  /// 80 = stejná sezóna, jiná epizoda
-  /// 60 = stejný seriál, jiná sezóna
-  /// 40 = podobný název
-  /// 20 = pouze jazyk odpovídá
+  /// Scores a subtitle against a video (0-100).
+  /// 100 = exact match (same season and episode)
+  /// 80 = same season, different episode
+  /// 60 = same show, different season
+  /// 40 = similar title
+  /// 20 = only the language matches
   static int calculateRelevance(Subtitle subtitle, ParsedVideoName parsedVideo) {
     final subtitleInfo = parseSeasonEpisode(subtitle.title);
     int relevance = 0;
 
-    // Základní shoda názvu
+    // Base title match
     final videoNameLower = parsedVideo.cleanName.toLowerCase();
     final subtitleTitleLower = subtitle.title.toLowerCase();
 
-    // Kontrola shody názvu seriálu/filmu
+    // Compare the show/movie title
     final videoWords = videoNameLower.split(' ').where((w) => w.length > 2).toList();
     int matchingWords = 0;
     for (final word in videoWords) {
@@ -51,31 +51,31 @@ class SubtitleRelevanceService {
 
     if (videoWords.isNotEmpty) {
       final nameMatchRatio = matchingWords / videoWords.length;
-      relevance += (nameMatchRatio * 40).round(); // Max 40 bodů za shodu názvu
+      relevance += (nameMatchRatio * 40).round(); // Max 40 points for the title match
     }
 
-    // Pro TV seriály kontrola sezóny a epizody
+    // For TV shows compare season and episode
     if (parsedVideo.isTV && parsedVideo.season != null && parsedVideo.episode != null) {
       if (subtitleInfo != null) {
         if (subtitleInfo.season == parsedVideo.season && subtitleInfo.episode == parsedVideo.episode) {
-          // Perfektní shoda - stejná sezóna a epizoda
-          relevance += 60; // Max 60 bodů za přesnou shodu epizody
+          // Exact match - same season and episode
+          relevance += 60; // Max 60 points for an exact episode match
         } else if (subtitleInfo.season == parsedVideo.season) {
-          // Stejná sezóna, jiná epizoda
+          // Same season, different episode
           relevance += 30;
         } else {
-          // Jiná sezóna
+          // Different season
           relevance += 10;
         }
       }
     } else {
-      // Pro filmy - pokud není TV, přidáme body za rok
+      // For movies award points for a matching year
       if (parsedVideo.year != null) {
         if (subtitle.title.contains(parsedVideo.year.toString())) {
           relevance += 40;
         }
       } else {
-        // Pokud není rok, přidáme body pokud má vysokou shodu názvu
+        // Without a year, award points for a strong title match
         relevance += 20;
       }
     }
@@ -83,18 +83,18 @@ class SubtitleRelevanceService {
     return relevance.clamp(0, 100);
   }
 
-  /// Seřadí titulky podle relevance a rozdělí na relevantní a ostatní
+  /// Sorts subtitles by relevance and splits them into relevant ones and the rest.
   static SortedSubtitles sortByRelevance(List<Subtitle> subtitles, ParsedVideoName parsedVideo) {
-    // Vypočítat relevanci pro každý titulek
+    // Score every subtitle
     final scoredSubtitles = subtitles.map((subtitle) {
       final relevance = calculateRelevance(subtitle, parsedVideo);
       return ScoredSubtitle(subtitle: subtitle, relevance: relevance);
     }).toList();
 
-    // Seřadit podle relevance (nejvyšší první)
+    // Sort by relevance, highest first
     scoredSubtitles.sort((a, b) => b.relevance.compareTo(a.relevance));
 
-    // Rozdělit na relevantní (relevance >= 70) a ostatní
+    // Split into relevant (>= 70) and the rest
     final relevant = <Subtitle>[];
     final others = <Subtitle>[];
 
@@ -110,7 +110,7 @@ class SubtitleRelevanceService {
   }
 }
 
-/// Informace o sezóně a epizodě z názvu titulku
+/// Season and episode parsed from a subtitle name.
 class SubtitleSeasonInfo {
   final int season;
   final int episode;
@@ -121,7 +121,7 @@ class SubtitleSeasonInfo {
   String toString() => 'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
 }
 
-/// Titulek s vypočítanou relevancí
+/// A subtitle with its computed relevance.
 class ScoredSubtitle {
   final Subtitle subtitle;
   final int relevance;
@@ -129,7 +129,7 @@ class ScoredSubtitle {
   ScoredSubtitle({required this.subtitle, required this.relevance});
 }
 
-/// Seřazené titulky rozdělené na relevantní a ostatní
+/// Sorted subtitles, split into relevant ones and the rest.
 class SortedSubtitles {
   final List<Subtitle> relevant;
   final List<Subtitle> others;

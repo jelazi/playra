@@ -2,6 +2,91 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 5) — chore: translate remaining Czech comments and cover parsers and blocs with tests
+
+### What was done
+
+**Comments (all of `lib/` is now English)**
+
+- Translated 129 Czech comment lines across 12 files: 119 leading `//` / `///` comments and 10
+  trailing ones. Heaviest files were `video_library_screen.dart` (40), `titulky_repository.dart`
+  (26) and `subtitle_relevance_service.dart` (24), plus `tmdb_service`, `media_cache_service`,
+  `video_name_parser`, `media_cache`, `media_info`, `app_settings`, `video_selection_screen` and
+  `video_player_screen`.
+- Four comments still contain Czech and deliberately stay that way: they are English comments
+  quoting the literal strings matched in titulky.com HTML ("Odhlásit", "denní limit",
+  "Alternativní titulky").
+- The first sweep only matched comments at the start of a line, which missed 10 trailing ones
+  (`relevance += 60; // Max 60 bodů…`). Both forms are now covered by the verification script.
+
+**Tests: 37 -> 146**
+
+- `test/video_name_parser_test.dart` (17) — the README "Recognised formats" table is now literally
+  a test: one case per row, so a parser change that breaks the documented behaviour fails CI. Plus
+  release-token stripping, bracket removal, the SxxExx / 2x05 / folder-derived paths.
+- `test/srt_parser_service_test.dart` (21) — parse (CRLF, dot separator, multi-row cues, malformed
+  blocks), `formatDuration`, `toSrt` round trip and renumbering, `applyGlobalShift` including the
+  clamp at zero, and `applyKeyBasedSync` (single key, linear interpolation, holding the outer
+  offsets, no-op cases), plus file read/write.
+- `test/subtitle_relevance_service_test.dart` (20) — all four season/episode formats and every
+  documented scoring tier (100/70/50/40/0 for TV, 80/40/60 for movies), plus the 70-point split
+  in `sortByRelevance`.
+- `test/episode_continuation_service_test.dart` (13) — real files in a temp directory: next
+  episode, numbering gaps, never going backwards, season rollover, same-season preference,
+  different show in the same folder, differing release tags, non-video files, movies, SMB source,
+  missing directory.
+- `test/bloc/subtitle_bloc_test.dart` (20) — mocktail on `TitulkyRepository`: login success /
+  rejection / throw, auto-login without credentials, logout, the query the site is actually asked
+  for, relevance-sorted results, the fsf=1 merge with duplicate filtering, login-required and
+  generic search errors, no-results, manual query override, search cancellation, toggle/select on
+  results, and the three download outcomes.
+- `test/bloc/subtitle_editor_bloc_test.dart` (18) — load/error paths, global shift accumulation and
+  reset, key point marking/removal/interpolation, individual offsets, save to the original and to
+  an explicit target, and the temp-file helper.
+
+**Code change found by writing the tests**
+
+- `IMAX` was missing from the release-token lists in `video_name_parser.dart` and
+  `episode_continuation_service.dart`, so `Avatar-2009-IMAX.avi` parsed as "Avatar IMAX (2009)" —
+  the README table claimed "Avatar (2009)". Added `imax` to both lists. The `\b` boundary keeps
+  words like "Imaximus" intact, which is covered by a test.
+
+### What was fixed
+
+- `lib/` violated the project's own English-only comment rule that is published in
+  `.github/copilot-instructions.md`.
+- The README's recognised-formats table had one row the code did not actually produce.
+
+### Current state
+
+- `flutter analyze`: no issues found.
+- `flutter test`: 146/146 passing (was 37).
+- `flutter build bundle`: succeeds.
+- Verified by script that no Czech-diacritic comment remains in `lib/` beyond the four intentional
+  titulky.com string quotes, in both leading and trailing comment positions.
+- Every assertion was written against probed actual output, not against assumption: the parser and
+  relevance scores were dumped first with a throwaway test, which is how the IMAX mismatch surfaced.
+
+### Design decisions
+
+- **No `bloc_test` package.** It cannot be installed: `bloc_test` needs a newer `analyzer` than
+  `hive_generator ^2.0.1` allows, and pub rejects the combination. Rather than drop
+  `hive_generator`/`build_runner` (still needed to regenerate the committed `.g.dart` Hive
+  adapters), the bloc tests use `expectLater`/`firstWhere` over `bloc.stream` directly, with
+  `mocktail` for the repository. Only `mocktail` was added to dev_dependencies.
+- Search tests must let the second results emission (the alternatives merge) land before asserting
+  on the next one, otherwise they race; `searchWith` pumps the event queue for that reason.
+
+### Pending / next steps
+
+- Not done from the review list, and untouched here: screenshots in the README, splitting the
+  large screen files, `dart format --set-exit-if-changed` and a build job in CI, coverage
+  reporting, and tagging a release.
+- `/movies/Interstellar (2014)/movie.mkv` still parses as "movie" — the parser only falls back to
+  the directory name when the file name is under 3 characters or has no letters, so a generic
+  `movie.mkv` next to a well-named folder is not recognised. Left as-is and deliberately not
+  encoded in a test; worth revisiting if it shows up in practice.
+
 ## 2026-09-04 (part 4) — feat: move SMB server passwords into the encrypted secret box
 
 ### What was done

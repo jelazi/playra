@@ -68,12 +68,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
   MediaInfo? _selectedMediaInfo;
   bool _isSearching = false;
   bool _isDragging = false;
-  bool _isFromCache = false; // Příznak, že info je z cache
+  bool _isFromCache = false; // Marks the info as coming from the cache
   final Map<String, bool> _expandedSections = {};
 
   final TmdbService _tmdbService = TmdbService();
 
-  // Breakpoint pro responzivní layout
+  // Breakpoint for the responsive layout
   static const double _tabletBreakpoint = 600;
 
   bool _isTabletOrDesktop(BuildContext context) {
@@ -88,7 +88,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
   void initState() {
     super.initState();
 
-    // Zkontrolovat, zda je uživatel přihlášen
+    // Check whether the user is logged in
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLoginStatus();
     });
@@ -107,17 +107,17 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     final settings = SettingsService.getSettings();
     final subtitleBloc = context.read<SubtitleBloc>();
 
-    // Pokud už jsme přihlášeni, nic nedělat
+    // Nothing to do when already logged in
     if (subtitleBloc.state is SubtitleLoggedIn) {
       return;
     }
 
-    // Zkusit auto-login pokud máme uložené údaje
+    // Try auto-login when saved credentials exist
     if (settings.username != null && settings.username!.isNotEmpty && settings.password != null && settings.password!.isNotEmpty) {
       debugPrint('🔵 VideoLibraryScreen: Attempting auto-login');
       subtitleBloc.add(AutoLoginToTitulky());
     } else {
-      // Zobrazit přihlášení
+      // Show the login screen
       _showLoginDialog();
     }
   }
@@ -133,10 +133,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       body: _isTabletOrDesktop(context)
           ? Row(
               children: [
-                // Levá strana - Info o vybraném videu
+                // Left side - details of the selected video
                 Expanded(flex: 3, child: _buildVideoInfo()),
                 const VerticalDivider(width: 1),
-                // Pravá strana - Seznam videí
+                // Right side - the video list
                 Expanded(flex: 2, child: _buildVideoList()),
               ],
             )
@@ -144,7 +144,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     );
   }
 
-  // Obrazovka detailu pro telefon
+  // Detail screen for phones
   void _showVideoDetailScreen(VideoInfo video) {
     Navigator.push(
       context,
@@ -183,7 +183,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Poster a základní info
+          // Poster and basic details
           if (_selectedMediaInfo != null) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -216,7 +216,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      // Žánry
+                      // Genres
                       if (_selectedMediaInfo!.genres.isNotEmpty)
                         Wrap(
                           spacing: 8,
@@ -225,7 +225,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           }).toList(),
                         ),
                       const SizedBox(height: 16),
-                      // Hodnocení
+                      // Rating
                       if (_selectedMediaInfo!.voteAverage != null)
                         Row(
                           children: [
@@ -236,7 +236,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           ],
                         ),
                       const SizedBox(height: 16),
-                      // Rok vydání / Sezóny
+                      // Release year / seasons
                       if (_selectedMediaInfo!.type == MediaType.movie && _selectedMediaInfo!.releaseDate != null)
                         SelectableText('${'video.release_date'.tr()}: ${_selectedMediaInfo!.releaseDate}', style: const TextStyle(fontSize: 16)),
                       if (_selectedMediaInfo!.type == MediaType.tv) ...[
@@ -251,14 +251,14 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            // Popis
+            // Overview
             if (_selectedMediaInfo!.overview != null && _selectedMediaInfo!.overview!.isNotEmpty) ...[
               SelectableText('video.overview'.tr(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               SelectableText(_selectedMediaInfo!.overview!, style: const TextStyle(fontSize: 16, height: 1.5)),
               const SizedBox(height: 24),
             ],
-            // Tlačítka pro přehrávání a vyhledání titulků
+            // Play and subtitle-search buttons
             Row(
               children: [
                 Expanded(
@@ -292,7 +292,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            // Info o cache a tlačítko pro editaci
+            // Cache info and the edit button
             if (_isFromCache) ...[
               Row(
                 children: [
@@ -303,7 +303,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
               ),
               const SizedBox(height: 8),
             ],
-            // Tlačítko pro změnu přiřazení
+            // Button for changing the mapping
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(onPressed: () => _editMediaInfo(_selectedVideo!), icon: const Icon(Icons.edit), label: Text('video.edit_media_info'.tr())),
@@ -737,7 +737,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                             ),
                     ),
             ),
-            // Tlačítka - pouze na tabletu/desktopu
+            // Buttons - tablet and desktop only
             if (!isPhone) ...[
               const Divider(height: 1),
               Padding(
@@ -776,7 +776,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
             ],
           ],
         ),
-        // FAB pro telefon
+        // FAB for phones
         if (isPhone && _videos.isNotEmpty)
           Positioned(
             right: 16,
@@ -787,7 +787,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     );
   }
 
-  // Menu pro dlouhé stisknutí na telefonu
+  // Long-press menu on phones
   void _showVideoOptionsMenu(VideoInfo video) {
     showModalBottomSheet(
       context: context,
@@ -898,7 +898,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       if (!_isSupportedVideoFile(filePath)) continue;
       if (!await _isValidVideoFile(filePath)) continue;
 
-      // Kontrola, zda už video není v seznamu
+      // Skip videos already in the list
       if (_videos.any((v) => v.path == filePath)) continue;
 
       final fileName = path.basename(filePath);
@@ -913,7 +913,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
         _videos.add(videoInfo);
       });
 
-      // Automaticky vyhledat info o prvním přidaném videu
+      // Automatically look up details for the first added video
       if (_videos.length == 1) {
         _selectVideo(videoInfo);
       }
@@ -1031,7 +1031,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       _selectedMediaInfo = null;
     });
     _searchMediaInfo(video).then((_) {
-      // Na telefonu otevřít detail screen po načtení
+      // On phones open the detail screen once loaded
       if (mounted && !_isTabletOrDesktop(context)) {
         _showVideoDetailScreen(video);
       }
@@ -1042,17 +1042,17 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     setState(() => _isSearching = true);
 
     try {
-      // Parsovat název souboru
+      // Parse the file name
       final parsed = VideoNameParser.parse(video.path);
       debugPrint('Parsed name: ${parsed.cleanName}');
       debugPrint('Is TV: ${parsed.isTV}, Season: ${parsed.season}, Episode: ${parsed.episode}');
 
-      // Zkontrolovat cache
+      // Check the cache
       final cached = MediaCacheService.getMapping(parsed.cleanName);
       if (cached != null) {
         debugPrint('✅ Found in cache: ${cached.title}');
 
-        // Načíst detaily z cache
+        // Load details from the cache
         final language = context.locale.languageCode;
         MediaInfo? details;
 
@@ -1072,12 +1072,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
         return;
       }
 
-      // Vyhledat v TMDB
+      // Search TMDB
       final language = context.locale.languageCode;
       final results = await _tmdbService.search(query: parsed.cleanName, language: language, searchMovies: !parsed.isTV, searchTV: parsed.isTV, year: parsed.year);
 
       if (results.isNotEmpty) {
-        // Zobrazit dialog s výběrem
+        // Show the picker dialog
         if (mounted) {
           setState(() => _isSearching = false);
 
@@ -1086,7 +1086,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
           if (selectedMedia != null) {
             setState(() => _isSearching = true);
 
-            // Získat detaily
+            // Fetch the details
             MediaInfo? details;
             if (selectedMedia.type == MediaType.movie) {
               details = await _tmdbService.getMovieDetails(selectedMedia.id, language);
@@ -1096,7 +1096,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
             final finalInfo = details ?? selectedMedia;
 
-            // Uložit do cache
+            // Store in the cache
             await MediaCacheService.saveMapping(parsed.cleanName, finalInfo);
             debugPrint('💾 Saved to cache: ${parsed.cleanName} → ${finalInfo.title}');
 
@@ -1126,15 +1126,15 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     }
   }
 
-  // Funkce pro editaci přiřazení
+  // Editing an existing mapping
   Future<void> _editMediaInfo(VideoInfo video) async {
     final parsed = VideoNameParser.parse(video.path);
 
-    // Zobrazit dialog pro ruční vyhledávání
+    // Show the manual search dialog
     final selectedMedia = await _showManualSearchDialog(parsed.cleanName);
 
     if (selectedMedia != null && mounted) {
-      // Uložit do cache
+      // Store in the cache
       await MediaCacheService.saveMapping(parsed.cleanName, selectedMedia);
 
       setState(() {
@@ -1189,7 +1189,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: Text('common.cancel'.tr())),
           TextButton.icon(
             onPressed: () async {
-              Navigator.pop(context); // Zavřít první dialog
+              Navigator.pop(context); // Close the first dialog
               await _showManualSearchDialog(cleanName);
             },
             icon: const Icon(Icons.search),
@@ -1199,7 +1199,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
       ),
     );
 
-    // Pokud selected je null (Cancel nebo Ruční vyhledávání), zkusit ruční vyhledávání
+    // A null selection means Cancel or "manual search", so fall back to manual search
     if (selected == null && mounted) {
       return await _showManualSearchDialog(cleanName);
     }
@@ -1207,7 +1207,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     return selected;
   }
 
-  // Dialog pro ruční vyhledávání
+  // Manual search dialog
   Future<MediaInfo?> _showManualSearchDialog(String initialQuery) async {
     final controller = TextEditingController(text: initialQuery);
     List<MediaInfo> searchResults = [];
@@ -1350,7 +1350,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
   }
 }
 
-// Obrazovka detailu videa pro telefon
+// Video detail screen for phones
 class _VideoDetailScreen extends StatelessWidget {
   final VideoInfo video;
   final MediaInfo? mediaInfo;
@@ -1384,7 +1384,7 @@ class _VideoDetailScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (mediaInfo != null) ...[
-              // Poster - na telefonu menší a centrovaný
+              // Poster - smaller and centred on phones
               if (mediaInfo!.posterUrl.isNotEmpty)
                 Center(
                   child: ClipRRect(
@@ -1399,7 +1399,7 @@ class _VideoDetailScreen extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 16),
-              // Název
+              // Title
               SelectableText(
                 mediaInfo!.title,
                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
@@ -1417,7 +1417,7 @@ class _VideoDetailScreen extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 16),
-              // Žánry
+              // Genres
               if (mediaInfo!.genres.isNotEmpty)
                 Center(
                   child: Wrap(
@@ -1433,7 +1433,7 @@ class _VideoDetailScreen extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 16),
-              // Hodnocení a rok
+              // Rating and year
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -1451,14 +1451,14 @@ class _VideoDetailScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              // Popis
+              // Overview
               if (mediaInfo!.overview != null && mediaInfo!.overview!.isNotEmpty) ...[
                 Text('video.overview'.tr(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 SelectableText(mediaInfo!.overview!, style: const TextStyle(fontSize: 14, height: 1.5)),
                 const SizedBox(height: 24),
               ],
-              // Tlačítka
+              // Buttons
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -1491,7 +1491,7 @@ class _VideoDetailScreen extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 8),
-              // Info o cache
+              // Cache info
               if (isFromCache)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1511,7 +1511,7 @@ class _VideoDetailScreen extends StatelessWidget {
                 child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()),
               ),
             ] else ...[
-              // Nenalezeno
+              // Not found
               Center(
                 child: Column(
                   children: [

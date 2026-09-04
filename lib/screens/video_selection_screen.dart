@@ -23,11 +23,11 @@ class VideoSelectionScreen extends StatelessWidget {
         if (state is SubtitleLoginFailed) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
         } else if (state is SubtitleLoggedIn) {
-          // Uložit username do Hive po úspěšném přihlášení
+          // Save the username to Hive after a successful login
           await SettingsService.updateUsername(state.username);
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('auth.login_success'.tr()), backgroundColor: Colors.green));
-            // Pokud je to dialog, zavřít ho
+            // Close the dialog when shown as one
             if (isDialog) {
               Navigator.of(context).pop();
             }
@@ -70,7 +70,7 @@ class VideoSelectionScreen extends StatelessWidget {
   }
 
   Widget _buildLoginForm(BuildContext context) {
-    // Načíst uložené username z Hive
+    // Load the saved username from Hive
     final settings = SettingsService.getSettings();
     final usernameController = TextEditingController(text: settings.username ?? '');
     final passwordController = TextEditingController();

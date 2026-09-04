@@ -20,10 +20,10 @@ class AppSettings extends HiveObject {
   String? preferredSubtitleLanguage; // 'cs', 'en', 'all'
 
   @HiveField(5)
-  String? password; // Uložené heslo pro auto-login
+  String? password; // Saved password for auto-login
 
   @HiveField(6)
-  List<String> downloadedVideoPaths; // Seznam cest k videím, pro které byly staženy titulky
+  List<String> downloadedVideoPaths; // Paths of videos that already have downloaded subtitles
 
   AppSettings({
     this.username,

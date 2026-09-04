@@ -3,7 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/media_cache.dart';
 import '../models/media_info.dart';
 
-/// Služba pro správu cache přiřazení video názvů → TMDB info
+/// Manages the cache mapping video names to TMDB info.
 class MediaCacheService {
   static const String _boxName = 'media_cache';
   static Box<MediaCache>? _box;
@@ -15,7 +15,7 @@ class MediaCacheService {
     _box = await Hive.openBox<MediaCache>(_boxName);
   }
 
-  /// Uložit přiřazení názvu → media info
+  /// Stores a name → media info mapping.
   static Future<void> saveMapping(String cleanName, MediaInfo mediaInfo) async {
     final cache = MediaCache(
       cleanName: cleanName.toLowerCase().trim(),
@@ -35,12 +35,12 @@ class MediaCacheService {
     await _box?.put(cleanName.toLowerCase().trim(), cache);
   }
 
-  /// Získat uložené info pro název
+  /// Returns the stored info for a name.
   static MediaCache? getMapping(String cleanName) {
     return _box?.get(cleanName.toLowerCase().trim());
   }
 
-  /// Převést MediaCache na MediaInfo
+  /// Converts a MediaCache entry into MediaInfo.
   static MediaInfo cacheToMediaInfo(MediaCache cache) {
     return MediaInfo(
       id: cache.tmdbId,
@@ -57,17 +57,17 @@ class MediaCacheService {
     );
   }
 
-  /// Smazat přiřazení
+  /// Deletes a single mapping.
   static Future<void> deleteMapping(String cleanName) async {
     await _box?.delete(cleanName.toLowerCase().trim());
   }
 
-  /// Smazat všechny přiřazení
+  /// Deletes every mapping.
   static Future<void> clearAll() async {
     await _box?.clear();
   }
 
-  /// Získat všechny uložené názvy
+  /// Returns every stored name.
   static List<String> getAllMappings() {
     return _box?.keys.cast<String>().toList() ?? [];
   }

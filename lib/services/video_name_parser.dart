@@ -1,8 +1,8 @@
 import 'package:path/path.dart' as path;
 
-/// Parsování názvu video souboru pro extrakci názvu filmu/seriálu
+/// Parses a video file name to extract the movie or TV show title.
 class VideoNameParser {
-  /// Extrahuje název filmu/seriálu z názvu souboru
+  /// Extracts the movie or TV show title from a file name.
   static ParsedVideoName parse(String filePath) {
     final fileName = path.basenameWithoutExtension(filePath);
     final ancestorNames = _ancestorDirectoryNames(filePath, maxDepth: 4);
@@ -146,7 +146,7 @@ class VideoNameParser {
     value = value.replaceAll(
       RegExp(
         r'\b(480p|576p|720p|1080p|1440p|2160p|4k|uhd|hdr|hdr10|dolby\s*vision|dv|'
-        r'bluray|brrip|bdrip|web\s*-?\s*dl|webrip|hdtv|dvdrip|remux|proper|repack|extended|unrated|'
+        r'bluray|brrip|bdrip|web\s*-?\s*dl|webrip|hdtv|dvdrip|remux|proper|repack|extended|unrated|imax|'
         r'x264|x265|h\s*\.?\s*264|h\s*\.?\s*265|hevc|xvid|av1|10bit|8bit|'
         r'aac|ac3|dts|ddp|ddp\s*\d(?:[\s\._-]*\d)?|atmos|dual\s*audio|multi|'
         r'amzn|nf|dsnp|hmax|hulu|itunes|yts|rarbg|yify|ntb|evo|etrg)\b',

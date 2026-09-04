@@ -1,4 +1,4 @@
-/// Model pro informace o filmu/seriálu z TMDB
+/// Movie or TV show details from TMDB.
 class MediaInfo {
   final int id;
   final String title;
@@ -12,7 +12,7 @@ class MediaInfo {
   final List<String> genres;
   final MediaType type;
 
-  // Pro seriály
+  // TV shows only
   final int? numberOfSeasons;
   final int? numberOfEpisodes;
   final String? firstAirDate;

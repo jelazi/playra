@@ -78,11 +78,11 @@ class TitulkyRepository {
       debugPrint('Logging in with username: $username');
 
       final loginResponse = await _dio.post(
-        '/', // Action je přímo na homepage
+        '/', // The action posts to the homepage itself
         data: {
           'LoginName': username, // Premium server field
           'LoginPassword': password, // Premium server field
-          'PermanentLog': '148', // Trvalé přihlášení
+          'PermanentLog': '148', // Stay logged in
         },
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
@@ -200,7 +200,7 @@ class TitulkyRepository {
           final subtitle = Subtitle(
             id: id,
             title: title,
-            language: 'cs', // Všechny titulky na premium.titulky.com jsou české
+            language: 'cs', // Every subtitle on premium.titulky.com is Czech
             format: 'srt',
             downloadUrl: downloadUrl,
           );
@@ -243,11 +243,11 @@ class TitulkyRepository {
         options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}, responseType: ResponseType.bytes),
       );
 
-      // Určit finální cestu k souboru
+      // Work out the final file path
       final fileName = '${subtitle.title}_${subtitle.language}.${subtitle.format}';
       final filePath = path.join(savePath, fileName);
 
-      // Uložit soubor
+      // Save the file
       final file = File(filePath);
       await file.writeAsBytes(response.data);
 
@@ -260,14 +260,14 @@ class TitulkyRepository {
     }
   }
 
-  /// Uložení titulku vedle video souboru
+  /// Saves a subtitle next to the video file.
   Future<SubtitleSaveResult?> saveSubtitleWithVideo({required Subtitle subtitle, required String videoPath}) async {
     try {
-      // Získat adresář videa
+      // Directory holding the video
       final videoDir = path.dirname(videoPath);
       final videoName = path.basenameWithoutExtension(videoPath);
 
-      // Stáhnout titulek na detail stránku pro získání skutečného download linku
+      // Fetch the detail page to get the real download link
       debugPrint('Getting subtitle download link from: ${subtitle.downloadUrl}');
       final detailResponse = await _dio.get(
         subtitle.downloadUrl,
@@ -276,7 +276,7 @@ class TitulkyRepository {
 
       final document = html_parser.parse(detailResponse.data);
 
-      // Najít download link (hledat download.php pro premium nebo idown.php pro běžný server)
+      // Find the download link (download.php on premium, idown.php on the regular server)
       var downloadLink = document.querySelector('a[href*="download.php"]');
       downloadLink ??= document.querySelector('a[href*="idown.php"]');
 
@@ -299,20 +299,20 @@ class TitulkyRepository {
 
       debugPrint('✅ Found download link: $downloadUrl');
 
-      // Zjistit formát z URL nebo názvu souboru
+      // Determine the format from the URL or the file name
       var format = subtitle.format;
 
-      // Vytvořit cestu pro titulek se stejným názvem jako video
+      // Build the subtitle path from the video name
       final subtitleFileName = '$videoName.$format';
       final subtitlePath = path.join(videoDir, subtitleFileName);
 
-      // Premium server stahuje přímo, bez countdown stránky
+      // The premium server downloads directly, with no countdown page
       final finalDownloadUrl = downloadUrl;
 
       debugPrint('Downloading subtitle from: $finalDownloadUrl');
       debugPrint('Saving to: $subtitlePath');
 
-      // Stáhnout soubor
+      // Download the file
       final response = await _dio.get(
         finalDownloadUrl,
         options: Options(
@@ -327,11 +327,11 @@ class TitulkyRepository {
         return null;
       }
 
-      // Zkontrolovat, zda nejde o HTML stránku (error page nebo captcha)
+      // Check whether this is an HTML page (error page or captcha)
       var bytes = response.data as List<int>;
       var sampleString = String.fromCharCodes(bytes.take(1000));
 
-      // Kontrola na denní limit a captcha (obsahuje "denní limit" nebo captcha formulář)
+      // Detect the daily limit and captcha (the page contains "denní limit" or a captcha form)
       if (sampleString.contains('denní limit') || sampleString.contains('captcha.php') || sampleString.contains('downkod')) {
         debugPrint('❌ Denní limit stahování překročen nebo captcha požadována');
         debugPrint('   Pro obejití limitu použijte prémiový účet nebo zkuste později.');
@@ -341,12 +341,12 @@ class TitulkyRepository {
         throw Exception('daily_limit_exceeded');
       }
 
-      // Kontrola na countdown stránku (bez limitu - má imgLoader ale ne captcha)
+      // Detect the countdown page (no limit - has imgLoader but no captcha)
       if (sampleString.contains('imgLoader') && !sampleString.contains('captcha')) {
         debugPrint('⏳ Detekována countdown stránka (bez limitu) - čekání 7 sekund...');
         await Future.delayed(const Duration(seconds: 7));
 
-        // Po countdown zkusit znovu
+        // Retry after the countdown
         final retryResponse = await _dio.get(
           finalDownloadUrl,
           options: Options(
@@ -367,23 +367,23 @@ class TitulkyRepository {
         }
       }
 
-      // Zkontrolovat, jestli je to ZIP soubor (začíná na PK)
+      // Check whether this is a ZIP file (starts with PK)
       if (bytes.length > 2 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
         debugPrint('📦 Downloaded file is ZIP archive, extracting...');
 
         try {
-          // Rozbalit ZIP
+          // Unpack the ZIP
           final archive = ZipDecoder().decodeBytes(bytes);
 
-          // Posbírat VŠECHNY titulkové soubory (kvůli vícedílným CD1/CD2/... titulkům).
-          // Server občas přílohám ořízne příponu (např. ".---"), proto se u neznámé
-          // přípony rozhodne podle obsahu (přítomnost "-->").
+          // Collect ALL subtitle files, because of multi-disc (CD1/CD2/...) subtitles.
+          // The server sometimes truncates an attachment extension (e.g. ".---"), so for an
+          // unknown extension the decision falls back to the content (a "-->" marker).
           final subtitleFiles = <ArchiveFile>[];
           for (final file in archive) {
             if (!file.isFile) continue;
             final base = file.name.toLowerCase().split('/').last;
 
-            // Přeskočit doprovodný info soubor z titulky.com
+            // Skip the info file titulky.com bundles in
             if (base == '_info.txt') continue;
 
             final hasKnownExt = base.endsWith('.srt') || base.endsWith('.sub') || base.endsWith('.ass') || base.endsWith('.ssa') || base.endsWith('.txt');
@@ -400,7 +400,7 @@ class TitulkyRepository {
             return null;
           }
 
-          // Seřadit podle čísla CD, aby CD1 předcházelo CD2; jinak abecedně.
+          // Sort by CD number so CD1 comes before CD2; alphabetically otherwise.
           subtitleFiles.sort((a, b) {
             final ca = _cdNumber(a.name);
             final cb = _cdNumber(b.name);
@@ -421,7 +421,7 @@ class TitulkyRepository {
               mergedOk = true;
               debugPrint('🔗 Merged ${subtitleFiles.length} subtitle parts into a single track');
             } else {
-              // Nelze sloučit (např. nejde o SRT) – uložit aspoň první díl jako dřív.
+              // Cannot merge (e.g. not SRT) - save at least the first part, as before.
               subtitleBytes = subtitleFiles.first.content as List<int>;
               debugPrint('⚠️ Could not merge parts (not SRT?), saved first part only: ${subtitleFiles.first.name}');
             }
@@ -442,7 +442,7 @@ class TitulkyRepository {
         }
       }
 
-      // Pokud to není ZIP, zkontrolovat, zda nejde o HTML stránku (error page)
+      // Not a ZIP: check whether it is an HTML page (error page)
       final sample = String.fromCharCodes(bytes.take(100));
       if (sample.toLowerCase().contains('<!doctype') || sample.toLowerCase().contains('<html')) {
         debugPrint('❌ Downloaded file is HTML, not subtitle file');
@@ -450,7 +450,7 @@ class TitulkyRepository {
         return null;
       }
 
-      // Uložit soubor přímo (není to ZIP)
+      // Save the file directly (not a ZIP)
       final file = File(subtitlePath);
       await file.writeAsBytes(bytes);
 
@@ -467,10 +467,10 @@ class TitulkyRepository {
     }
   }
 
-  /// Odhlášení
+  /// Logs out of titulky.com.
   Future<void> logout() async {
     try {
-      // Vymazat cookies
+      // Clear the cookies
       _cookies.clear();
       debugPrint('Logged out successfully');
     } catch (e) {

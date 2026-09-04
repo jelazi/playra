@@ -2,11 +2,11 @@ import 'package:hive/hive.dart';
 
 part 'media_cache.g.dart';
 
-/// Cache pro uložení přiřazení názvu videa → TMDB info
+/// Cached mapping of a video name to its TMDB info.
 @HiveType(typeId: 1)
 class MediaCache extends HiveObject {
   @HiveField(0)
-  String cleanName; // Např. "True Detective"
+  String cleanName; // e.g. "True Detective"
 
   @HiveField(1)
   int tmdbId;

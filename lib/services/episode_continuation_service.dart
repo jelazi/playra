@@ -109,7 +109,7 @@ class EpisodeContinuationService {
     v = v.replaceAll(RegExp(r'\b\d{1,2}x\d{1,2}\b', caseSensitive: false), ' ');
     v = v.replaceAll(
       RegExp(
-        r'\b(480p|576p|720p|1080p|2160p|4k|uhd|hdr|bluray|brrip|bdrip|web\s*-?\s*dl|webrip|hdtv|dvdrip|remux|proper|repack|extended|unrated|x264|x265|h\s*\.?\s*264|h\s*\.?\s*265|hevc|xvid|av1|10bit|8bit|aac|ac3|dts|ddp|atmos|amzn|nf|dsnp|hmax|hulu|itunes|yts|rarbg|yify|ntb|evo|etrg)\b',
+        r'\b(480p|576p|720p|1080p|2160p|4k|uhd|hdr|bluray|brrip|bdrip|web\s*-?\s*dl|webrip|hdtv|dvdrip|remux|proper|repack|extended|unrated|imax|x264|x265|h\s*\.?\s*264|h\s*\.?\s*265|hevc|xvid|av1|10bit|8bit|aac|ac3|dts|ddp|atmos|amzn|nf|dsnp|hmax|hulu|itunes|yts|rarbg|yify|ntb|evo|etrg)\b',
         caseSensitive: false,
       ),
       ' ',

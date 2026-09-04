@@ -5,7 +5,7 @@ import '../models/media_info.dart';
 import 'secret_store.dart';
 import 'translation_service.dart';
 
-/// Služba pro vyhledávání filmů a seriálů v TMDB databázi
+/// Searches the TMDB database for movies and TV shows.
 class TmdbService {
   final Dio _dio;
   final TranslationService _translator;
@@ -59,7 +59,7 @@ class TmdbService {
     return secret.isEmpty ? text : text.replaceAll(secret, '***');
   }
 
-  /// Vyhledat film nebo seriál podle názvu
+  /// Searches for a movie or TV show by title.
   Future<List<MediaInfo>> search({required String query, required String language, bool searchMovies = true, bool searchTV = true, int? year}) async {
     if (!isConfigured) {
       debugPrint('TMDB: no API key. Add one in Settings, or pass --dart-define=TMDB_API_KEY=<key>.');
@@ -69,19 +69,19 @@ class TmdbService {
     try {
       final results = <MediaInfo>[];
 
-      // Vyhledat filmy
+      // Movies
       if (searchMovies) {
         final movieResults = await _searchMovies(query, language, year);
         results.addAll(movieResults);
       }
 
-      // Vyhledat seriály
+      // TV shows
       if (searchTV) {
         final tvResults = await _searchTV(query, language, year);
         results.addAll(tvResults);
       }
 
-      // Seřadit podle popularity (ne hodnocení!)
+      // Sort by popularity, not by rating.
       results.sort((a, b) => (b.popularity ?? 0).compareTo(a.popularity ?? 0));
 
       return results;
@@ -91,7 +91,7 @@ class TmdbService {
     }
   }
 
-  /// Vyhledat filmy
+  /// Searches for movies.
   Future<List<MediaInfo>> _searchMovies(String query, String language, int? year) async {
     try {
       final params = {'api_key': _apiKey, 'query': query, 'language': language, 'include_adult': 'false'};
@@ -110,7 +110,7 @@ class TmdbService {
     }
   }
 
-  /// Vyhledat seriály
+  /// Searches for TV shows.
   Future<List<MediaInfo>> _searchTV(String query, String language, int? year) async {
     try {
       final params = {'api_key': _apiKey, 'query': query, 'language': language, 'include_adult': 'false'};
@@ -129,7 +129,7 @@ class TmdbService {
     }
   }
 
-  /// Získat detaily o filmu
+  /// Fetches movie details.
   Future<MediaInfo?> getMovieDetails(int movieId, String language) async {
     try {
       final response = await _dio.get('/movie/$movieId', queryParameters: {'api_key': _apiKey, 'language': language});
@@ -141,7 +141,7 @@ class TmdbService {
     }
   }
 
-  /// Získat detaily o seriálu
+  /// Fetches TV show details.
   Future<MediaInfo?> getTVDetails(int tvId, String language) async {
     try {
       final response = await _dio.get('/tv/$tvId', queryParameters: {'api_key': _apiKey, 'language': language});

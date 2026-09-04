@@ -55,7 +55,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       final videoPath = widget.videoInfo.path;
       debugPrint('🎬 VideoPlayerScreen: Loading video: $videoPath');
 
-      // Zkontrolujeme zda soubor existuje
+      // Check that the file exists
       final fileExists = await File(videoPath).exists();
       debugPrint('🎬 VideoPlayerScreen: File exists: $fileExists');
 
@@ -70,7 +70,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       _player = Player();
       _videoController = VideoController(_player!);
 
-      // Nastavit callback pro chyby
+      // Wire up the error callback
       _player!.stream.error.listen((error) {
         debugPrint('🔴 VideoPlayerScreen: Player error: $error');
       });
