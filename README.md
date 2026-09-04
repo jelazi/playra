@@ -46,7 +46,6 @@ Built on [media_kit](https://pub.dev/packages/media_kit), so it plays what libmp
 
 - **Filename parsing** for movies and TV episodes
 - **TMDB** for posters, ratings, genres and descriptions in Czech or English
-- **Cinemeta** as a second metadata source
 - **Translation fallback** for episode metadata TMDB does not localise
 - **Video hashing** for precise matching
 
@@ -71,35 +70,34 @@ Recognised formats:
 
 A premium titulky.com account is required for downloads.
 
-## Movie acquisition
+## Scope
 
-For titles not in your library, Playra can resolve streams through Torrentio and fetch them via
-Real-Debrid or a native torrent client (`auto` picks Real-Debrid on mobile, the torrent client on
-desktop). Streams can be filtered by target quality and a minimum seeder count, and on desktop
-playback can start while the download is still running.
+Playra plays media you already have — local folders, your own SMB shares, files you downloaded
+yourself. It does not search, index or fetch content from the internet, and has no torrent, magnet
+or debrid support. The only network sources it talks to are TMDB (metadata) and titulky.com
+(subtitles, with your own premium account).
 
 ## Architecture
 
-- **BLoC/Cubit** for state management — eight feature blocs (`library`, `subtitle`,
-  `subtitle_editor`, `downloads`, `servers`, `streams`, `movie_search`, `settings`)
-- **Service layer** for everything external: TMDB, Cinemeta, SMB, torrent and Real-Debrid clients,
-  SRT parsing, filename parsing, hashing, LAN sync
+- **BLoC/Cubit** for state management — five feature blocs (`library`, `subtitle`,
+  `subtitle_editor`, `servers`, `settings`)
+- **Service layer** for everything external: TMDB, SMB, SRT parsing, filename parsing, hashing,
+  LAN sync
 - **Repository** for titulky.com scraping and session handling
 - **Hive** for settings and cached metadata
 - **easy_localization** for Czech and English
 
 ```
 lib/
-├── bloc/          # downloads, library, movie_search, servers, settings,
-│                  # streams, subtitle, subtitle_editor
+├── bloc/          # library, servers, settings, subtitle, subtitle_editor
 ├── config/
 ├── models/        # video_info, media_info, subtitle, subtitle_entry,
 │                  # player_settings, subtitle_style_settings, server_connection, ...
 ├── repositories/  # titulky_repository.dart
 ├── screens/       # playra_player, video_library, subtitle_search, subtitle_editor,
 │                  # server_browser, downloads, settings, media_info, ...
-├── services/      # tmdb, cinemeta, smb_browser, smb_proxy_server, lan_sync,
-│                  # torrent_client, real_debrid, srt_parser, video_name_parser, ...
+├── services/      # tmdb, secret_store, smb_browser, smb_proxy_server, lan_sync,
+│                  # srt_parser, video_name_parser, ...
 └── main.dart
 ```
 
@@ -118,31 +116,38 @@ results and the app logs `TMDB: no API key`.
 
 1. Sign up at https://www.themoviedb.org/signup
 2. Get an API key at https://www.themoviedb.org/settings/api
-3. Pass it at build time — **never commit it**:
+3. Start the app — it asks for the key on first launch, verifies it against TMDB and stores it. You
+   can change or remove it later under **Settings → Movie & TV metadata → TMDB API key**.
+
+That is all most people need; no build flags, and the key never touches the repository. It is kept
+in an AES-encrypted Hive box whose key lives in a separate owner-only file, so a copied or
+backed-up Hive file does not expose it, and it is stripped from every log line.
+
+For automated or reproducible builds you can supply it at build time instead, which takes precedence
+over the stored one and hides the Settings field:
 
 ```bash
-echo '{"TMDB_API_KEY": "your_key_here"}' > env.json   # env.json is git-ignored
+flutter run --dart-define=TMDB_API_KEY=your_key_here
+# or, from a git-ignored file:
 flutter run --dart-define-from-file=env.json
 ```
 
-The key is read through `String.fromEnvironment('TMDB_API_KEY')`, so it is compiled into the binary
-you build and never enters the repository. A one-off run can also take
-`--dart-define=TMDB_API_KEY=<key>` inline. Details in [docs/TMDB_SETUP.md](docs/TMDB_SETUP.md).
+Resolution order is `--dart-define` first, then the key saved in Settings. Details in
+[docs/TMDB_SETUP.md](docs/TMDB_SETUP.md).
 
 ### 3. Run
 
 ```bash
-flutter run -d macos --dart-define-from-file=env.json
+flutter run -d macos
 ```
 
-Swap `macos` for `ios`, `android`, `windows` or `linux`. Release builds take the same flag, e.g.
-`flutter build macos --dart-define-from-file=env.json`.
+Swap `macos` for `ios`, `android`, `windows` or `linux`.
 
 ## Requirements
 
 - Flutter SDK ≥ 3.10.4
 - **iOS** 11.0+ · **Android** 5.0+ (API 21+) · **macOS** 10.14+ · **Windows** 10+ · **Linux** Ubuntu 20.04+
-- TMDB API key (free)
+- TMDB API key (free) — entered in the app on first launch
 - Premium titulky.com account, for subtitle downloads only
 
 ## Development

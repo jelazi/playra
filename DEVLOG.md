@@ -2,6 +2,79 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 2) — feat: store the TMDB key in an encrypted Hive box and drop all torrent features
+
+### What was done
+
+- **New `lib/services/secret_store.dart`.** A Hive box (`playra_secrets`) encrypted with
+  `HiveAesCipher`, holding user-supplied credentials — currently only the TMDB API key.
+  The 32-byte AES key lives in `.playra_secret_key` in the application-support directory,
+  created empty, chmod-ed to `600` on macOS/Linux and only then written to, so the key is never
+  world-readable even briefly. `SecretStore.init()` runs from `main()` right after
+  `PlayraStorage.init()`. If the box cannot be decrypted (lost or regenerated key file) it is
+  deleted and reopened empty rather than crashing startup.
+- **`TmdbService` resolves the key as: `--dart-define=TMDB_API_KEY` first, then `SecretStore`.**
+  Added `isKeyFixedAtBuildTime`, `isWellFormedKey` (32 hex chars) and `verifyKey()`, which pings
+  `/authentication` so a wrong key is rejected before it is stored.
+- **Stopped leaking the key into logs.** Dio puts the full request URI — `api_key` query parameter
+  included — into its error messages, and `tmdb_service.dart` printed those verbatim in seven
+  places. All of them now go through `_redact()`, which replaces the key with `***`.
+- **New `lib/screens/widgets/tmdb_key_dialog.dart`.** Shared by the first-launch prompt in
+  `home_screen.dart` and the Settings tile. Obscured input with a reveal toggle, hex-only input
+  formatter, 32-char limit, inline verification spinner, and a Remove action. The stored key is
+  never written back into the field — the dialog only reports that one exists.
+- **Settings.** The old `Filmy (Torrentio)` section is replaced by
+  `settings.section_metadata` holding a single `_TmdbKeyTile`, which shows "key stored", the
+  "get one free" hint, or "set at build time" when a define is active.
+- **Migration.** `PlayraStorage.takeLegacyTmdbApiKey()` lifts a key written by the previous
+  (uncommitted) build out of the plaintext settings box and re-encodes the box, which also drops
+  the now-removed fields, so no stale credential is left behind on disk.
+- **Removed every torrent-related feature.** Deleted 18 files: `torrent_stream.dart`,
+  `cinemeta_meta.dart`, `movie_search_screen.dart`, `stream_selection_sheet.dart`,
+  `download_status_bar.dart`, the `torrentio`, `torrent_client`, `torrent_proxy_server`,
+  `torrent_acquisition`, `movie_acquisition`, `real_debrid`, `aria2`, `magnet_builder`,
+  `cinemeta` and `http_download` services, and the `downloads`, `streams` and `movie_search`
+  blocs. Stripped the matching providers, lifecycle hooks and imports from `main.dart`, the
+  movie-search and download-status-bar entry points from `home_screen.dart`, and the
+  `DownloadsCubit` queue from `downloads_screen.dart` (which keeps its SMB-downloaded-file
+  management). `PlayerSettings` lost `realDebridApiKey`, `acquisitionMode`, `minSeeders`,
+  `preferredQuality`, `enableTorrentStreaming`, `kAcquisitionModeOptions` and
+  `kPreferredQualityOptions`.
+- **Translations.** Dropped the whole `movies` section, the Torrentio/Real-Debrid/seeder/quality
+  settings keys, the `torrent_streaming` pair and the six DownloadsCubit-only `downloads` keys
+  from both `cs.json` and `en.json`; added the nine `settings.tmdb_key*` /
+  `settings.section_metadata` strings.
+- **Docs.** `README.md` gained a "Scope" section stating the app only plays media you already have
+  and has no torrent/magnet/debrid support; the Cinemeta bullet, the "Movie acquisition" section
+  and the stale bloc/service/tree listings are gone. `docs/TMDB_SETUP.md` documents the storage
+  design and its limits in both languages.
+
+### What was fixed
+
+- The TMDB API key was previously written as plaintext JSON into the `playra_player` Hive box
+  alongside the other settings, and every Dio failure printed the key to the log.
+- The first-launch prompt in `home_screen.dart` created a `TextEditingController` inside a
+  `showDialog` builder and never disposed it, and accepted any string without validating it.
+
+### Current state
+
+- `flutter analyze`: no issues found.
+- `flutter test`: 19/19 passing.
+- `flutter build bundle`: succeeds (kernel snapshot built from current sources).
+- Verified by grep that no `torrent`/`magnet`/`debrid`/`aria2`/`cinemeta`/`seeder` reference
+  remains in `lib/`, `test/` or `assets/translations/`, that `cs.json` and `en.json` have
+  identical key sets, and that every `.tr()` key used in `lib/` resolves.
+
+### Pending / next steps
+
+- Not exercised on a running app yet: the encrypted-box round trip, the key-file `chmod`, the
+  legacy-key migration and the first-launch dialog all need a manual run per platform.
+- `env.json` in the project root holds a live TMDB key. It is git-ignored and grep of the full
+  history confirms it was never committed, but it sits unencrypted on disk — remove it if the
+  in-app key is used from now on.
+- `syncPassword` and the SMB server credentials are still stored as plaintext in the
+  `playra_player` / `playra_servers` boxes. They could move into `SecretStore` the same way.
+
 ## 2026-09-04 — chore: finish the Playra rebrand and clean the repository up for public review
 
 ### What was done

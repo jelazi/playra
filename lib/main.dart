@@ -8,7 +8,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'bloc/downloads/downloads_cubit.dart';
 import 'bloc/library/library_cubit.dart';
 import 'bloc/servers/servers_cubit.dart';
 import 'bloc/settings/playra_settings_cubit.dart';
@@ -16,18 +15,14 @@ import 'bloc/subtitle/subtitle_bloc.dart';
 import 'repositories/titulky_repository.dart';
 import 'screens/home_screen.dart';
 import 'screens/player_launcher.dart';
-import 'services/cinemeta_service.dart';
 import 'services/lan_sync_service.dart';
 import 'services/library_service.dart';
 import 'services/media_cache_service.dart';
-import 'services/movie_acquisition_service.dart';
 import 'services/playra_storage.dart';
-import 'services/torrent_acquisition_service.dart';
-import 'services/torrent_client_service.dart';
+import 'services/secret_store.dart';
 import 'services/settings_service.dart';
 import 'services/smb_browser_service.dart';
 import 'services/smb_proxy_server.dart';
-import 'services/torrentio_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +34,7 @@ void main() async {
   await SettingsService.init();
   await MediaCacheService.init();
   await PlayraStorage.init();
+  await SecretStore.init();
   // LAN sync server should not block app startup in release builds.
   unawaited(LanSyncService.instance.start().catchError((_) {}));
 
@@ -70,11 +66,6 @@ class _PlayraAppState extends State<PlayraApp> with WidgetsBindingObserver {
   late final SmbBrowserService smbBrowser = SmbBrowserService();
   late final SmbProxyServer smbProxy = SmbProxyServer(smbBrowser);
   late final LibraryService libraryService = LibraryService();
-  // Native torrent client is desktop-only; on mobile the resolver uses Real-Debrid.
-  late final TorrentAcquisitionService? torrentAcquisition = torrentClientSupported ? TorrentAcquisitionService() : null;
-  late final AcquisitionResolver acquisitionResolver = AcquisitionResolver(
-    torrentBuilder: torrentAcquisition == null ? null : () => torrentAcquisition!,
-  );
 
   @override
   void initState() {
@@ -83,17 +74,8 @@ class _PlayraAppState extends State<PlayraApp> with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      // Stop the aria2 daemon when the app is shutting down.
-      unawaited(torrentAcquisition?.dispose());
-    }
-  }
-
-  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(torrentAcquisition?.dispose());
     super.dispose();
   }
 
@@ -105,9 +87,6 @@ class _PlayraAppState extends State<PlayraApp> with WidgetsBindingObserver {
         RepositoryProvider<SmbBrowserService>.value(value: smbBrowser),
         RepositoryProvider<SmbProxyServer>.value(value: smbProxy),
         RepositoryProvider<PlayerLauncher>.value(value: PlayerLauncher(smbBrowser, smbProxy)),
-        RepositoryProvider<CinemetaService>(create: (_) => CinemetaService()),
-        RepositoryProvider<TorrentioService>(create: (_) => TorrentioService()),
-        RepositoryProvider<AcquisitionResolver>.value(value: acquisitionResolver),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -115,7 +94,6 @@ class _PlayraAppState extends State<PlayraApp> with WidgetsBindingObserver {
           BlocProvider(create: (_) => LibraryCubit(libraryService)),
           BlocProvider(create: (_) => ServersCubit()),
           BlocProvider(create: (ctx) => SubtitleBloc(repository: ctx.read<TitulkyRepository>())),
-          BlocProvider(create: (_) => DownloadsCubit(acquisitionResolver)),
         ],
         child: MaterialApp(
           title: 'app.title'.tr(),

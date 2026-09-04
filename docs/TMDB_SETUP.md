@@ -25,19 +25,38 @@ TMDB (The Movie Database) is a free database that provides information about mov
    - After approval (usually instant), you'll see your API Key (v3 auth)
    - Copy the entire key
 
-4. **Pass the key to the app at build time** — do not put it in the source:
-   - The app reads it through `String.fromEnvironment('TMDB_API_KEY')` in
-     `lib/services/tmdb_service.dart`, so it is compiled into your build and never committed.
-   - Store it in a git-ignored `env.json` in the project root and point Flutter at it.
+4. **Give the key to the app** — do not put it in the source:
+   - Just start Playra. On first launch it asks for the key, checks it against TMDB and stores it.
+   - You can change or remove it any time under **Settings -> Movie & TV metadata -> TMDB API key**.
+
+For CI or reproducible release builds you can pass it at build time instead. A build-time define
+takes precedence over the stored key and hides the Settings field:
 
 ### Example:
 ```bash
-echo '{"TMDB_API_KEY": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"}' > env.json
+flutter run --dart-define=TMDB_API_KEY=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+# or, from a git-ignored file holding {"TMDB_API_KEY": "..."}:
 flutter run --dart-define-from-file=env.json
 ```
 
-A single run can also take the key inline: `flutter run --dart-define=TMDB_API_KEY=<key>`.
-`env.json` is already listed in `.gitignore`.
+`TmdbService` resolves the key in this order: `--dart-define=TMDB_API_KEY`, then the key saved in
+Settings. If neither is set, every lookup returns nothing and the app logs `TMDB: no API key`.
+
+### How the stored key is protected
+
+- It lives in `SecretStore` — a Hive box encrypted with AES (`HiveAesCipher`), separate from the
+  plaintext settings box.
+- The 32-byte encryption key is written to `.playra_secret_key` in the application-support
+  directory and chmod-ed to `600` on macOS and Linux, so the Hive file alone is useless.
+- The key is never written back into the input field, never included in the LAN-sync snapshot, and
+  is stripped from Dio error messages before anything is logged.
+- The key is validated (32 hex characters) and verified against TMDB before it is stored.
+- A key saved by an older build in the plaintext settings box is migrated into the encrypted box on
+  first start and removed from the old location.
+
+This protects the key against a leaked backup, a synced folder or a shared Hive file. It is not a
+defence against an attacker who already runs code as your user — for that the key would have to
+live in the OS keychain.
 
 ---
 
@@ -67,15 +86,15 @@ TMDB (The Movie Database) je bezplatná databáze, která poskytuje informace o 
    - Zkopírujte celý klíč
 
 4. **Přidejte klíč do aplikace**:
-   - Aplikace klíč čte přes `String.fromEnvironment('TMDB_API_KEY')` v souboru
-     `lib/services/tmdb_service.dart`, takže se zkompiluje do buildu a nikdy nejde do repozitáře.
-   - Uložte ho do souboru `env.json` v kořeni projektu (je v `.gitignore`) a předejte ho Flutteru.
-   - Uložte soubor
+   - Stačí spustit Playru. Při prvním startu se na klíč sama zeptá, ověří ho u TMDB a uloží.
+   - Kdykoli ho změníte nebo smažete v **Nastavení -> Metadata filmů a seriálů -> TMDB API klíč**.
+   - Pro CI nebo release buildy lze klíč předat i při sestavení; ten má přednost před uloženým.
+   - Uložený klíč je v Hive boxu šifrovaném AES; šifrovací klíč leží v samostatném souboru
+     `.playra_secret_key` s právy `600`, takže samotný Hive soubor je bez něj nečitelný.
 
 ### Příklad:
 ```bash
-echo '{"TMDB_API_KEY": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"}' > env.json
-flutter run --dart-define-from-file=env.json
+flutter run --dart-define=TMDB_API_KEY=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
 ```
 
 ---

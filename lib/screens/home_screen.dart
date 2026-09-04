@@ -27,9 +27,8 @@ import '../services/video_hash_service.dart';
 import '../services/video_name_parser.dart';
 import 'downloads_screen.dart';
 import 'media_info_screen.dart';
-import 'movie_search_screen.dart';
 import 'player_launcher.dart';
-import 'widgets/download_status_bar.dart';
+import 'widgets/tmdb_key_dialog.dart';
 import 'settings_screen.dart';
 import 'subtitle_editor_screen.dart';
 import 'subtitle_search_screen.dart';
@@ -66,7 +65,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _loadRecents();
       _loadExpandedSections();
       _loadLastOpenedDirectory();
+      _promptForTmdbKeyIfMissing();
     });
+  }
+
+  /// Movie and TV identification is dead without a TMDB key, and the failure is
+  /// silent, so ask for one on the first launch instead of quietly finding nothing.
+  Future<void> _promptForTmdbKeyIfMissing() async {
+    if (TmdbService.isConfigured || !mounted) return;
+    await showTmdbKeyDialog(context);
   }
 
   void _loadRecents() {
@@ -1055,7 +1062,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final showRecents = _recents.isNotEmpty;
 
     return Scaffold(
-      bottomNavigationBar: const DownloadStatusBar(),
       appBar: AppBar(
         title: Text('app.title'.tr()),
         actions: [
@@ -1071,11 +1077,6 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: _isDiscoveringPeerSessions ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
               onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
             ),
-          IconButton(
-            tooltip: 'movies.search_title'.tr(),
-            icon: const Icon(Icons.movie_filter_outlined),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MovieSearchScreen())),
-          ),
           IconButton(
             tooltip: 'downloads.title'.tr(),
             icon: const Icon(Icons.download_for_offline),

@@ -81,6 +81,27 @@ class PlayraStorage {
     await _player?.put(_playerKey, merged.encode());
   }
 
+  /// Returns a TMDB key left over in the plaintext settings box by an earlier
+  /// build and rewrites the box without it. Re-encoding also drops the fields
+  /// of removed features, so no stale credential stays on disk.
+  static Future<String?> takeLegacyTmdbApiKey() async {
+    final raw = _player?.get(_playerKey);
+    if (raw == null) return null;
+
+    String? legacy;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['tmdbApiKey'] is String) {
+        legacy = (decoded['tmdbApiKey'] as String).trim();
+      }
+      final reencoded = PlayerSettings.fromJson(Map<String, dynamic>.from(decoded as Map)).encode();
+      if (reencoded != raw) await _player?.put(_playerKey, reencoded);
+    } catch (_) {
+      return null;
+    }
+    return legacy;
+  }
+
   static List<String> getLibraryFolders() {
     final raw = _libraryFolders?.get(_libraryFoldersKey);
     if (raw != null) {

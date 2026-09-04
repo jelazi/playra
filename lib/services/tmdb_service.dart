@@ -2,19 +2,34 @@ import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 
 import '../models/media_info.dart';
+import 'secret_store.dart';
 import 'translation_service.dart';
 
 /// Služba pro vyhledávání filmů a seriálů v TMDB databázi
 class TmdbService {
   final Dio _dio;
   final TranslationService _translator;
-  /// Supplied at build time: `--dart-define=TMDB_API_KEY=...`.
-  static const String _apiKey = String.fromEnvironment('TMDB_API_KEY');
+  /// Optional build-time key: `--dart-define=TMDB_API_KEY=...`.
+  static const String _apiKeyDefine = String.fromEnvironment('TMDB_API_KEY');
   static const String _baseUrl = 'https://api.themoviedb.org/3';
 
-  /// Without a build-time key every TMDB lookup returns empty, so callers can
-  /// check this to tell "nothing found" apart from "not configured".
+  /// Resolves the TMDB key: a build-time define wins, otherwise the key the
+  /// user entered in Settings. Empty when neither is set.
+  static String get _apiKey {
+    if (_apiKeyDefine.isNotEmpty) return _apiKeyDefine.trim();
+    return SecretStore.tmdbApiKey;
+  }
+
+  /// Without a key every TMDB lookup returns empty, so callers can tell
+  /// "nothing found" apart from "not configured".
   static bool get isConfigured => _apiKey.isNotEmpty;
+
+  /// True when the key was baked in at build time and Settings cannot override it.
+  static bool get isKeyFixedAtBuildTime => _apiKeyDefine.trim().isNotEmpty;
+
+  /// TMDB v3 keys are 32 hexadecimal characters; catching a malformed one here
+  /// keeps a mistyped key from being stored and silently failing every lookup.
+  static bool isWellFormedKey(String key) => RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(key.trim());
 
   TmdbService({Dio? dio, TranslationService? translator}) : _dio = dio ?? Dio(), _translator = translator ?? TranslationService() {
     _dio.options.baseUrl = _baseUrl;
@@ -22,10 +37,32 @@ class TmdbService {
     _dio.options.receiveTimeout = const Duration(seconds: 10);
   }
 
+  /// Asks TMDB whether [key] is accepted, so Settings can reject a bad key
+  /// before storing it.
+  Future<bool> verifyKey(String key) async {
+    final candidate = key.trim();
+    if (!isWellFormedKey(candidate)) return false;
+    try {
+      final response = await _dio.get('/authentication', queryParameters: {'api_key': candidate});
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('TMDB key verification failed: ${_redact(e, candidate)}');
+      return false;
+    }
+  }
+
+  /// Dio puts the full request URI — query string included — into its error
+  /// messages, so anything logged has to have the key stripped out first.
+  static String _redact(Object error, [String? key]) {
+    final secret = key ?? _apiKey;
+    final text = error.toString();
+    return secret.isEmpty ? text : text.replaceAll(secret, '***');
+  }
+
   /// Vyhledat film nebo seriál podle názvu
   Future<List<MediaInfo>> search({required String query, required String language, bool searchMovies = true, bool searchTV = true, int? year}) async {
     if (!isConfigured) {
-      debugPrint('TMDB: no API key. Pass --dart-define=TMDB_API_KEY=<key> at build time.');
+      debugPrint('TMDB: no API key. Add one in Settings, or pass --dart-define=TMDB_API_KEY=<key>.');
       return [];
     }
 
@@ -49,7 +86,7 @@ class TmdbService {
 
       return results;
     } catch (e) {
-      debugPrint('TMDB search error: $e');
+      debugPrint('TMDB search error: ${_redact(e)}');
       return [];
     }
   }
@@ -68,7 +105,7 @@ class TmdbService {
       final results = response.data['results'] as List;
       return results.map((json) => MediaInfo.fromJson(json, MediaType.movie)).toList();
     } catch (e) {
-      debugPrint('Movie search error: $e');
+      debugPrint('Movie search error: ${_redact(e)}');
       return [];
     }
   }
@@ -87,7 +124,7 @@ class TmdbService {
       final results = response.data['results'] as List;
       return results.map((json) => MediaInfo.fromJson(json, MediaType.tv)).toList();
     } catch (e) {
-      debugPrint('TV search error: $e');
+      debugPrint('TV search error: ${_redact(e)}');
       return [];
     }
   }
@@ -99,7 +136,7 @@ class TmdbService {
 
       return MediaInfo.fromJson(response.data, MediaType.movie);
     } catch (e) {
-      debugPrint('Get movie details error: $e');
+      debugPrint('Get movie details error: ${_redact(e)}');
       return null;
     }
   }
@@ -111,7 +148,7 @@ class TmdbService {
 
       return MediaInfo.fromJson(response.data, MediaType.tv);
     } catch (e) {
-      debugPrint('Get TV details error: $e');
+      debugPrint('Get TV details error: ${_redact(e)}');
       return null;
     }
   }
@@ -153,7 +190,7 @@ class TmdbService {
         airDate: localized.airDate ?? english.airDate,
       );
     } catch (e) {
-      debugPrint('Get episode details error: $e');
+      debugPrint('Get episode details error: ${_redact(e)}');
       return null;
     }
   }
