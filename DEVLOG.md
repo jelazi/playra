@@ -2,6 +2,76 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 7) — refactor: extract a shared widget layer and split the god screens into directories
+
+### What was done
+
+**New `lib/widgets/` — generic, feature-agnostic widgets**
+
+- `subtitle_style_controls.dart` — `SubtitleStyleControls`, the whole subtitle appearance block
+  (enabled, size, bottom padding, outline, bold, font, three colour tiles). It had existed twice:
+  once in `settings_screen` and once again, with hardcoded white text, in the player sheet.
+  The two copies differed only in colour, so the widget now takes its colours from the ambient
+  `Theme` and the player wraps it in a dark one. `leading`/`trailing` slots carry the rows that
+  belong to only one surface (subtitle delay, subtitle manager).
+- `color_picker_tile.dart` — `ColorPickerTile` plus `kColorPalette` /
+  `kColorPaletteWithTransparent`, replacing `_colorTile` (settings) and `_colourTile` (player).
+- `poster_image.dart` — `PosterImage.file` / `PosterImage.network`, one fallback and one
+  decode-size policy for what were seven separate `Image.file`/`Image.network` blocks across
+  `home_screen`, `video_library_screen` and `media_info_screen`.
+- `empty_state.dart`, `section_header.dart` (+ `SectionSeparator`), `progress_pie.dart`,
+  `labelled_value.dart` — the remaining copy-pasted helpers.
+- `tmdb_key_dialog.dart` moved here from `screens/widgets/`, since home and settings both use it.
+
+**Screens split into feature directories**
+
+- `screens/player/` — `playra_player_screen.dart`, `track_keys.dart` (the stable audio/subtitle
+  key helpers, previously private top-level functions), `widgets/subtitle_options_sheet.dart`.
+- `screens/home/` — `home_screen.dart`, `library_entry.dart` (`LibraryEntry`, `StructuredEntry`),
+  `widgets/recent_card.dart`.
+- `screens/library/` — `video_library_screen.dart`, `widgets/video_detail_screen.dart`.
+
+**Composition over inheritance**
+
+No widget subclasses another. Reuse is by composition and by `Theme` inheritance, which is the
+mechanism Flutter actually provides for "same widget, different surface" — the alternative
+(a base class with colour hooks) would have hardcoded a palette into the shared layer.
+
+### What was fixed
+
+- Line counts: player 2043 -> 1722, home 1825 -> 1637, library 1541 -> 1347, settings 690 -> 585.
+  The subtitle sheet itself went from 305 lines to 211 once its duplicated controls were gone.
+- Settings' text and outline colour pickers previously offered a half-transparent black swatch
+  that the player's did not; both now use the same palette, with transparency offered only for
+  the background colour.
+
+### What broke and was fixed during the work
+
+- Building the player's dark overlay with `Theme.of(context).copyWith(brightness: dark)` kept the
+  light theme's typography, so the sheet's section headers rendered near-black on near-black.
+  Caught by looking at the running app, not by the analyzer. Fixed by constructing a fresh
+  `ThemeData(brightness: Brightness.dark, ...)`.
+
+### Current state
+
+- `flutter analyze`: no issues found. `flutter test`: 146/146 passing.
+- `flutter build bundle` and `flutter build macos --debug`: both succeed.
+- Verified in the running macOS app against the real library, not just compiled: settings subtitle
+  block (all controls, current colours correct), the player sheet after the theme fix, the
+  structured library list (parent link, folders, `ProgressPie`, posters), the recents strip
+  (`RecentCard`), media info and the downloads screen.
+
+### Pending / next steps
+
+- `playra_storage.dart` (1285 lines) is untouched — it is a single storage class, not a widget
+  tree, so splitting it is a different job (per-domain stores) and was out of scope here.
+- The three screens are smaller but still large; further extraction (player top/bottom bars, the
+  home library list builders) needs those `State` methods to stop reaching into shared mutable
+  state first.
+- Still open from the review: `dart format --set-exit-if-changed` and a build job in CI, coverage
+  reporting, tagging a release, the repo social preview image, and the `Blade.Runner.2049.2017`
+  year-parsing bug from part 6.
+
 ## 2026-09-04 (part 6) — docs: add README screenshots captured from the running macOS app
 
 ### What was done

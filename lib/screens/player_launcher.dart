@@ -7,7 +7,7 @@ import '../models/video_item.dart';
 import '../services/playra_storage.dart';
 import '../services/smb_browser_service.dart';
 import '../services/smb_proxy_server.dart';
-import 'playra_player_screen.dart';
+import 'player/playra_player_screen.dart';
 
 /// Resolve a [VideoItem] into a play URL (local file or local-proxy URL for SMB)
 /// and push the player screen.

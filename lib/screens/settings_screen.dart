@@ -9,15 +9,16 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../bloc/library/library_cubit.dart';
 import '../bloc/settings/playra_settings_cubit.dart';
 import '../models/player_settings.dart';
-import '../models/subtitle_style_settings.dart';
 import '../services/playra_storage.dart';
 import '../services/secret_store.dart';
 import '../services/tmdb_service.dart';
+import '../widgets/section_header.dart';
+import '../widgets/subtitle_style_controls.dart';
+import 'library/video_library_screen.dart';
 import 'library_management_screen.dart';
 import 'servers_screen.dart';
 import 'subtitle_manager_screen.dart';
-import 'video_library_screen.dart';
-import 'widgets/tmdb_key_dialog.dart';
+import '../widgets/tmdb_key_dialog.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -251,7 +252,7 @@ class SettingsScreen extends StatelessWidget {
           final s = state.subtitleStyle;
           return ListView(
             children: [
-              _section(context, 'settings.section_player'.tr()),
+              SectionHeader('settings.section_player'.tr()),
               SwitchListTile(
                 title: Text('settings.resume_playback'.tr()),
                 subtitle: Text('settings.resume_playback_hint'.tr()),
@@ -344,8 +345,8 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               if (_isDesktop) ...[
-                _sectionSeparator(),
-                _section(context, 'settings.section_desktop_controls'.tr()),
+                const SectionSeparator(),
+                SectionHeader('settings.section_desktop_controls'.tr()),
                 SwitchListTile(
                   title: Text('settings.desktop_shortcuts_enabled'.tr()),
                   value: p.desktopShortcutsEnabled,
@@ -440,67 +441,18 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
 
-              _sectionSeparator(),
-              _section(context, 'settings.section_subtitles'.tr()),
+              const SectionSeparator(),
+              SectionHeader('settings.section_subtitles'.tr()),
               ListTile(
                 leading: const Icon(Icons.subtitles),
                 title: Text('subtitle.search_title'.tr()),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
               ),
-              SwitchListTile(
-                title: Text('settings.subtitles_enabled'.tr()),
-                value: s.enabled,
-                onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(enabled: v)),
+              SubtitleStyleControls(
+                style: s,
+                onChanged: (updated) => context.read<PlayraSettingsCubit>().updateStyle(updated),
               ),
-              ListTile(
-                title: Text('settings.subtitle_size'.tr()),
-                subtitle: Slider(
-                  min: 10,
-                  max: 96,
-                  divisions: 86,
-                  value: s.fontSize,
-                  label: s.fontSize.toStringAsFixed(0),
-                  onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontSize: v)),
-                ),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_outline'.tr()),
-                subtitle: Slider(
-                  min: 0,
-                  max: 5,
-                  divisions: 10,
-                  value: s.outlineWidth,
-                  label: s.outlineWidth.toStringAsFixed(1),
-                  onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineWidth: v)),
-                ),
-              ),
-              SwitchListTile(
-                title: Text('settings.subtitle_bold'.tr()),
-                value: s.bold,
-                onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(bold: v)),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_font'.tr()),
-                trailing: DropdownButton<String>(
-                  value: s.fontFamily,
-                  items: kAvailableSubtitleFonts.map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontFamily: v));
-                    }
-                  },
-                ),
-              ),
-              _colorTile(context, 'settings.subtitle_text_color'.tr(), s.textColor, (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(textColor: c))),
-              _colorTile(
-                context,
-                'settings.subtitle_bg_color'.tr(),
-                s.backgroundColor,
-                (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(backgroundColor: c)),
-                allowTransparent: true,
-              ),
-              _colorTile(context, 'settings.subtitle_outline_color'.tr(), s.outlineColor, (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineColor: c))),
               ListTile(
                 leading: const Icon(Icons.cloud_download),
                 title: Text('settings.subtitle_manager'.tr()),
@@ -509,8 +461,8 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SubtitleManagerScreen())),
               ),
 
-              _sectionSeparator(),
-              _section(context, 'settings.section_library'.tr()),
+              const SectionSeparator(),
+              SectionHeader('settings.section_library'.tr()),
               ListTile(
                 leading: const Icon(Icons.create_new_folder),
                 title: Text('settings.library_management_title'.tr()),
@@ -525,8 +477,8 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => context.read<LibraryCubit>().refresh(),
               ),
 
-              _sectionSeparator(),
-              _section(context, 'home.servers'.tr()),
+              const SectionSeparator(),
+              SectionHeader('home.servers'.tr()),
               ListTile(
                 leading: const Icon(Icons.dns),
                 title: Text('home.servers'.tr()),
@@ -534,12 +486,12 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServersScreen())),
               ),
 
-              _sectionSeparator(),
-              _section(context, 'settings.section_metadata'.tr()),
+              const SectionSeparator(),
+              SectionHeader('settings.section_metadata'.tr()),
               const _TmdbKeyTile(),
 
-              _sectionSeparator(),
-              _section(context, 'settings.section_sync'.tr()),
+              const SectionSeparator(),
+              SectionHeader('settings.section_sync'.tr()),
               ListTile(
                 title: Text('settings.sync_username'.tr()),
                 subtitle: Text(p.syncUsername.isEmpty ? 'settings.sync_not_configured'.tr() : p.syncUsername),
@@ -564,8 +516,8 @@ class SettingsScreen extends StatelessWidget {
               ),
               ListTile(leading: const Icon(Icons.sync), title: Text('settings.sync_hint'.tr())),
 
-              _sectionSeparator(),
-              _section(context, 'settings.section_general'.tr()),
+              const SectionSeparator(),
+              SectionHeader('settings.section_general'.tr()),
               ListTile(
                 title: Text('settings.language'.tr()),
                 trailing: DropdownButton<String>(
@@ -580,7 +532,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
 
-              _sectionSeparator(),
+              const SectionSeparator(),
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: Text('settings.section_about'.tr()),
@@ -596,65 +548,8 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _section(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 0.2, color: Theme.of(context).colorScheme.primary),
-      ),
-    );
-  }
 
-  Widget _sectionSeparator() {
-    return const Padding(padding: EdgeInsets.fromLTRB(16, 14, 16, 0), child: Divider(height: 1, thickness: 1));
-  }
 
-  Widget _colorTile(BuildContext context, String title, int currentColor, ValueChanged<int> onChanged, {bool allowTransparent = false}) {
-    final palette = <int>[0xFFFFFFFF, 0xFFFFEB3B, 0xFFFF5252, 0xFF40C4FF, 0xFF69F0AE, 0xFFFFA726, 0xFFE040FB, 0xFFB0BEC5, 0xFF000000, if (allowTransparent) 0x00000000, 0x80000000];
-    return ListTile(
-      title: Text(title),
-      trailing: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: Color(currentColor),
-          border: Border.all(color: Colors.grey),
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
-      onTap: () async {
-        final picked = await showDialog<int>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(title),
-            content: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: palette
-                  .map(
-                    (c) => GestureDetector(
-                      onTap: () => Navigator.of(ctx).pop(c),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Color(c),
-                          border: Border.all(color: c == currentColor ? Colors.blue : Colors.grey, width: c == currentColor ? 3 : 1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: c == 0x00000000 ? const Icon(Icons.block, size: 20) : null,
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        );
-        if (picked != null) onChanged(picked);
-      },
-    );
-  }
 }
 
 class _TmdbKeyTile extends StatefulWidget {

@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../models/video_item.dart';
 import '../services/playra_storage.dart';
 import '../services/smb_download_service.dart';
+import '../widgets/empty_state.dart';
 import 'player_launcher.dart';
 
 /// Screen for managing videos downloaded from an SMB share to this device.
@@ -78,27 +79,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _files.isEmpty
-              ? _buildEmpty()
+              ? EmptyState(icon: Icons.download_done, iconSize: 64, title: 'downloads.empty'.tr())
               : RefreshIndicator(onRefresh: _refresh, child: _buildList()),
     );
   }
 
-  Widget _buildEmpty() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.download_done, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text(
-            'downloads.empty'.tr(),
-            style: const TextStyle(color: Colors.grey, fontSize: 16),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildList() {
     return ListView.separated(

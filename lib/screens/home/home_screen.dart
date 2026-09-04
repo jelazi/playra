@@ -11,27 +11,33 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
-import '../bloc/library/library_cubit.dart';
-import '../models/media_info.dart';
-import '../models/player_settings.dart';
-import '../models/server_connection.dart';
-import '../models/video_info.dart';
-import '../models/video_item.dart';
-import '../services/lan_sync_service.dart';
-import '../services/media_lookup_service.dart';
-import '../services/playra_storage.dart';
-import '../services/smb_download_service.dart';
-import '../services/subtitle_file_service.dart';
-import '../services/tmdb_service.dart';
-import '../services/video_hash_service.dart';
-import '../services/video_name_parser.dart';
-import 'downloads_screen.dart';
-import 'media_info_screen.dart';
-import 'player_launcher.dart';
-import 'widgets/tmdb_key_dialog.dart';
-import 'settings_screen.dart';
-import 'subtitle_editor_screen.dart';
-import 'subtitle_search_screen.dart';
+import '../../bloc/library/library_cubit.dart';
+import '../../models/media_info.dart';
+import '../../models/player_settings.dart';
+import '../../models/server_connection.dart';
+import '../../models/video_info.dart';
+import '../../models/video_item.dart';
+import '../../services/lan_sync_service.dart';
+import '../../services/media_lookup_service.dart';
+import '../../services/playra_storage.dart';
+import '../../services/smb_download_service.dart';
+import '../../services/subtitle_file_service.dart';
+import '../../services/tmdb_service.dart';
+import '../../services/video_hash_service.dart';
+import '../../services/video_name_parser.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/labelled_value.dart';
+import '../../widgets/poster_image.dart';
+import '../../widgets/progress_pie.dart';
+import '../downloads_screen.dart';
+import '../media_info_screen.dart';
+import '../player_launcher.dart';
+import '../settings_screen.dart';
+import '../subtitle_editor_screen.dart';
+import '../subtitle_search_screen.dart';
+import '../../widgets/tmdb_key_dialog.dart';
+import 'library_entry.dart';
+import 'widgets/recent_card.dart';
 
 /// Main Playra home screen — the local video library.
 class HomeScreen extends StatefulWidget {
@@ -382,25 +388,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool get _isRecentsExpanded => _expandedSections[_recentsSectionKey] ?? true;
 
-  Widget _buildPosterThumbnail({required String? posterPath, required double width, required double height, required BorderRadius borderRadius, required Widget fallback}) {
-    if (posterPath == null || posterPath.isEmpty) {
-      return fallback;
-    }
-
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: Image.file(
-        File(posterPath),
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        cacheWidth: width.round() * 2,
-        cacheHeight: height.round() * 2,
-        filterQuality: FilterQuality.low,
-        errorBuilder: (context, error, stackTrace) => fallback,
-      ),
-    );
-  }
 
   VideoInfo _toVideoInfo(VideoItem v) {
     final file = File(v.uri);
@@ -430,13 +417,13 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _infoRow('home.info_name'.tr(), v.name),
-              _infoRow('home.info_path'.tr(), v.uri),
-              _infoRow('home.info_folder'.tr(), v.folder ?? p.basename(p.dirname(v.uri))),
-              _infoRow('home.info_size'.tr(), stat != null ? _formatSize(stat.size) : (v.sizeBytes != null ? _formatSize(v.sizeBytes!) : '-')),
-              _infoRow('home.info_modified'.tr(), stat?.modified.toLocal().toString() ?? (v.modified?.toLocal().toString() ?? '-')),
-              _infoRow('home.info_extension'.tr(), v.extension.toUpperCase()),
-              _infoRow('home.info_subtitles'.tr(), subtitleInfo.description),
+              LabelledValue(label: 'home.info_name'.tr(), value: v.name),
+              LabelledValue(label: 'home.info_path'.tr(), value: v.uri),
+              LabelledValue(label: 'home.info_folder'.tr(), value: v.folder ?? p.basename(p.dirname(v.uri))),
+              LabelledValue(label: 'home.info_size'.tr(), value: stat != null ? _formatSize(stat.size) : (v.sizeBytes != null ? _formatSize(v.sizeBytes!) : '-')),
+              LabelledValue(label: 'home.info_modified'.tr(), value: stat?.modified.toLocal().toString() ?? (v.modified?.toLocal().toString() ?? '-')),
+              LabelledValue(label: 'home.info_extension'.tr(), value: v.extension.toUpperCase()),
+              LabelledValue(label: 'home.info_subtitles'.tr(), value: subtitleInfo.description),
             ],
           ),
         ),
@@ -445,19 +432,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          SelectableText(value),
-        ],
-      ),
-    );
-  }
 
   Future<void> _editSubtitles(VideoItem v) async {
     if (!_isLocalVideo(v)) {
@@ -650,10 +624,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  List<_LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode, Map<String, String?> posterById) {
+  List<LibraryEntry> _buildLibraryEntries(List<VideoItem> videos, String mode, Map<String, String?> posterById) {
     if (mode == 'flat') {
       final sorted = videos.toList()..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
-      return sorted.map((v) => _LibraryEntry.video(v)).toList();
+      return sorted.map((v) => LibraryEntry.video(v)).toList();
     }
 
     if (mode == 'smart') {
@@ -669,15 +643,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final keys = groups.keys.toList()..sort((a, b) => (labels[a] ?? a).toLowerCase().compareTo((labels[b] ?? b).toLowerCase()));
 
-      final out = <_LibraryEntry>[];
+      final out = <LibraryEntry>[];
       for (final key in keys) {
         final items = groups[key]!;
         items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         final expanded = _expandedSections[key] ?? false;
         final headerPoster = items.map((v) => posterById[v.id]).firstWhere((p) => p != null, orElse: () => null);
-        out.add(_LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster));
+        out.add(LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster));
         if (expanded) {
-          out.addAll(items.map(_LibraryEntry.video));
+          out.addAll(items.map(LibraryEntry.video));
         }
       }
       return out;
@@ -699,15 +673,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final dirs = byDir.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    final out = <_LibraryEntry>[];
+    final out = <LibraryEntry>[];
     for (final dir in dirs) {
       final items = byDir[dir]!;
       items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       final key = 'dir:$dir';
       final expanded = _expandedSections[key] ?? false;
-      out.add(_LibraryEntry.header(sectionKey: key, title: p.basename(dir), count: items.length, expanded: expanded, smartGroup: false));
+      out.add(LibraryEntry.header(sectionKey: key, title: p.basename(dir), count: items.length, expanded: expanded, smartGroup: false));
       if (expanded) {
-        out.addAll(items.map(_LibraryEntry.video));
+        out.addAll(items.map(LibraryEntry.video));
       }
     }
     return out;
@@ -821,21 +795,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return ratio.clamp(0, 1).toDouble();
   }
 
-  Widget _buildProgressPie(double progress, {double size = 18}) {
-    final normalized = progress.clamp(0, 1).toDouble();
-    return SizedBox(
-      width: size,
-      height: size,
-      child: CustomPaint(
-        painter: _ProgressPiePainter(
-          progress: normalized,
-          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-          fillColor: Theme.of(context).colorScheme.primary,
-          borderColor: Theme.of(context).dividerColor,
-        ),
-      ),
-    );
-  }
 
   String _normalizeFolderPath(String path) {
     var normalized = path.replaceAll('\\', '/');
@@ -907,7 +866,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return _isSameOrChildFolder(parent, currentRoot) ? parent : null;
   }
 
-  List<_StructuredEntry> _buildStructuredEntries(List<VideoItem> videos, List<String> rootsInput, String? lastWatchedVideoPath) {
+  List<StructuredEntry> _buildStructuredEntries(List<VideoItem> videos, List<String> rootsInput, String? lastWatchedVideoPath) {
     final roots = rootsInput.map(_normalizeFolderPath).toSet().toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     var effectiveCurrent = _structuredCurrentFolder;
@@ -932,7 +891,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return roots
           .map(
             (root) =>
-                _StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0, highlighted: _isFolderOnPathToLastWatched(root, lastWatchedVideoPath)),
+                StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0, highlighted: _isFolderOnPathToLastWatched(root, lastWatchedVideoPath)),
           )
           .where((entry) => entry.count > 0)
           .toList();
@@ -964,12 +923,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final folders = folderCounts.entries.toList()..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
     final parent = _structuredParentFolder(effectiveCurrent, roots);
 
-    final entries = <_StructuredEntry>[];
-    entries.add(_StructuredEntry.parent(path: parent, highlighted: false));
+    final entries = <StructuredEntry>[];
+    entries.add(StructuredEntry.parent(path: parent, highlighted: false));
     entries.addAll(
-      folders.map((e) => _StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value, highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath))),
+      folders.map((e) => StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value, highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath))),
     );
-    entries.addAll(files.map((v) => _StructuredEntry.video(v, highlighted: _isLastWatchedVideo(v, lastWatchedVideoPath))));
+    entries.addAll(files.map((v) => StructuredEntry.video(v, highlighted: _isLastWatchedVideo(v, lastWatchedVideoPath))));
     return entries;
   }
 
@@ -1108,7 +1067,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final lastWatchedInLibrary = _resolveLastWatchedInLibrary(displayVideos);
           final lastWatchedPath = lastWatchedInLibrary != null ? _normalizeFolderPath(lastWatchedInLibrary.uri) : null;
           final structuredRoots = _structuredRootsFor(displayVideos, state.folders);
-          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, structuredRoots, lastWatchedPath) : const <_StructuredEntry>[];
+          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, structuredRoots, lastWatchedPath) : const <StructuredEntry>[];
           final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
@@ -1116,12 +1075,11 @@ class _HomeScreenState extends State<HomeScreen> {
               return Column(
                 children: [
                   Expanded(
-                    child: _emptyState(
+                    child: EmptyState(
                       icon: Icons.folder_open,
                       title: 'home.empty_title'.tr(),
                       subtitle: 'home.empty_subtitle'.tr(),
-                      actionLabel: 'home.settings'.tr(),
-                      onAction: _openSettings,
+                      action: FilledButton.icon(onPressed: _openSettings, icon: const Icon(Icons.refresh), label: Text('home.settings'.tr())),
                     ),
                   ),
                 ],
@@ -1130,12 +1088,11 @@ class _HomeScreenState extends State<HomeScreen> {
             return Column(
               children: [
                 Expanded(
-                  child: _emptyState(
+                  child: EmptyState(
                     icon: Icons.movie_outlined,
                     title: 'home.no_videos_title'.tr(),
                     subtitle: 'home.no_videos_subtitle'.tr(),
-                    actionLabel: 'settings.refresh_library'.tr(),
-                    onAction: _refreshLibrary,
+                    action: FilledButton.icon(onPressed: _refreshLibrary, icon: const Icon(Icons.refresh), label: Text('settings.refresh_library'.tr())),
                   ),
                 ),
               ],
@@ -1192,7 +1149,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisExtent: 100, mainAxisSpacing: 8, crossAxisSpacing: 8),
                             itemCount: _recents.length,
-                            itemBuilder: (_, i) => _buildRecentCard(_recents[i], posterById[_recents[i].id], displayVideos),
+                            itemBuilder: (_, i) => RecentCard(
+                              title: _recents[i].displayName,
+                              posterPath: posterById[_recents[i].id],
+                              onTap: () => _openRecentVideo(_recents[i], displayVideos),
+                              onMenu: () => _showVideoMenu(_recents[i]),
+                              onSecondaryTapDown: (d) => _showRecentContextMenu(_recents[i], d.globalPosition),
+                            ),
                           ),
                         ),
                       ),
@@ -1204,12 +1167,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: _emptyState(
+                      child: EmptyState(
                         icon: Icons.movie_outlined,
                         title: 'home.no_videos_title'.tr(),
                         subtitle: 'home.no_videos_subtitle'.tr(),
-                        actionLabel: 'home.settings'.tr(),
-                        onAction: _openSettings,
+                        action: FilledButton.icon(onPressed: _openSettings, icon: const Icon(Icons.refresh), label: Text('home.settings'.tr())),
                       ),
                     ),
                   ),
@@ -1287,8 +1249,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
                           child: ListTile(
                             tileColor: entry.highlighted ? Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.38) : null,
-                            leading: _buildPosterThumbnail(
-                              posterPath: posterPath,
+                            leading: PosterImage.file(
+                              posterPath,
                               width: 28,
                               height: 42,
                               borderRadius: BorderRadius.circular(4),
@@ -1303,7 +1265,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                _buildProgressPie(progress),
+                                ProgressPie(progress),
                                 const SizedBox(width: 8),
                                 IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
                               ],
@@ -1326,8 +1288,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(entry.smartGroup == true ? ((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right) : Icons.folder_open, size: 18),
                                 const SizedBox(width: 6),
                                 if (entry.posterPath != null)
-                                  _buildPosterThumbnail(
-                                    posterPath: entry.posterPath,
+                                  PosterImage.file(
+                                    entry.posterPath,
                                     width: 20,
                                     height: 28,
                                     borderRadius: BorderRadius.circular(4),
@@ -1353,7 +1315,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         behavior: HitTestBehavior.opaque,
                         onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
                         child: ListTile(
-                          leading: _buildPosterThumbnail(posterPath: posterPath, width: 28, height: 42, borderRadius: BorderRadius.circular(4), fallback: const Icon(Icons.movie)),
+                          leading: PosterImage.file(posterPath, width: 28, height: 42, borderRadius: BorderRadius.circular(4), fallback: const Icon(Icons.movie)),
                           title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(
                             [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
@@ -1363,7 +1325,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _buildProgressPie(progress),
+                              ProgressPie(progress),
                               const SizedBox(width: 8),
                               IconButton(tooltip: 'home.view_info'.tr(), icon: const Icon(Icons.more_vert, size: 20), onPressed: () => _showVideoMenu(v)),
                               Icon(resume != null ? Icons.history : Icons.chevron_right, size: 20),
@@ -1402,8 +1364,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   child: Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      _buildPosterThumbnail(
-                                        posterPath: posterPath,
+                                      PosterImage.file(
+                                        posterPath,
                                         width: 160,
                                         height: 240,
                                         borderRadius: BorderRadius.circular(8),
@@ -1454,61 +1416,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentCard(VideoItem v, String? posterPath, List<VideoItem> displayVideos) {
-    return GestureDetector(
-      onTap: () => _openRecentVideo(v, displayVideos),
-      onSecondaryTapDown: (d) => _showRecentContextMenu(v, d.globalPosition),
-      onLongPress: () => _showVideoMenu(v),
-      child: Container(
-        width: 92,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _buildPosterThumbnail(
-                      posterPath: posterPath,
-                      width: 92,
-                      height: 136,
-                      borderRadius: BorderRadius.circular(8),
-                      fallback: Container(
-                        color: Colors.grey[300],
-                        child: const Icon(Icons.movie, size: 34, color: Colors.grey),
-                      ),
-                    ),
-                    const Positioned(top: 4, right: 4, child: Icon(Icons.play_circle_outline, color: Colors.white, size: 18)),
-                    Positioned(
-                      bottom: 4,
-                      right: 4,
-                      child: Material(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _showVideoMenu(v),
-                          child: const Padding(
-                            padding: EdgeInsets.all(3),
-                            child: Icon(Icons.more_vert, color: Colors.white, size: 12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(v.displayName, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
 
   Future<void> _showRecentContextMenu(VideoItem v, Offset globalPosition) async {
     final selected = await showMenu<String>(
@@ -1523,31 +1430,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _emptyState({required IconData icon, required String title, required String subtitle, String? actionLabel, Future<void> Function()? onAction}) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 72, color: Colors.grey),
-            const SizedBox(height: 16),
-            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
-            ),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 20),
-              FilledButton.icon(onPressed: onAction, icon: const Icon(Icons.refresh), label: Text(actionLabel)),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 
   void _showVideoMenu(VideoItem v) {
     showModalBottomSheet(
@@ -1751,75 +1633,5 @@ class _HomeScreenState extends State<HomeScreen> {
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
-}
-
-class _LibraryEntry {
-  final String? sectionKey;
-  final String? title;
-  final int count;
-  final bool? expanded;
-  final bool? smartGroup;
-  final String? posterPath;
-  final VideoItem? video;
-
-  bool get isHeader => sectionKey != null;
-
-  const _LibraryEntry.header({required this.sectionKey, required this.title, required this.count, required this.expanded, required this.smartGroup, this.posterPath})
-    : video = null;
-
-  const _LibraryEntry.video(this.video) : sectionKey = null, title = null, count = 0, expanded = null, smartGroup = null, posterPath = null;
-}
-
-class _StructuredEntry {
-  final String? path;
-  final String? title;
-  final int count;
-  final VideoItem? video;
-  final bool isParent;
-  final bool highlighted;
-
-  bool get isFolder => !isParent && path != null && video == null;
-
-  const _StructuredEntry.parent({required this.path, this.highlighted = false}) : title = '..', count = 0, video = null, isParent = true;
-
-  const _StructuredEntry.folder({required this.path, required this.title, required this.count, this.highlighted = false}) : video = null, isParent = false;
-
-  const _StructuredEntry.video(this.video, {this.highlighted = false}) : path = null, title = null, count = 0, isParent = false;
-}
-
-class _ProgressPiePainter extends CustomPainter {
-  final double progress;
-  final Color backgroundColor;
-  final Color fillColor;
-  final Color borderColor;
-
-  const _ProgressPiePainter({required this.progress, required this.backgroundColor, required this.fillColor, required this.borderColor});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final center = rect.center;
-    final radius = size.shortestSide / 2;
-
-    final bgPaint = Paint()..color = backgroundColor;
-    canvas.drawCircle(center, radius, bgPaint);
-
-    if (progress > 0) {
-      final fillPaint = Paint()..color = fillColor;
-      final sweep = 3.141592653589793 * 2 * progress;
-      canvas.drawArc(rect, -3.141592653589793 / 2, sweep, true, fillPaint);
-    }
-
-    final borderPaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, radius - 0.5, borderPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _ProgressPiePainter oldDelegate) {
-    return progress != oldDelegate.progress || backgroundColor != oldDelegate.backgroundColor || fillColor != oldDelegate.fillColor || borderColor != oldDelegate.borderColor;
   }
 }

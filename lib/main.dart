@@ -13,7 +13,7 @@ import 'bloc/servers/servers_cubit.dart';
 import 'bloc/settings/playra_settings_cubit.dart';
 import 'bloc/subtitle/subtitle_bloc.dart';
 import 'repositories/titulky_repository.dart';
-import 'screens/home_screen.dart';
+import 'screens/home/home_screen.dart';
 import 'screens/player_launcher.dart';
 import 'services/lan_sync_service.dart';
 import 'services/library_service.dart';

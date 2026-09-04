@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -15,33 +14,19 @@ import 'package:path/path.dart' as p;
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../bloc/settings/playra_settings_cubit.dart';
-import '../models/player_settings.dart';
-import '../models/server_connection.dart';
-import '../models/subtitle_style_settings.dart';
-import '../models/video_info.dart';
-import '../models/video_item.dart';
-import '../services/episode_continuation_service.dart';
-import '../services/playra_storage.dart';
-import '../services/smb_download_service.dart';
-import '../services/video_hash_service.dart';
-import 'player_launcher.dart';
-import 'subtitle_search_screen.dart';
+import '../../bloc/settings/playra_settings_cubit.dart';
+import '../../models/player_settings.dart';
+import '../../models/server_connection.dart';
+import '../../models/subtitle_style_settings.dart';
+import '../../models/video_item.dart';
+import '../../services/episode_continuation_service.dart';
+import '../../services/playra_storage.dart';
+import '../../services/smb_download_service.dart';
+import '../../services/video_hash_service.dart';
+import '../player_launcher.dart';
+import 'track_keys.dart';
+import 'widgets/subtitle_options_sheet.dart';
 
-String _normalizeTrackPart(String? value) => (value ?? '').trim().toLowerCase();
-
-String _stableAudioTrackKey(AudioTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
-
-String _stableSubtitleTrackKey(SubtitleTrack track) => '${_normalizeTrackPart(track.title)}|${_normalizeTrackPart(track.language)}';
-
-({String title, String language, String id}) _parseStoredTrackKey(String storedKey) {
-  final parts = storedKey.split('|');
-  return (
-    title: parts.isNotEmpty ? parts[0].trim().toLowerCase() : '',
-    language: parts.length > 1 ? parts[1].trim().toLowerCase() : '',
-    id: parts.length > 2 ? parts.sublist(2).join('|').trim() : '',
-  );
-}
 
 class PlayraPlayerScreen extends StatefulWidget {
   final VideoItem video;
@@ -550,25 +535,25 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   }
 
   AudioTrack? _matchAudioTrack(List<AudioTrack> tracks, String storedKey) {
-    final parsed = _parseStoredTrackKey(storedKey);
+    final parsed = parseStoredTrackKey(storedKey);
 
     for (final track in tracks) {
       if (_audioTrackKey(track) == storedKey) return track;
     }
 
     for (final track in tracks) {
-      if (_stableAudioTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
+      if (stableAudioTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
     }
 
     if (parsed.title.isNotEmpty) {
       for (final track in tracks) {
-        if (_normalizeTrackPart(track.title) == parsed.title) return track;
+        if (normalizeTrackPart(track.title) == parsed.title) return track;
       }
     }
 
     if (parsed.language.isNotEmpty) {
       for (final track in tracks) {
-        if (_normalizeTrackPart(track.language) == parsed.language) return track;
+        if (normalizeTrackPart(track.language) == parsed.language) return track;
       }
     }
 
@@ -583,25 +568,25 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   }
 
   SubtitleTrack? _matchSubtitleTrack(List<SubtitleTrack> tracks, String storedKey) {
-    final parsed = _parseStoredTrackKey(storedKey);
+    final parsed = parseStoredTrackKey(storedKey);
 
     for (final track in tracks) {
       if (_subtitleTrackKey(track) == storedKey) return track;
     }
 
     for (final track in tracks) {
-      if (_stableSubtitleTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
+      if (stableSubtitleTrackKey(track) == '${parsed.title}|${parsed.language}') return track;
     }
 
     if (parsed.title.isNotEmpty) {
       for (final track in tracks) {
-        if (_normalizeTrackPart(track.title) == parsed.title) return track;
+        if (normalizeTrackPart(track.title) == parsed.title) return track;
       }
     }
 
     if (parsed.language.isNotEmpty) {
       for (final track in tracks) {
-        if (_normalizeTrackPart(track.language) == parsed.language) return track;
+        if (normalizeTrackPart(track.language) == parsed.language) return track;
       }
     }
 
@@ -616,8 +601,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   }
 
   bool _isLanguageMatch(String? trackLanguage, String expectedLanguage) {
-    final track = _normalizeTrackPart(trackLanguage);
-    final expected = _normalizeTrackPart(expectedLanguage);
+    final track = normalizeTrackPart(trackLanguage);
+    final expected = normalizeTrackPart(expectedLanguage);
     if (track.isEmpty || expected.isEmpty) return false;
     if (track == expected) return true;
     if (track.startsWith('$expected-')) return true;
@@ -627,11 +612,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   }
 
   String _audioTrackKey(AudioTrack t) {
-    return _stableAudioTrackKey(t);
+    return stableAudioTrackKey(t);
   }
 
   String _subtitleTrackKey(SubtitleTrack t) {
-    return _stableSubtitleTrackKey(t);
+    return stableSubtitleTrackKey(t);
   }
 
   Future<void> _seekRelative(Duration delta) async {
@@ -1549,7 +1534,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       isScrollControlled: true,
       backgroundColor: Colors.grey[900],
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetCtx) => _SubtitleOptionsSheet(player: _player, video: widget.video, onOpenSubtitleDelayPopup: _showSubtitleDelayPopup),
+      builder: (sheetCtx) => SubtitleOptionsSheet(player: _player, video: widget.video, onOpenSubtitleDelayPopup: _showSubtitleDelayPopup),
     );
   }
 
@@ -1733,311 +1718,5 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
         ),
       ),
     );
-  }
-}
-
-class _SubtitleOptionsSheet extends StatefulWidget {
-  final Player player;
-  final VideoItem video;
-  final Future<void> Function() onOpenSubtitleDelayPopup;
-
-  const _SubtitleOptionsSheet({required this.player, required this.video, required this.onOpenSubtitleDelayPopup});
-
-  @override
-  State<_SubtitleOptionsSheet> createState() => _SubtitleOptionsSheetState();
-}
-
-class _SubtitleOptionsSheetState extends State<_SubtitleOptionsSheet> {
-  static const List<int> _palette = [0xFFFFFFFF, 0xFFFFEB3B, 0xFFFF5252, 0xFF40C4FF, 0xFF69F0AE, 0xFFFFA726, 0xFFE040FB, 0xFFB0BEC5, 0xFF000000];
-
-  static const List<int> _paletteWithTransparent = [
-    0xFFFFFFFF,
-    0xFFFFEB3B,
-    0xFFFF5252,
-    0xFF40C4FF,
-    0xFF69F0AE,
-    0xFFFFA726,
-    0xFFE040FB,
-    0xFFB0BEC5,
-    0xFF000000,
-    0x00000000,
-    0x80000000,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
-      builder: (context, settings) {
-        final s = settings.subtitleStyle;
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize: 0.95,
-          builder: (ctx, scrollController) => ListView(
-            controller: scrollController,
-            padding: const EdgeInsets.only(bottom: 32),
-            children: [
-              Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 12),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-
-              _sectionHeader('player.subtitle_track'.tr()),
-              ..._buildTrackTiles(s),
-
-              const Divider(color: Colors.grey),
-
-              ListTile(
-                leading: const Icon(Icons.folder_open, color: Colors.white),
-                title: Text('player.load_subtitle_file'.tr(), style: const TextStyle(color: Colors.white)),
-                onTap: () async {
-                  final res = await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: ['srt', 'ass', 'ssa', 'vtt', 'sub'],
-                    dialogTitle: 'player.load_subtitle_file'.tr(),
-                  );
-                  if (res != null && res.files.isNotEmpty && res.files.first.path != null) {
-                    final path = res.files.first.path!;
-                    final track = SubtitleTrack.uri(Uri.file(path).toString(), title: res.files.first.name);
-                    try {
-                      await widget.player.setSubtitleTrack(track);
-                    } catch (e, st) {
-                      debugPrint('Playra subtitle track set failed [file picker]: $e\n$st');
-                      if (context.mounted) {
-                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-                      }
-                      return;
-                    }
-                    await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
-                    if (context.mounted) Navigator.of(context).pop();
-                  }
-                },
-              ),
-
-              const Divider(color: Colors.grey),
-
-              _sectionHeader('settings.section_subtitles'.tr()),
-              SwitchListTile(
-                tileColor: Colors.transparent,
-                title: Text('settings.subtitles_enabled'.tr(), style: const TextStyle(color: Colors.white)),
-                value: s.enabled,
-                onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(enabled: v)),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_delay'.tr(), style: const TextStyle(color: Colors.white)),
-                subtitle: Text('settings.subtitle_delay_popup_hint'.tr(), style: const TextStyle(color: Colors.grey)),
-                trailing: const Icon(Icons.tune, color: Colors.white70),
-                onTap: () async {
-                  final navigator = Navigator.of(context);
-                  navigator.pop();
-                  await Future<void>.delayed(const Duration(milliseconds: 120));
-                  await widget.onOpenSubtitleDelayPopup();
-                },
-              ),
-              ListTile(
-                title: Text('settings.subtitle_size'.tr(), style: const TextStyle(color: Colors.white)),
-                subtitle: Slider(
-                  min: 10,
-                  max: 96,
-                  divisions: 86,
-                  value: s.fontSize,
-                  label: s.fontSize.toStringAsFixed(0),
-                  onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontSize: v)),
-                ),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_bottom_padding'.tr(), style: const TextStyle(color: Colors.white)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('settings.subtitle_bottom_padding_hint'.tr(), style: const TextStyle(color: Colors.grey)),
-                    Slider(
-                      min: 8,
-                      max: 160,
-                      divisions: 76,
-                      value: s.bottomPadding.clamp(8, 160),
-                      label: s.bottomPadding.toStringAsFixed(0),
-                      onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(bottomPadding: v)),
-                    ),
-                  ],
-                ),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_outline'.tr(), style: const TextStyle(color: Colors.white)),
-                subtitle: Slider(
-                  min: 0,
-                  max: 5,
-                  divisions: 10,
-                  value: s.outlineWidth,
-                  label: s.outlineWidth.toStringAsFixed(1),
-                  onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineWidth: v)),
-                ),
-              ),
-              SwitchListTile(
-                tileColor: Colors.transparent,
-                title: Text('settings.subtitle_bold'.tr(), style: const TextStyle(color: Colors.white)),
-                value: s.bold,
-                onChanged: (v) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(bold: v)),
-              ),
-              ListTile(
-                title: Text('settings.subtitle_font'.tr(), style: const TextStyle(color: Colors.white)),
-                trailing: DropdownButton<String>(
-                  dropdownColor: Colors.grey[850],
-                  value: s.fontFamily,
-                  style: const TextStyle(color: Colors.white),
-                  items: kAvailableSubtitleFonts.map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(fontFamily: v));
-                    }
-                  },
-                ),
-              ),
-              _colourTile(context, 'settings.subtitle_text_color'.tr(), s.textColor, _palette, (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(textColor: c))),
-              _colourTile(
-                context,
-                'settings.subtitle_bg_color'.tr(),
-                s.backgroundColor,
-                _paletteWithTransparent,
-                (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(backgroundColor: c)),
-              ),
-              _colourTile(
-                context,
-                'settings.subtitle_outline_color'.tr(),
-                s.outlineColor,
-                _palette,
-                (c) => context.read<PlayraSettingsCubit>().updateStyle(s.copyWith(outlineColor: c)),
-              ),
-
-              const Divider(color: Colors.grey),
-
-              if (widget.video.source == VideoSource.local)
-                ListTile(
-                  leading: const Icon(Icons.cloud_download, color: Colors.white),
-                  title: Text('player.download_subtitles'.tr(), style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('player.download_subtitles_hint'.tr(), style: const TextStyle(color: Colors.grey)),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.white),
-                  onTap: () async {
-                    // Pause playback before leaving the player to open subtitle search.
-                    try {
-                      await widget.player.pause();
-                    } catch (e, st) {
-                      debugPrint('Playra pause before subtitle search failed: $e\n$st');
-                    }
-                    if (!context.mounted) return;
-                    Navigator.of(context).pop();
-                    final videoInfo = VideoInfo(path: widget.video.uri, name: widget.video.name, directory: _dirOf(widget.video.uri));
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => SubtitleSearchScreen(videoInfo: videoInfo)));
-                  },
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _subtitleTrackKey(SubtitleTrack t) {
-    return _stableSubtitleTrackKey(t);
-  }
-
-  List<Widget> _buildTrackTiles(SubtitleStyleSettings s) {
-    final tracks = widget.player.state.tracks.subtitle;
-    final current = widget.player.state.track.subtitle;
-    if (tracks.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('player.no_subtitle_tracks'.tr(), style: const TextStyle(color: Colors.grey)),
-        ),
-      ];
-    }
-
-    return tracks.map((t) {
-      final label = t.title ?? t.language ?? t.id;
-      return ListTile(
-        leading: Icon(t == current ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white),
-        title: Text(label, style: const TextStyle(color: Colors.white)),
-        onTap: () async {
-          try {
-            await widget.player.setSubtitleTrack(t);
-          } catch (e, st) {
-            debugPrint('Playra subtitle track set failed [sheet select]: $e\n$st');
-            if (mounted) {
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
-            }
-            return;
-          }
-          await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(t));
-          if (mounted) setState(() {});
-        },
-      );
-    }).toList();
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.grey[400], letterSpacing: 0.8),
-      ),
-    );
-  }
-
-  Widget _colourTile(BuildContext context, String title, int current, List<int> palette, ValueChanged<int> onChanged) {
-    return ListTile(
-      title: Text(title, style: const TextStyle(color: Colors.white)),
-      trailing: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: Color(current),
-          border: Border.all(color: Colors.grey),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: current == 0x00000000 ? const Icon(Icons.block, size: 16) : null,
-      ),
-      onTap: () async {
-        final picked = await showDialog<int>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: Colors.grey[900],
-            title: Text(title, style: const TextStyle(color: Colors.white)),
-            content: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: palette
-                  .map(
-                    (c) => GestureDetector(
-                      onTap: () => Navigator.of(ctx).pop(c),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Color(c),
-                          border: Border.all(color: c == current ? Colors.blue : Colors.grey, width: c == current ? 3 : 1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: c == 0x00000000 ? const Icon(Icons.block, size: 20) : null,
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        );
-        if (picked != null) onChanged(picked);
-      },
-    );
-  }
-
-  String _dirOf(String path) {
-    final slash = path.lastIndexOf(Platform.pathSeparator);
-    return slash > 0 ? path.substring(0, slash) : '';
   }
 }
