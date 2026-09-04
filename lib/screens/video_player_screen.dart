@@ -447,6 +447,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       // Listen for download completion
       await for (final state in context.read<SubtitleBloc>().stream) {
         if (state is SubtitleDownloaded) {
+          // Multi-disc subtitle (CD1/CD2/...) – inform the user how it was handled.
+          if (state.wasMultiPart && mounted) {
+            final msg = state.merged
+                ? '⚠️ Vícedílné titulky (${state.partCount} částí) byly spojeny do jednoho souboru.'
+                : '⚠️ Titulky mají ${state.partCount} částí, ale nešlo je spojit – uložena jen první (titulky končí v půlce filmu).';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(msg), backgroundColor: state.merged ? Colors.orange : Colors.red, duration: const Duration(seconds: 5)),
+            );
+          }
           // Update subtitle in player
           await _reloadWithNewSubtitle(state.path, subtitle, currentPosition, wasPlaying);
           break;

@@ -145,10 +145,19 @@ class SubtitleDownloaded extends SubtitleState {
   final Subtitle subtitle;
   final String path;
 
-  SubtitleDownloaded(this.subtitle, this.path);
+  /// Number of subtitle files the downloaded archive contained. > 1 means it was
+  /// a multi-disc subtitle (CD1/CD2/...).
+  final int partCount;
+
+  /// True when a multi-part subtitle was successfully merged into one track.
+  final bool merged;
+
+  SubtitleDownloaded(this.subtitle, this.path, {this.partCount = 1, this.merged = false});
+
+  bool get wasMultiPart => partCount > 1;
 
   @override
-  List<Object> get props => [subtitle, path];
+  List<Object> get props => [subtitle, path, partCount, merged];
 }
 
 class SubtitleError extends SubtitleState {

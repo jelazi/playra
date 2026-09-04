@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -13,6 +14,24 @@ class AlternativeSubtitlesResult {
   final List<Subtitle> alternatives;
 
   AlternativeSubtitlesResult({required this.enhancedOriginal, required this.alternatives});
+}
+
+/// Result of saving a subtitle next to a video file.
+///
+/// [partCount] is the number of subtitle files the downloaded archive
+/// contained. A value > 1 means it was a multi-disc subtitle (CD1/CD2/...) that
+/// got merged into a single track, which the UI surfaces to the user.
+class SubtitleSaveResult {
+  final String path;
+  final int partCount;
+
+  /// True when a multi-part archive was successfully merged into one track.
+  /// False with [partCount] > 1 means only the first part could be saved.
+  final bool merged;
+
+  SubtitleSaveResult({required this.path, this.partCount = 1, this.merged = false});
+
+  bool get wasMultiPart => partCount > 1;
 }
 
 class TitulkyRepository {
@@ -241,7 +260,7 @@ class TitulkyRepository {
   }
 
   /// Uložení titulku vedle video souboru
-  Future<String?> saveSubtitleWithVideo({required Subtitle subtitle, required String videoPath}) async {
+  Future<SubtitleSaveResult?> saveSubtitleWithVideo({required Subtitle subtitle, required String videoPath}) async {
     try {
       // Získat adresář videa
       final videoDir = path.dirname(videoPath);
@@ -355,26 +374,58 @@ class TitulkyRepository {
           // Rozbalit ZIP
           final archive = ZipDecoder().decodeBytes(bytes);
 
-          // Najít první soubor s podporovanou příponou
-          ArchiveFile? subtitleFile;
-          for (var file in archive) {
-            if (file.isFile) {
-              final fileName = file.name.toLowerCase();
-              if (fileName.endsWith('.srt') || fileName.endsWith('.sub') || fileName.endsWith('.txt') || fileName.endsWith('.ass') || fileName.endsWith('.ssa')) {
-                subtitleFile = file;
-                print('   Found subtitle file in archive: ${file.name}');
-                break;
-              }
+          // Posbírat VŠECHNY titulkové soubory (kvůli vícedílným CD1/CD2/... titulkům).
+          // Server občas přílohám ořízne příponu (např. ".---"), proto se u neznámé
+          // přípony rozhodne podle obsahu (přítomnost "-->").
+          final subtitleFiles = <ArchiveFile>[];
+          for (final file in archive) {
+            if (!file.isFile) continue;
+            final base = file.name.toLowerCase().split('/').last;
+
+            // Přeskočit doprovodný info soubor z titulky.com
+            if (base == '_info.txt') continue;
+
+            final hasKnownExt = base.endsWith('.srt') || base.endsWith('.sub') || base.endsWith('.ass') || base.endsWith('.ssa') || base.endsWith('.txt');
+            var isSubtitle = hasKnownExt;
+            if (!isSubtitle) {
+              final head = latin1.decode((file.content as List<int>).take(2000).toList(), allowInvalid: true);
+              isSubtitle = head.contains('-->');
             }
+            if (isSubtitle) subtitleFiles.add(file);
           }
 
-          if (subtitleFile == null) {
+          if (subtitleFiles.isEmpty) {
             print('❌ No subtitle file found in ZIP archive');
             return null;
           }
 
-          // Zapsat rozbalený obsah
-          final subtitleBytes = subtitleFile.content as List<int>;
+          // Seřadit podle čísla CD, aby CD1 předcházelo CD2; jinak abecedně.
+          subtitleFiles.sort((a, b) {
+            final ca = _cdNumber(a.name);
+            final cb = _cdNumber(b.name);
+            if (ca != cb) return ca.compareTo(cb);
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+
+          List<int> subtitleBytes;
+          var mergedOk = false;
+          if (subtitleFiles.length == 1) {
+            subtitleBytes = subtitleFiles.first.content as List<int>;
+            print('   Found subtitle file in archive: ${subtitleFiles.first.name}');
+          } else {
+            print('   Found ${subtitleFiles.length} subtitle parts: ${subtitleFiles.map((f) => f.name).join(', ')}');
+            final merged = _mergeSrtParts(subtitleFiles.map((f) => f.content as List<int>).toList());
+            if (merged != null) {
+              subtitleBytes = merged;
+              mergedOk = true;
+              print('🔗 Merged ${subtitleFiles.length} subtitle parts into a single track');
+            } else {
+              // Nelze sloučit (např. nejde o SRT) – uložit aspoň první díl jako dřív.
+              subtitleBytes = subtitleFiles.first.content as List<int>;
+              print('⚠️ Could not merge parts (not SRT?), saved first part only: ${subtitleFiles.first.name}');
+            }
+          }
+
           final file = File(subtitlePath);
           await file.writeAsBytes(subtitleBytes);
 
@@ -383,7 +434,7 @@ class TitulkyRepository {
           print('   Path: $subtitlePath');
           print('   Size: $fileSize bytes');
 
-          return subtitlePath;
+          return SubtitleSaveResult(path: subtitlePath, partCount: subtitleFiles.length, merged: mergedOk);
         } catch (e) {
           print('❌ Error extracting ZIP: $e');
           return null;
@@ -407,7 +458,7 @@ class TitulkyRepository {
       print('   Path: $subtitlePath');
       print('   Size: $fileSize bytes');
 
-      return subtitlePath;
+      return SubtitleSaveResult(path: subtitlePath, partCount: 1, merged: false);
     } catch (e, stackTrace) {
       print('❌ Error saving subtitle with video: $e');
       print('Stack trace: $stackTrace');
@@ -604,4 +655,104 @@ class TitulkyRepository {
       return AlternativeSubtitlesResult(enhancedOriginal: subtitle, alternatives: []);
     }
   }
+
+  /// Extract the CD number from a part file name (e.g. "Movie [CD2].srt" -> 2).
+  /// Returns 0 when no marker is present so single-disc files keep their order.
+  int _cdNumber(String name) {
+    final match = RegExp(r'(?:\[?\s*cd\s*0*([0-9]+)\s*\]?|(?:^|[._\- ])0*([0-9]+)\s*(?:of|z)\s*[0-9]+)', caseSensitive: false).firstMatch(name);
+    if (match == null) return 0;
+    final value = match.group(1) ?? match.group(2);
+    return int.tryParse(value ?? '') ?? 0;
+  }
+
+  /// Merge multiple SRT parts (CD1/CD2/...) into a single SRT track.
+  ///
+  /// Each subsequent part is time-shifted by the end timestamp of the previous
+  /// part, since multi-disc subtitles restart their timeline at zero. The shift
+  /// is an estimate (it assumes the next disc begins right where the previous
+  /// one ends), which is accurate enough for a single merged video file.
+  ///
+  /// Dialogue bytes are preserved via a latin1 round-trip so the original
+  /// (usually Windows-1250) encoding survives untouched — only the ASCII
+  /// timestamp/index lines are rewritten. Returns null if any part is not SRT.
+  List<int>? _mergeSrtParts(List<List<int>> parts) {
+    final buffer = StringBuffer();
+    var index = 1;
+    var offset = Duration.zero;
+
+    for (final partBytes in parts) {
+      final entries = _parseSrt(latin1.decode(partBytes, allowInvalid: true));
+      if (entries.isEmpty) return null; // not parseable as SRT -> let caller fall back
+
+      var lastEnd = offset;
+      for (final entry in entries) {
+        final start = entry.start + offset;
+        final end = entry.end + offset;
+        if (end > lastEnd) lastEnd = end;
+
+        buffer.write('$index\r\n');
+        buffer.write('${_formatSrtTime(start)} --> ${_formatSrtTime(end)}\r\n');
+        buffer.write(entry.text);
+        buffer.write('\r\n\r\n');
+        index++;
+      }
+      offset = lastEnd; // next part picks up where this one ended
+    }
+
+    return latin1.encode(buffer.toString());
+  }
+
+  /// Parse SRT content into time-stamped entries. Index lines and surrounding
+  /// blank lines are ignored; entry text keeps its original (raw) line content.
+  List<_SrtEntry> _parseSrt(String content) {
+    final entries = <_SrtEntry>[];
+    final lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    final timeRe = RegExp(r'(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})');
+
+    var i = 0;
+    while (i < lines.length) {
+      final match = timeRe.firstMatch(lines[i]);
+      if (match == null) {
+        i++;
+        continue;
+      }
+      final start = _durationFromMatch(match, 1);
+      final end = _durationFromMatch(match, 5);
+      i++;
+
+      final textLines = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        textLines.add(lines[i]);
+        i++;
+      }
+      entries.add(_SrtEntry(start, end, textLines.join('\r\n')));
+    }
+    return entries;
+  }
+
+  Duration _durationFromMatch(RegExpMatch match, int firstGroup) {
+    final hours = int.parse(match.group(firstGroup)!);
+    final minutes = int.parse(match.group(firstGroup + 1)!);
+    final seconds = int.parse(match.group(firstGroup + 2)!);
+    final msRaw = match.group(firstGroup + 3)!;
+    final milliseconds = int.parse(msRaw.padRight(3, '0').substring(0, 3));
+    return Duration(hours: hours, minutes: minutes, seconds: seconds, milliseconds: milliseconds);
+  }
+
+  String _formatSrtTime(Duration d) {
+    final hours = d.inHours.toString().padLeft(2, '0');
+    final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    final millis = (d.inMilliseconds % 1000).toString().padLeft(3, '0');
+    return '$hours:$minutes:$seconds,$millis';
+  }
+}
+
+/// A single SRT cue: its time span and raw (un-decoded) text content.
+class _SrtEntry {
+  final Duration start;
+  final Duration end;
+  final String text;
+
+  _SrtEntry(this.start, this.end, this.text);
 }

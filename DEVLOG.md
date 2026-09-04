@@ -2,6 +2,40 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-06-26 (part 5) — feat: notify user about multi-disc subtitles on download
+
+### What was done
+- Verified the disc count is **not** reliably detectable before downloading: the titulky.com detail page exposes no trustworthy "Počet CD" field (the 2-disc "The Matrix" id=139476 has no CD marker in its title and only a `cd1velikost` element; even the 3-disc id=66332 shows just `cd1velikost`). Multi-part is only known after unzipping. So the notice is surfaced at download time.
+- [titulky_repository.dart](lib/repositories/titulky_repository.dart): added `SubtitleSaveResult { path, partCount, merged }` and changed `saveSubtitleWithVideo()` to return it instead of a bare `String?`. `partCount` = number of subtitle files in the archive; `merged` = whether multi-part merge succeeded.
+- [subtitle_state.dart](lib/bloc/subtitle/subtitle_state.dart): `SubtitleDownloaded` now carries `partCount` + `merged` (with `wasMultiPart` getter); [subtitle_bloc.dart](lib/bloc/subtitle/subtitle_bloc.dart) `_onDownloadSubtitle` forwards them.
+- UI notices on download in both [subtitle_search_screen.dart](lib/screens/subtitle_search_screen.dart) and [video_player_screen.dart](lib/screens/video_player_screen.dart): orange SnackBar "Vícedílné titulky (N částí) byly spojeny…" when merged, red warning "…uložena jen první (titulky končí v půlce filmu)" when merge failed. Single-part downloads keep the existing green confirmation.
+
+### Current state
+- `flutter analyze lib/`: no errors; touched files have no new warnings (only pre-existing `avoid_print` info lints).
+
+### Pending / next steps
+- Manual test in-app: download a 2-disc subtitle and confirm the orange "spojeny" SnackBar appears in both the search screen and the in-player download flow.
+
+## 2026-06-26 (part 4) — fix: merge multi-disc (CD1/CD2) subtitles from titulky.com
+
+### What was fixed
+- Subtitles downloaded from premium.titulky.com stopped roughly at the middle of the movie. Root cause: multi-disc subtitle archives contain several parts (e.g. `Movie [CD1].srt`, `Movie [CD2].srt`), but the ZIP extraction in [titulky_repository.dart](lib/repositories/titulky_repository.dart) `saveSubtitleWithVideo()` took only the **first** file (`break` on first match) and discarded the rest, so only CD1 (first ~half) was saved.
+- Secondary issue: server sometimes strips the inner file extension (e.g. `Movie [CD1].---`), so the old extension-only check found no subtitle and could fall back to `_info.txt`.
+
+### What was done
+- Reworked the ZIP branch of `saveSubtitleWithVideo()` to collect **all** subtitle parts instead of the first: skips `_info.txt`, accepts known extensions, and for unknown extensions (`.---`) sniffs the content for `-->` to detect SRT.
+- Added `_cdNumber()` to order parts by disc number (CD1 before CD2), falling back to name order.
+- Added `_mergeSrtParts()` + `_parseSrt()` / `_durationFromMatch()` / `_formatSrtTime()` and a private `_SrtEntry` class: merges parts into one SRT, time-shifting each subsequent part by the previous part's end timestamp (multi-disc timelines restart at zero). Dialogue bytes are preserved via a `latin1` round-trip so the original Windows-1250 encoding survives; only ASCII index/time lines are rewritten. Falls back to saving the first part if a part is not parseable as SRT.
+- Added `import 'dart:convert';`.
+
+### Current state
+- `flutter analyze lib/repositories/titulky_repository.dart`: no errors/warnings (only pre-existing `avoid_print` info lints across the file).
+- Verified the merge algorithm against the real 2-disc subtitle "The Matrix" (id=139476) downloaded live: CD1 (754 cues, ends 01:04:23) + CD2 (584 cues, own timeline ends 00:59:03) → merged 1338 cues spanning 00:00:38 → 02:03:26, monotonic across the boundary (first CD2 cue at 01:04:28). Full-movie coverage confirmed instead of cutting off at the midpoint.
+
+### Pending / next steps
+- Manual test inside the app: pick a known 2-disc subtitle and confirm playback shows subtitles through the whole film.
+- The CD2 offset is an estimate (assumes disc 2 begins exactly where disc 1 ends); if a release has trailing silence on disc 1 it may drift by a few seconds. A manual offset control could be added later if needed.
+
 ## 2026-06-26 (part 3) — chore: upgrade deps for macOS Swift Package Manager support
 
 ### What was done

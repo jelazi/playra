@@ -428,14 +428,14 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
     emit(SubtitleDownloading(event.subtitle));
     try {
-      final path = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
+      final result = await _repository.saveSubtitleWithVideo(subtitle: event.subtitle, videoPath: event.videoInfo.path);
 
-      if (path != null) {
+      if (result != null) {
         // Save the information that subtitles were downloaded for this video
         await SettingsService.markVideoWithSubtitles(event.videoInfo.path);
         print('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
 
-        emit(SubtitleDownloaded(event.subtitle, path));
+        emit(SubtitleDownloaded(event.subtitle, result.path, partCount: result.partCount, merged: result.merged));
 
         // Restore previous SubtitleSearchResults state after a brief delay
         // This preserves the selection and alternatives when returning from player

@@ -72,9 +72,19 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message.tr()), backgroundColor: Colors.red));
                 } else if (state is SubtitleDownloaded && !_hasNavigatedToPlayer) {
                   _hasNavigatedToPlayer = true;
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
+                  if (state.wasMultiPart) {
+                    // Multi-disc subtitle (CD1/CD2/...) – inform the user how it was handled.
+                    final msg = state.merged
+                        ? '⚠️ Vícedílné titulky (${state.partCount} částí) byly spojeny do jednoho souboru.'
+                        : '⚠️ Titulky mají ${state.partCount} částí, ale nešlo je spojit – uložena jen první (titulky končí v půlce filmu).';
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(msg), backgroundColor: state.merged ? Colors.orange : Colors.red, duration: const Duration(seconds: 5)),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
+                  }
                   // Use cached data from before download
                   print('🔍 Opening player with cached data:');
                   print('   - Available subtitles: ${_cachedAvailableSubtitles?.length ?? 0}');
