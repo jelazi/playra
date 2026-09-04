@@ -75,4 +75,15 @@ class SubtitleStyleSettings {
 }
 
 /// Available font families exposed in the settings UI.
-const List<String> kAvailableSubtitleFonts = ['Roboto', 'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana', 'Tahoma', 'monospace', 'serif', 'sans-serif'];
+const List<String> kAvailableSubtitleFonts = [
+  'Roboto',
+  'Arial',
+  'Helvetica',
+  'Times New Roman',
+  'Courier New',
+  'Verdana',
+  'Tahoma',
+  'monospace',
+  'serif',
+  'sans-serif',
+];

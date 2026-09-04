@@ -11,11 +11,7 @@ class MockTitulkyRepository extends Mock implements TitulkyRepository {}
 
 Subtitle _sub(String title, {String? id}) => Subtitle(id: id ?? title, title: title, language: 'cs', format: 'srt', downloadUrl: 'https://example.test/$title');
 
-const _video = VideoInfo(
-  path: '/media/True.Detective.S01E02.720p.mkv',
-  name: 'True.Detective.S01E02.720p.mkv',
-  directory: '/media',
-);
+const _video = VideoInfo(path: '/media/True.Detective.S01E02.720p.mkv', name: 'True.Detective.S01E02.720p.mkv', directory: '/media');
 
 void main() {
   late MockTitulkyRepository repository;
@@ -39,10 +35,7 @@ void main() {
     test('emits LoggingIn then LoggedIn on success', () async {
       when(() => repository.login('user', 'pass')).thenAnswer((_) async => true);
 
-      expect(
-        bloc.stream,
-        emitsInOrder([isA<SubtitleLoggingIn>(), isA<SubtitleLoggedIn>().having((s) => s.username, 'username', 'user')]),
-      );
+      expect(bloc.stream, emitsInOrder([isA<SubtitleLoggingIn>(), isA<SubtitleLoggedIn>().having((s) => s.username, 'username', 'user')]));
 
       bloc.add(LoginToTitulky('user', 'pass'));
       await bloc.stream.firstWhere((s) => s is SubtitleLoggedIn);
@@ -90,10 +83,17 @@ void main() {
   group('search', () {
     test('asks the site for the title plus the SxxExx marker', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async => [_sub('True Detective S01E02 CZ')]);
-      when(() => repository.getAlternativeSubtitles(any()))
-          .thenAnswer((invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async => [_sub('True Detective S01E02 CZ')]);
+      when(() => repository.getAlternativeSubtitles(any())).thenAnswer(
+        (invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []),
+      );
 
       bloc.add(SearchSubtitles(_video));
       await bloc.stream.firstWhere((s) => s is SubtitleSearchResults);
@@ -103,10 +103,17 @@ void main() {
 
     test('emits results sorted by relevance', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async => [_sub('True Detective S02E02'), _sub('True Detective S01E02')]);
-      when(() => repository.getAlternativeSubtitles(any()))
-          .thenAnswer((invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async => [_sub('True Detective S02E02'), _sub('True Detective S01E02')]);
+      when(() => repository.getAlternativeSubtitles(any())).thenAnswer(
+        (invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []),
+      );
 
       bloc.add(SearchSubtitles(_video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleSearchResults) as SubtitleSearchResults;
@@ -119,12 +126,25 @@ void main() {
 
     test('merges the "search differently" results when the first page is thin', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: false))
-          .thenAnswer((_) async => [_sub('True Detective S01E02', id: 'a')]);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: true))
-          .thenAnswer((_) async => [_sub('True Detective S01E02', id: 'a'), _sub('True Detective S01E02 alt', id: 'b')]);
-      when(() => repository.getAlternativeSubtitles(any()))
-          .thenAnswer((invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: false,
+        ),
+      ).thenAnswer((_) async => [_sub('True Detective S01E02', id: 'a')]);
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: true,
+        ),
+      ).thenAnswer((_) async => [_sub('True Detective S01E02', id: 'a'), _sub('True Detective S01E02 alt', id: 'b')]);
+      when(() => repository.getAlternativeSubtitles(any())).thenAnswer(
+        (invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []),
+      );
 
       bloc.add(SearchSubtitles(_video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleSearchResults) as SubtitleSearchResults;
@@ -144,8 +164,14 @@ void main() {
 
     test('reports a generic error when the site fails', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenThrow(Exception('502 from titulky.com'));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenThrow(Exception('502 from titulky.com'));
 
       bloc.add(SearchSubtitles(_video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleError) as SubtitleError;
@@ -154,8 +180,14 @@ void main() {
 
     test('reports no results after every fallback query', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async => const []);
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async => const []);
 
       bloc.add(SearchSubtitles(_video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleError) as SubtitleError;
@@ -164,10 +196,17 @@ void main() {
 
     test('a manual query overrides the parsed title', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async => [_sub('Detektiv S01E02')]);
-      when(() => repository.getAlternativeSubtitles(any()))
-          .thenAnswer((invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async => [_sub('Detektiv S01E02')]);
+      when(() => repository.getAlternativeSubtitles(any())).thenAnswer(
+        (invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []),
+      );
 
       bloc.add(SearchSubtitlesManual(_video, 'Temný případ'));
       await bloc.stream.firstWhere((s) => s is SubtitleSearchResults);
@@ -179,8 +218,14 @@ void main() {
   group('cancel', () {
     test('stops an in-flight search', () async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async {
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return [_sub('True Detective S01E02')];
       });
@@ -203,10 +248,17 @@ void main() {
   group('results interaction', () {
     Future<void> searchWith(List<Subtitle> found) async {
       when(() => repository.isLoggedIn).thenReturn(true);
-      when(() => repository.searchSubtitles(any(), languageFilter: any(named: 'languageFilter'), page: any(named: 'page'), alternativeSearch: any(named: 'alternativeSearch')))
-          .thenAnswer((_) async => found);
-      when(() => repository.getAlternativeSubtitles(any()))
-          .thenAnswer((invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []));
+      when(
+        () => repository.searchSubtitles(
+          any(),
+          languageFilter: any(named: 'languageFilter'),
+          page: any(named: 'page'),
+          alternativeSearch: any(named: 'alternativeSearch'),
+        ),
+      ).thenAnswer((_) async => found);
+      when(() => repository.getAlternativeSubtitles(any())).thenAnswer(
+        (invocation) async => AlternativeSubtitlesResult(enhancedOriginal: invocation.positionalArguments.first as Subtitle, alternatives: const []),
+      );
 
       bloc.add(SearchSubtitles(_video));
       await bloc.stream.firstWhere((s) => s is SubtitleSearchResults);
@@ -252,8 +304,12 @@ void main() {
 
   group('download', () {
     test('emits Downloaded with the merge details of a multi-disc archive', () async {
-      when(() => repository.saveSubtitleWithVideo(subtitle: any(named: 'subtitle'), videoPath: any(named: 'videoPath')))
-          .thenAnswer((_) async => SubtitleSaveResult(path: '/media/True.Detective.S01E02.720p.srt', partCount: 2, merged: true));
+      when(
+        () => repository.saveSubtitleWithVideo(
+          subtitle: any(named: 'subtitle'),
+          videoPath: any(named: 'videoPath'),
+        ),
+      ).thenAnswer((_) async => SubtitleSaveResult(path: '/media/True.Detective.S01E02.720p.srt', partCount: 2, merged: true));
 
       final target = _sub('True Detective S01E02');
       bloc.add(DownloadSubtitle(target, _video));
@@ -266,7 +322,12 @@ void main() {
     });
 
     test('emits an error when the repository returns nothing', () async {
-      when(() => repository.saveSubtitleWithVideo(subtitle: any(named: 'subtitle'), videoPath: any(named: 'videoPath'))).thenAnswer((_) async => null);
+      when(
+        () => repository.saveSubtitleWithVideo(
+          subtitle: any(named: 'subtitle'),
+          videoPath: any(named: 'videoPath'),
+        ),
+      ).thenAnswer((_) async => null);
 
       bloc.add(DownloadSubtitle(_sub('x'), _video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleError) as SubtitleError;
@@ -274,7 +335,12 @@ void main() {
     });
 
     test('emits an error when the download throws', () async {
-      when(() => repository.saveSubtitleWithVideo(subtitle: any(named: 'subtitle'), videoPath: any(named: 'videoPath'))).thenThrow(Exception('daily limit reached'));
+      when(
+        () => repository.saveSubtitleWithVideo(
+          subtitle: any(named: 'subtitle'),
+          videoPath: any(named: 'videoPath'),
+        ),
+      ).thenThrow(Exception('daily limit reached'));
 
       bloc.add(DownloadSubtitle(_sub('x'), _video));
       final state = await bloc.stream.firstWhere((s) => s is SubtitleError) as SubtitleError;

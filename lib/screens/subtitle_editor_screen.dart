@@ -151,7 +151,10 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
             appBar: AppBar(
               title: Text('editor.title'.tr()),
               backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-              actions: [if (state is SubtitleEditorLoaded) IconButton(icon: const Icon(Icons.save), tooltip: 'editor.save'.tr(), onPressed: () => _showSaveDialog(context, state))],
+              actions: [
+                if (state is SubtitleEditorLoaded)
+                  IconButton(icon: const Icon(Icons.save), tooltip: 'editor.save'.tr(), onPressed: () => _showSaveDialog(context, state)),
+              ],
               bottom: TabBar(
                 controller: _tabController,
                 tabs: [
@@ -331,9 +334,10 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
                   const SizedBox(height: 8),
                   Text(
                     '$shiftSign${shiftMs}ms (${(shiftMs / 1000).toStringAsFixed(1)}s)',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.headlineMedium?.copyWith(color: shiftMs == 0 ? Colors.grey : (shiftMs > 0 ? Colors.green : Colors.red), fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: shiftMs == 0 ? Colors.grey : (shiftMs > 0 ? Colors.green : Colors.red),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -682,7 +686,10 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(12)),
-                  child: Text('${keyOffset.inMilliseconds >= 0 ? '+' : ''}${keyOffset.inMilliseconds}ms', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    '${keyOffset.inMilliseconds >= 0 ? '+' : ''}${keyOffset.inMilliseconds}ms',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
                 ),
             ],
           ),

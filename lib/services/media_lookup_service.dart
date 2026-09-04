@@ -48,7 +48,9 @@ class MediaLookupService {
     // Cache hit → refresh details from TMDB in the requested language.
     final cached = MediaCacheService.getMapping(parsed.cleanName);
     if (cached != null) {
-      final MediaInfo? details = cached.mediaType == 'movie' ? await _tmdb.getMovieDetails(cached.tmdbId, language) : await _tmdb.getTVDetails(cached.tmdbId, language);
+      final MediaInfo? details = cached.mediaType == 'movie'
+          ? await _tmdb.getMovieDetails(cached.tmdbId, language)
+          : await _tmdb.getTVDetails(cached.tmdbId, language);
       final info = details ?? MediaCacheService.cacheToMediaInfo(cached);
       if (videoHash != null && videoHash.isNotEmpty) {
         await PlayraStorage.saveMediaInfoForHash(videoHash, _mediaInfoToStoredMap(info));
@@ -84,7 +86,8 @@ class MediaLookupService {
   }
 
   /// Fetches localized episode info for a TV episode.
-  Future<EpisodeInfo?> fetchEpisodeInfo(int tvId, int season, int episode, String language) => _tmdb.getEpisodeDetails(tvId, season, episode, language: language);
+  Future<EpisodeInfo?> fetchEpisodeInfo(int tvId, int season, int episode, String language) =>
+      _tmdb.getEpisodeDetails(tvId, season, episode, language: language);
 
   /// Persists a user-selected [mediaInfo] for [filePath] to the local cache.
   Future<void> saveMapping(String filePath, MediaInfo mediaInfo) async {

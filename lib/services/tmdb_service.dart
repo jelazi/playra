@@ -9,6 +9,7 @@ import 'translation_service.dart';
 class TmdbService {
   final Dio _dio;
   final TranslationService _translator;
+
   /// Optional build-time key: `--dart-define=TMDB_API_KEY=...`.
   static const String _apiKeyDefine = String.fromEnvironment('TMDB_API_KEY');
   static const String _baseUrl = 'https://api.themoviedb.org/3';

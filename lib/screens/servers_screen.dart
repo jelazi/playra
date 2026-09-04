@@ -45,7 +45,10 @@ class ServersScreen extends StatelessWidget {
                     if (v == 'edit') _editServer(context, s);
                     if (v == 'delete') context.read<ServersCubit>().delete(s.id);
                   },
-                  itemBuilder: (_) => [PopupMenuItem(value: 'edit', child: Text('servers.edit'.tr())), PopupMenuItem(value: 'delete', child: Text('servers.delete'.tr()))],
+                  itemBuilder: (_) => [
+                    PopupMenuItem(value: 'edit', child: Text('servers.edit'.tr())),
+                    PopupMenuItem(value: 'delete', child: Text('servers.delete'.tr())),
+                  ],
                 ),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: s))),
               );

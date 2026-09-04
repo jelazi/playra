@@ -21,7 +21,15 @@ class VideoPlayerScreen extends StatefulWidget {
   final Subtitle? currentSubtitle;
   final Subtitle? selectedSubtitle;
 
-  const VideoPlayerScreen({super.key, required this.videoInfo, this.subtitlePath, this.availableSubtitles, this.alternativeSubtitles, this.currentSubtitle, this.selectedSubtitle});
+  const VideoPlayerScreen({
+    super.key,
+    required this.videoInfo,
+    this.subtitlePath,
+    this.availableSubtitles,
+    this.alternativeSubtitles,
+    this.currentSubtitle,
+    this.selectedSubtitle,
+  });
 
   @override
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
@@ -142,7 +150,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final hasSubtitlesToSelect =
-        (widget.availableSubtitles != null && widget.availableSubtitles!.isNotEmpty) || (widget.alternativeSubtitles != null && widget.alternativeSubtitles!.isNotEmpty);
+        (widget.availableSubtitles != null && widget.availableSubtitles!.isNotEmpty) ||
+        (widget.alternativeSubtitles != null && widget.alternativeSubtitles!.isNotEmpty);
 
     return Scaffold(
       appBar: AppBar(
@@ -168,7 +177,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const CircularProgressIndicator(), const SizedBox(height: 16), Text('video.loading'.tr())]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [const CircularProgressIndicator(), const SizedBox(height: 16), Text('video.loading'.tr())],
+        ),
       );
     }
 
@@ -225,19 +237,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => SubtitleEditorScreen(
-                          videoPath: widget.videoInfo.path,
-                          subtitlePath: _currentSubtitlePath!,
-                        ),
+                        builder: (_) => SubtitleEditorScreen(videoPath: widget.videoInfo.path, subtitlePath: _currentSubtitlePath!),
                       ),
                     );
                   },
                   icon: const Icon(Icons.edit, size: 18),
                   label: Text('player.edit_subtitles'.tr()),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
                 ),
               ],
             ),
@@ -452,9 +458,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             final msg = state.merged
                 ? '⚠️ Vícedílné titulky (${state.partCount} částí) byly spojeny do jednoho souboru.'
                 : '⚠️ Titulky mají ${state.partCount} částí, ale nešlo je spojit – uložena jen první (titulky končí v půlce filmu).';
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(msg), backgroundColor: state.merged ? Colors.orange : Colors.red, duration: const Duration(seconds: 5)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: state.merged ? Colors.orange : Colors.red, duration: const Duration(seconds: 5)));
           }
           // Update subtitle in player
           await _reloadWithNewSubtitle(state.path, subtitle, currentPosition, wasPlaying);

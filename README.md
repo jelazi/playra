@@ -6,6 +6,7 @@ handles subtitles end to end — finding them, ranking them, fixing their timing
 to the video.
 
 [![CI](https://github.com/jelazi/playra/actions/workflows/ci.yml/badge.svg)](https://github.com/jelazi/playra/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jelazi/playra/branch/main/graph/badge.svg)](https://codecov.io/gh/jelazi/playra)
 ![Flutter](https://img.shields.io/badge/Flutter-3.44-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-iOS%20|%20Android%20|%20macOS%20|%20Windows%20|%20Linux-lightgrey.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

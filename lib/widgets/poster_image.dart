@@ -8,14 +8,7 @@ import 'package:flutter/material.dart';
 /// Decoding is capped at twice the layout size so grids of posters do not hold
 /// full-resolution bitmaps in memory.
 class PosterImage extends StatelessWidget {
-  const PosterImage._({
-    required this.width,
-    required this.height,
-    required this.fallback,
-    required this.borderRadius,
-    this.filePath,
-    this.url,
-  });
+  const PosterImage._({required this.width, required this.height, required this.fallback, required this.borderRadius, this.filePath, this.url});
 
   /// Poster already downloaded into the local cache.
   factory PosterImage.file(
@@ -58,13 +51,7 @@ class PosterImage extends StatelessWidget {
             filterQuality: FilterQuality.low,
             errorBuilder: (_, _, _) => fallback,
           )
-        : Image.network(
-            url!,
-            width: width,
-            height: height,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => fallback,
-          );
+        : Image.network(url!, width: width, height: height, fit: BoxFit.cover, errorBuilder: (_, _, _) => fallback);
 
     return borderRadius == BorderRadius.zero ? image : ClipRRect(borderRadius: borderRadius, child: image);
   }

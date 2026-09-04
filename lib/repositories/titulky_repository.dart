@@ -240,7 +240,10 @@ class TitulkyRepository {
       // Download subtitle file
       final response = await _dio.get(
         subtitle.downloadUrl,
-        options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}, responseType: ResponseType.bytes),
+        options: Options(
+          headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'},
+          responseType: ResponseType.bytes,
+        ),
       );
 
       // Work out the final file path
@@ -638,7 +641,15 @@ class TitulkyRepository {
               downloadUrl = '$_baseUrl/$href';
             }
 
-            final alternativeSubtitle = Subtitle(id: id, title: title, language: 'cs', format: 'srt', downloadUrl: downloadUrl, uploader: uploader, details: releaseInfo);
+            final alternativeSubtitle = Subtitle(
+              id: id,
+              title: title,
+              language: 'cs',
+              format: 'srt',
+              downloadUrl: downloadUrl,
+              uploader: uploader,
+              details: releaseInfo,
+            );
 
             alternatives.add(alternativeSubtitle);
           } catch (e) {

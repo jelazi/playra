@@ -22,13 +22,7 @@ class LibraryEntry {
     this.posterPath,
   }) : video = null;
 
-  const LibraryEntry.video(this.video)
-    : sectionKey = null,
-      title = null,
-      count = 0,
-      expanded = null,
-      smartGroup = null,
-      posterPath = null;
+  const LibraryEntry.video(this.video) : sectionKey = null, title = null, count = 0, expanded = null, smartGroup = null, posterPath = null;
 }
 
 /// One row of the folder-mirroring library list: the link to the parent
@@ -43,19 +37,9 @@ class StructuredEntry {
 
   bool get isFolder => !isParent && path != null && video == null;
 
-  const StructuredEntry.parent({required this.path, this.highlighted = false})
-    : title = '..',
-      count = 0,
-      video = null,
-      isParent = true;
+  const StructuredEntry.parent({required this.path, this.highlighted = false}) : title = '..', count = 0, video = null, isParent = true;
 
-  const StructuredEntry.folder({required this.path, required this.title, required this.count, this.highlighted = false})
-    : video = null,
-      isParent = false;
+  const StructuredEntry.folder({required this.path, required this.title, required this.count, this.highlighted = false}) : video = null, isParent = false;
 
-  const StructuredEntry.video(this.video, {this.highlighted = false})
-    : path = null,
-      title = null,
-      count = 0,
-      isParent = false;
+  const StructuredEntry.video(this.video, {this.highlighted = false}) : path = null, title = null, count = 0, isParent = false;
 }

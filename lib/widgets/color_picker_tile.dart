@@ -1,17 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Swatches offered for subtitle text and outline colours.
-const List<int> kColorPalette = [
-  0xFFFFFFFF,
-  0xFFFFEB3B,
-  0xFFFF5252,
-  0xFF40C4FF,
-  0xFF69F0AE,
-  0xFFFFA726,
-  0xFFE040FB,
-  0xFFB0BEC5,
-  0xFF000000,
-];
+const List<int> kColorPalette = [0xFFFFFFFF, 0xFFFFEB3B, 0xFFFF5252, 0xFF40C4FF, 0xFF69F0AE, 0xFFFFA726, 0xFFE040FB, 0xFFB0BEC5, 0xFF000000];
 
 /// [kColorPalette] plus fully transparent and half-transparent black, for
 /// backgrounds where "no fill" is a valid choice.
@@ -24,13 +14,7 @@ const int _transparent = 0x00000000;
 /// Colours come from the ambient [Theme], so the same tile works on a settings
 /// page and inside the player's dark overlay.
 class ColorPickerTile extends StatelessWidget {
-  const ColorPickerTile({
-    super.key,
-    required this.title,
-    required this.color,
-    required this.onChanged,
-    this.palette = kColorPalette,
-  });
+  const ColorPickerTile({super.key, required this.title, required this.color, required this.onChanged, this.palette = kColorPalette});
 
   final String title;
   final int color;

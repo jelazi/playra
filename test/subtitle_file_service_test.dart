@@ -83,11 +83,7 @@ void main() {
     });
 
     test('returns empty rather than throwing when the directory is gone', () {
-      final missing = VideoInfo(
-        path: p.join(dir.path, 'nowhere', 'movie.mp4'),
-        name: 'movie.mp4',
-        directory: p.join(dir.path, 'nowhere'),
-      );
+      final missing = VideoInfo(path: p.join(dir.path, 'nowhere', 'movie.mp4'), name: 'movie.mp4', directory: p.join(dir.path, 'nowhere'));
 
       final info = SubtitleFileService.checkSubtitleFiles(missing);
 

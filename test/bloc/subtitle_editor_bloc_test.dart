@@ -47,10 +47,7 @@ void main() {
 
   group('LoadSubtitleFile', () {
     test('goes through Loading to Loaded with the parsed entries', () async {
-      expect(
-        bloc.stream,
-        emitsInOrder([isA<SubtitleEditorLoading>(), isA<SubtitleEditorLoaded>()]),
-      );
+      expect(bloc.stream, emitsInOrder([isA<SubtitleEditorLoading>(), isA<SubtitleEditorLoaded>()]));
 
       bloc.add(LoadSubtitleFile(subtitlePath: subtitlePath, videoPath: '/videos/movie.mkv'));
       await bloc.stream.firstWhere((s) => s is SubtitleEditorLoaded);
@@ -65,10 +62,7 @@ void main() {
     });
 
     test('errors on a missing file', () async {
-      expect(
-        bloc.stream,
-        emitsInOrder([isA<SubtitleEditorLoading>(), isA<SubtitleEditorError>()]),
-      );
+      expect(bloc.stream, emitsInOrder([isA<SubtitleEditorLoading>(), isA<SubtitleEditorError>()]));
       bloc.add(LoadSubtitleFile(subtitlePath: '${tempDir.path}/nope.srt', videoPath: '/videos/movie.mkv'));
       await bloc.stream.firstWhere((s) => s is SubtitleEditorError);
     });

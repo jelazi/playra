@@ -10,9 +10,9 @@ class VideoInfo extends Equatable {
   final List<String> subtitleFiles; // Actual subtitle files found
 
   const VideoInfo({
-    required this.path, 
-    required this.name, 
-    required this.directory, 
+    required this.path,
+    required this.name,
+    required this.directory,
     this.duration,
     this.hasDownloadedSubtitles = false,
     this.hasPhysicalSubtitles = false,
@@ -20,18 +20,18 @@ class VideoInfo extends Equatable {
   });
 
   VideoInfo copyWith({
-    String? path, 
-    String? name, 
-    String? directory, 
+    String? path,
+    String? name,
+    String? directory,
     Duration? duration,
     bool? hasDownloadedSubtitles,
     bool? hasPhysicalSubtitles,
     List<String>? subtitleFiles,
   }) {
     return VideoInfo(
-      path: path ?? this.path, 
-      name: name ?? this.name, 
-      directory: directory ?? this.directory, 
+      path: path ?? this.path,
+      name: name ?? this.name,
+      directory: directory ?? this.directory,
       duration: duration ?? this.duration,
       hasDownloadedSubtitles: hasDownloadedSubtitles ?? this.hasDownloadedSubtitles,
       hasPhysicalSubtitles: hasPhysicalSubtitles ?? this.hasPhysicalSubtitles,

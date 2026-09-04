@@ -79,11 +79,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _files.isEmpty
-              ? EmptyState(icon: Icons.download_done, iconSize: 64, title: 'downloads.empty'.tr())
-              : RefreshIndicator(onRefresh: _refresh, child: _buildList()),
+          ? EmptyState(icon: Icons.download_done, iconSize: 64, title: 'downloads.empty'.tr())
+          : RefreshIndicator(onRefresh: _refresh, child: _buildList()),
     );
   }
-
 
   Widget _buildList() {
     return ListView.separated(

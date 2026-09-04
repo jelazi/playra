@@ -2,14 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Centred placeholder for a screen or list that has nothing to show.
 class EmptyState extends StatelessWidget {
-  const EmptyState({
-    super.key,
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.action,
-    this.iconSize = 72,
-  });
+  const EmptyState({super.key, required this.icon, required this.title, this.subtitle, this.action, this.iconSize = 72});
 
   final IconData icon;
   final String title;
@@ -34,7 +27,11 @@ class EmptyState extends StatelessWidget {
             Text(title, textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
             if (subtitle != null) ...[
               const SizedBox(height: 8),
-              Text(subtitle!, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: muted)),
+              Text(
+                subtitle!,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+              ),
             ],
             if (action != null) ...[const SizedBox(height: 20), action!],
           ],

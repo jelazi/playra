@@ -54,8 +54,9 @@ void main() {
       expect(await keyFile.exists(), isTrue);
 
       if (Platform.isMacOS || Platform.isLinux) {
-        final mode = await Process.run('stat', ['-f', '%Lp', keyFile.path]);
-        expect(mode.stdout.toString().trim(), '600');
+        // FileStat.mode rather than `stat`, whose flags differ between BSD and GNU.
+        final permissions = (await keyFile.stat()).mode & 0x1FF;
+        expect(permissions.toRadixString(8).padLeft(3, '0'), '600');
       }
     });
 

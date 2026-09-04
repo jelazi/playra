@@ -93,7 +93,9 @@ class _ServerBrowserScreenState extends State<ServerBrowserScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.server.name),
-        actions: [if (widget.pickFolderMode) IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _selectCurrentFolder)],
+        actions: [
+          if (widget.pickFolderMode) IconButton(tooltip: 'home.add_folder'.tr(), icon: const Icon(Icons.create_new_folder), onPressed: _selectCurrentFolder),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(36),
           child: Padding(

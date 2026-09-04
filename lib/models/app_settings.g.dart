@@ -13,9 +13,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   AppSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final fields = <int, dynamic>{
-      for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
-    };
+    final fields = <int, dynamic>{for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read()};
     return AppSettings(
       username: fields[0] as String?,
       sessionCookie: fields[1] as String?,
@@ -51,9 +49,5 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   int get hashCode => typeId.hashCode;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is AppSettingsAdapter &&
-          runtimeType == other.runtimeType &&
-          typeId == other.typeId;
+  bool operator ==(Object other) => identical(this, other) || other is AppSettingsAdapter && runtimeType == other.runtimeType && typeId == other.typeId;
 }

@@ -17,7 +17,9 @@ void main() {
         downloadCount: '150',
       );
 
-      final alternatives = [Subtitle(id: '124', title: 'Test Movie Alternative (2024)', language: 'cs', format: 'srt', downloadUrl: 'https://test.com/detail?id=124')];
+      final alternatives = [
+        Subtitle(id: '124', title: 'Test Movie Alternative (2024)', language: 'cs', format: 'srt', downloadUrl: 'https://test.com/detail?id=124'),
+      ];
 
       final result = AlternativeSubtitlesResult(enhancedOriginal: enhancedSubtitle, alternatives: alternatives);
 
@@ -41,7 +43,15 @@ void main() {
     });
 
     test('Enhanced subtitle preserves original properties', () {
-      final original = Subtitle(id: '123', title: 'Test Movie', language: 'cs', format: 'srt', downloadUrl: 'test.com', rating: '8.5', movieName: 'Test Movie 2024');
+      final original = Subtitle(
+        id: '123',
+        title: 'Test Movie',
+        language: 'cs',
+        format: 'srt',
+        downloadUrl: 'test.com',
+        rating: '8.5',
+        movieName: 'Test Movie 2024',
+      );
 
       final enhanced = Subtitle(
         id: original.id,

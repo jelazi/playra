@@ -9,6 +9,12 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# The codebase is written to a wider line than the 80-column default; pinning it
+# here is what makes `dart format --set-exit-if-changed` in CI agree with the
+# editor and with what is committed.
+formatter:
+  page_width: 160
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

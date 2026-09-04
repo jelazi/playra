@@ -79,13 +79,18 @@ class _LibraryManagementScreenState extends State<LibraryManagementScreen> {
       builder: (ctx) => SafeArea(
         child: ListView(
           shrinkWrap: true,
-          children: [for (final s in smbServers) ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s))],
+          children: [
+            for (final s in smbServers)
+              ListTile(leading: const Icon(Icons.lan), title: Text(s.name), subtitle: Text(s.host), onTap: () => Navigator.of(ctx).pop(s)),
+          ],
         ),
       ),
     );
 
     if (selectedServer == null || !mounted) return;
-    final selectedSmbFolderUri = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
+    final selectedSmbFolderUri = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => ServerBrowserScreen(server: selectedServer, pickFolderMode: true)));
     if (selectedSmbFolderUri == null || selectedSmbFolderUri.isEmpty || !mounted) return;
     await context.read<LibraryCubit>().addFolder(selectedSmbFolderUri);
   }
@@ -146,7 +151,10 @@ class _LibraryManagementScreenState extends State<LibraryManagementScreen> {
                           ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45)
                           : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _isDragging ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor, width: _isDragging ? 2 : 1),
+                      border: Border.all(
+                        color: _isDragging ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor,
+                        width: _isDragging ? 2 : 1,
+                      ),
                     ),
                     child: Row(
                       children: [

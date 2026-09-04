@@ -196,7 +196,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openSingleVideoFile() async {
-    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp']);
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp'],
+    );
     if (picked == null || picked.files.isEmpty) return;
 
     final path = picked.files.single.path;
@@ -258,7 +261,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    messenger.showSnackBar(SnackBar(content: Text('home.sync_done'.tr(args: [result.peersFound.toString(), result.mergedFromPeers.toString(), result.pushedToPeers.toString()]))));
+    messenger.showSnackBar(
+      SnackBar(content: Text('home.sync_done'.tr(args: [result.peersFound.toString(), result.mergedFromPeers.toString(), result.pushedToPeers.toString()]))),
+    );
   }
 
   String _formatPositionText(int milliseconds) {
@@ -388,7 +393,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool get _isRecentsExpanded => _expandedSections[_recentsSectionKey] ?? true;
 
-
   VideoInfo _toVideoInfo(VideoItem v) {
     final file = File(v.uri);
     return VideoInfo(path: v.uri, name: v.name, directory: file.parent.path);
@@ -420,7 +424,10 @@ class _HomeScreenState extends State<HomeScreen> {
               LabelledValue(label: 'home.info_name'.tr(), value: v.name),
               LabelledValue(label: 'home.info_path'.tr(), value: v.uri),
               LabelledValue(label: 'home.info_folder'.tr(), value: v.folder ?? p.basename(p.dirname(v.uri))),
-              LabelledValue(label: 'home.info_size'.tr(), value: stat != null ? _formatSize(stat.size) : (v.sizeBytes != null ? _formatSize(v.sizeBytes!) : '-')),
+              LabelledValue(
+                label: 'home.info_size'.tr(),
+                value: stat != null ? _formatSize(stat.size) : (v.sizeBytes != null ? _formatSize(v.sizeBytes!) : '-'),
+              ),
               LabelledValue(label: 'home.info_modified'.tr(), value: stat?.modified.toLocal().toString() ?? (v.modified?.toLocal().toString() ?? '-')),
               LabelledValue(label: 'home.info_extension'.tr(), value: v.extension.toUpperCase()),
               LabelledValue(label: 'home.info_subtitles'.tr(), value: subtitleInfo.description),
@@ -431,7 +438,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 
   Future<void> _editSubtitles(VideoItem v) async {
     if (!_isLocalVideo(v)) {
@@ -458,7 +464,9 @@ class _HomeScreenState extends State<HomeScreen> {
             shrinkWrap: true,
             children: [
               ListTile(title: Text('home.edit_subtitles'.tr())),
-              ...info.subtitleFiles.map((path) => ListTile(leading: const Icon(Icons.subtitles), title: Text(p.basename(path)), onTap: () => Navigator.of(ctx).pop(path))),
+              ...info.subtitleFiles.map(
+                (path) => ListTile(leading: const Icon(Icons.subtitles), title: Text(p.basename(path)), onTap: () => Navigator.of(ctx).pop(path)),
+              ),
             ],
           ),
         ),
@@ -649,7 +657,9 @@ class _HomeScreenState extends State<HomeScreen> {
         items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         final expanded = _expandedSections[key] ?? false;
         final headerPoster = items.map((v) => posterById[v.id]).firstWhere((p) => p != null, orElse: () => null);
-        out.add(LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster));
+        out.add(
+          LibraryEntry.header(sectionKey: key, title: labels[key] ?? key, count: items.length, expanded: expanded, smartGroup: true, posterPath: headerPoster),
+        );
         if (expanded) {
           out.addAll(items.map(LibraryEntry.video));
         }
@@ -795,7 +805,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return ratio.clamp(0, 1).toDouble();
   }
 
-
   String _normalizeFolderPath(String path) {
     var normalized = path.replaceAll('\\', '/');
     if (normalized.startsWith('smb://')) {
@@ -856,7 +865,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String? _structuredParentFolder(String currentFolder, List<String> roots) {
     final normalizedCurrent = _normalizeFolderPath(currentFolder);
-    final currentRoot = roots.where((r) => _isSameOrChildFolder(normalizedCurrent, r)).fold<String?>(null, (best, root) => best == null || root.length > best.length ? root : best);
+    final currentRoot = roots
+        .where((r) => _isSameOrChildFolder(normalizedCurrent, r))
+        .fold<String?>(null, (best, root) => best == null || root.length > best.length ? root : best);
     if (currentRoot == null) return null;
     if (normalizedCurrent == currentRoot) return null;
 
@@ -890,8 +901,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
       return roots
           .map(
-            (root) =>
-                StructuredEntry.folder(path: root, title: _folderLabel(root), count: counts[root] ?? 0, highlighted: _isFolderOnPathToLastWatched(root, lastWatchedVideoPath)),
+            (root) => StructuredEntry.folder(
+              path: root,
+              title: _folderLabel(root),
+              count: counts[root] ?? 0,
+              highlighted: _isFolderOnPathToLastWatched(root, lastWatchedVideoPath),
+            ),
           )
           .where((entry) => entry.count > 0)
           .toList();
@@ -926,7 +941,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final entries = <StructuredEntry>[];
     entries.add(StructuredEntry.parent(path: parent, highlighted: false));
     entries.addAll(
-      folders.map((e) => StructuredEntry.folder(path: e.key, title: p.basename(e.key), count: e.value, highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath))),
+      folders.map(
+        (e) => StructuredEntry.folder(
+          path: e.key,
+          title: p.basename(e.key),
+          count: e.value,
+          highlighted: _isFolderOnPathToLastWatched(e.key, lastWatchedVideoPath),
+        ),
+      ),
     );
     entries.addAll(files.map((v) => StructuredEntry.video(v, highlighted: _isLastWatchedVideo(v, lastWatchedVideoPath))));
     return entries;
@@ -1033,7 +1055,9 @@ class _HomeScreenState extends State<HomeScreen> {
           if (canSyncAcrossLan)
             IconButton(
               tooltip: 'home.continue_from_device'.tr(),
-              icon: _isDiscoveringPeerSessions ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
+              icon: _isDiscoveringPeerSessions
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.play_arrow),
               onPressed: _isDiscoveringPeerSessions ? null : _continueFromPeerPlayback,
             ),
           IconButton(
@@ -1067,7 +1091,9 @@ class _HomeScreenState extends State<HomeScreen> {
           final lastWatchedInLibrary = _resolveLastWatchedInLibrary(displayVideos);
           final lastWatchedPath = lastWatchedInLibrary != null ? _normalizeFolderPath(lastWatchedInLibrary.uri) : null;
           final structuredRoots = _structuredRootsFor(displayVideos, state.folders);
-          final structuredEntries = libraryMode == 'structured' ? _buildStructuredEntries(displayVideos, structuredRoots, lastWatchedPath) : const <StructuredEntry>[];
+          final structuredEntries = libraryMode == 'structured'
+              ? _buildStructuredEntries(displayVideos, structuredRoots, lastWatchedPath)
+              : const <StructuredEntry>[];
           final gridVideos = _gridVideosForMode(displayVideos, libraryMode);
 
           if (!hasLibrary && !showRecents) {
@@ -1147,7 +1173,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller: _recentsScrollController,
                             scrollDirection: Axis.horizontal,
                             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisExtent: 100, mainAxisSpacing: 8, crossAxisSpacing: 8),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisExtent: 100,
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                            ),
                             itemCount: _recents.length,
                             itemBuilder: (_, i) => RecentCard(
                               title: _recents[i].displayName,
@@ -1205,7 +1236,11 @@ class _HomeScreenState extends State<HomeScreen> {
                               CheckedPopupMenuItem(value: 'view:iconsSmall', checked: visualMode == 'iconsSmall', child: Text('home.view_icons_small'.tr())),
                               CheckedPopupMenuItem(value: 'view:iconsLarge', checked: visualMode == 'iconsLarge', child: Text('home.view_icons_large'.tr())),
                               const PopupMenuDivider(),
-                              CheckedPopupMenuItem(value: 'group:structured', checked: libraryMode == 'structured', child: Text('settings.library_mode_structured'.tr())),
+                              CheckedPopupMenuItem(
+                                value: 'group:structured',
+                                checked: libraryMode == 'structured',
+                                child: Text('settings.library_mode_structured'.tr()),
+                              ),
                               CheckedPopupMenuItem(value: 'group:flat', checked: libraryMode == 'flat', child: Text('settings.library_mode_flat'.tr())),
                               CheckedPopupMenuItem(value: 'group:smart', checked: libraryMode == 'smart', child: Text('settings.library_mode_smart'.tr())),
                             ],
@@ -1258,7 +1293,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(
-                              [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
+                              [
+                                if (v.folder != null) v.folder!,
+                                if (v.sizeBytes != null) _formatSize(v.sizeBytes!),
+                                if (resume != null) 'home.resume_marker'.tr(),
+                              ].join(' · '),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1285,7 +1324,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                             child: Row(
                               children: [
-                                Icon(entry.smartGroup == true ? ((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right) : Icons.folder_open, size: 18),
+                                Icon(
+                                  entry.smartGroup == true ? ((entry.expanded ?? false) ? Icons.expand_more : Icons.chevron_right) : Icons.folder_open,
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 6),
                                 if (entry.posterPath != null)
                                   PosterImage.file(
@@ -1299,7 +1341,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Icon(entry.smartGroup == true ? Icons.auto_awesome : Icons.folder_open, size: 16),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text('${entry.title} (${entry.count})', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelLarge),
+                                  child: Text(
+                                    '${entry.title} (${entry.count})',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.labelLarge,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1315,10 +1362,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         behavior: HitTestBehavior.opaque,
                         onSecondaryTapDown: (details) => _showVideoContextMenu(v, details.globalPosition),
                         child: ListTile(
-                          leading: PosterImage.file(posterPath, width: 28, height: 42, borderRadius: BorderRadius.circular(4), fallback: const Icon(Icons.movie)),
+                          leading: PosterImage.file(
+                            posterPath,
+                            width: 28,
+                            height: 42,
+                            borderRadius: BorderRadius.circular(4),
+                            fallback: const Icon(Icons.movie),
+                          ),
                           title: Text(v.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(
-                            [if (v.folder != null) v.folder!, if (v.sizeBytes != null) _formatSize(v.sizeBytes!), if (resume != null) 'home.resume_marker'.tr()].join(' · '),
+                            [
+                              if (v.folder != null) v.folder!,
+                              if (v.sizeBytes != null) _formatSize(v.sizeBytes!),
+                              if (resume != null) 'home.resume_marker'.tr(),
+                            ].join(' · '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1416,7 +1473,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
   Future<void> _showRecentContextMenu(VideoItem v, Offset globalPosition) async {
     final selected = await showMenu<String>(
       context: context,
@@ -1429,7 +1485,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _loadRecents();
     }
   }
-
 
   void _showVideoMenu(VideoItem v) {
     showModalBottomSheet(
@@ -1573,7 +1628,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   LinearProgressIndicator(value: progress),
                   const SizedBox(height: 12),
-                  Text(received != null && total != null ? '$received / $total' : v.displayName, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
+                  Text(
+                    received != null && total != null ? '$received / $total' : v.displayName,
+                    style: const TextStyle(fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
                 ],
               ),
               actions: [

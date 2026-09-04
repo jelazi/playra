@@ -50,7 +50,15 @@ class PlayerLauncher {
   VideoItem _toPlaybackVideo(VideoItem original, String resolvedUrl) {
     if (original.uri == resolvedUrl) return original;
     final source = resolvedUrl.startsWith('http') ? VideoSource.http : original.source;
-    return VideoItem(id: original.id, name: original.name, uri: resolvedUrl, source: source, sizeBytes: original.sizeBytes, modified: original.modified, folder: original.folder);
+    return VideoItem(
+      id: original.id,
+      name: original.name,
+      uri: resolvedUrl,
+      source: source,
+      sizeBytes: original.sizeBytes,
+      modified: original.modified,
+      folder: original.folder,
+    );
   }
 
   Future<String?> _resolvePlayUrl(BuildContext context, VideoItem video) async {
@@ -104,8 +112,12 @@ class PlayerLauncher {
   }
 
   Future<String> _resolveReachableProxyUrl(String candidateUrl) async {
-    final candidates = <String>{candidateUrl, _replaceHost(candidateUrl, 'localhost'), _replaceHost(candidateUrl, '127.0.0.1'), _replaceHost(candidateUrl, '::1')}
-      ..removeWhere((url) => url.isEmpty);
+    final candidates = <String>{
+      candidateUrl,
+      _replaceHost(candidateUrl, 'localhost'),
+      _replaceHost(candidateUrl, '127.0.0.1'),
+      _replaceHost(candidateUrl, '::1'),
+    }..removeWhere((url) => url.isEmpty);
 
     for (final url in candidates) {
       final reachable = await _canReachProxy(url);

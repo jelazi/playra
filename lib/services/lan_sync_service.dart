@@ -144,7 +144,13 @@ class LanSyncService {
       peers[host] = port;
     });
 
-    final payload = jsonEncode(<String, dynamic>{'type': _discoveryType, 'requestId': requestId, 'username': _syncUsername, 'password': _syncPassword, 'httpPort': _httpPort});
+    final payload = jsonEncode(<String, dynamic>{
+      'type': _discoveryType,
+      'requestId': requestId,
+      'username': _syncUsername,
+      'password': _syncPassword,
+      'httpPort': _httpPort,
+    });
 
     final broadcasts = await _candidateBroadcastAddresses();
     for (final b in broadcasts) {
@@ -223,7 +229,11 @@ class LanSyncService {
 
       req.response.headers.contentType = ContentType.json;
       req.response.write(
-        jsonEncode(<String, dynamic>{'deviceName': Platform.localHostname, 'session': PlayraStorage.getNowPlayingSession(), 'generatedAt': DateTime.now().millisecondsSinceEpoch}),
+        jsonEncode(<String, dynamic>{
+          'deviceName': Platform.localHostname,
+          'session': PlayraStorage.getNowPlayingSession(),
+          'generatedAt': DateTime.now().millisecondsSinceEpoch,
+        }),
       );
       await req.response.close();
       return;

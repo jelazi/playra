@@ -78,7 +78,17 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
   }
 
   @override
-  List<Object?> get props => [originalEntries, modifiedEntries, subtitlePath, videoPath, globalShift, keyPoints, selectedEntryIndex, individualOffsets, keyRecalculated];
+  List<Object?> get props => [
+    originalEntries,
+    modifiedEntries,
+    subtitlePath,
+    videoPath,
+    globalShift,
+    keyPoints,
+    selectedEntryIndex,
+    individualOffsets,
+    keyRecalculated,
+  ];
 }
 
 class SubtitleEditorError extends SubtitleEditorState {

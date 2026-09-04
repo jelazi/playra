@@ -14,32 +14,34 @@ class ServerConnection {
   final String? username;
   final String? password;
 
-  const ServerConnection({required this.id, required this.name, required this.type, required this.host, this.port, this.share, this.path, this.username, this.password});
+  const ServerConnection({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.host,
+    this.port,
+    this.share,
+    this.path,
+    this.username,
+    this.password,
+  });
 
-  ServerConnection copyWith({String? name, ServerType? type, String? host, int? port, String? share, String? path, String? username, String? password}) => ServerConnection(
-    id: id,
-    name: name ?? this.name,
-    type: type ?? this.type,
-    host: host ?? this.host,
-    port: port ?? this.port,
-    share: share ?? this.share,
-    path: path ?? this.path,
-    username: username ?? this.username,
-    password: password ?? this.password,
-  );
+  ServerConnection copyWith({String? name, ServerType? type, String? host, int? port, String? share, String? path, String? username, String? password}) =>
+      ServerConnection(
+        id: id,
+        name: name ?? this.name,
+        type: type ?? this.type,
+        host: host ?? this.host,
+        port: port ?? this.port,
+        share: share ?? this.share,
+        path: path ?? this.path,
+        username: username ?? this.username,
+        password: password ?? this.password,
+      );
 
   /// Copy without the password. `copyWith` cannot express this — a null there
   /// means "keep the current value".
-  ServerConnection withoutPassword() => ServerConnection(
-    id: id,
-    name: name,
-    type: type,
-    host: host,
-    port: port,
-    share: share,
-    path: path,
-    username: username,
-  );
+  ServerConnection withoutPassword() => ServerConnection(id: id, name: name, type: type, host: host, port: port, share: share, path: path, username: username);
 
   Map<String, dynamic> toJson() => {
     'id': id,

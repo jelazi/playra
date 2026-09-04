@@ -4,14 +4,7 @@ import '../../../widgets/poster_image.dart';
 
 /// Poster tile in the "recently played" strip.
 class RecentCard extends StatelessWidget {
-  const RecentCard({
-    super.key,
-    required this.title,
-    required this.posterPath,
-    required this.onTap,
-    required this.onMenu,
-    this.onSecondaryTapDown,
-  });
+  const RecentCard({super.key, required this.title, required this.posterPath, required this.onTap, required this.onMenu, this.onSecondaryTapDown});
 
   final String title;
   final String? posterPath;

@@ -427,7 +427,9 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                           const SizedBox(height: 6),
                           if (media.type == MediaType.movie && media.releaseDate != null)
                             _infoChip(Icons.calendar_today, media.releaseDate!.length >= 4 ? media.releaseDate!.substring(0, 4) : media.releaseDate!),
-                          if (media.type == MediaType.tv) ...[if (media.numberOfSeasons != null) _infoChip(Icons.tv, '${media.numberOfSeasons} ${'video.seasons'.tr()}')],
+                          if (media.type == MediaType.tv) ...[
+                            if (media.numberOfSeasons != null) _infoChip(Icons.tv, '${media.numberOfSeasons} ${'video.seasons'.tr()}'),
+                          ],
                         ],
                       ),
                     ),
@@ -469,7 +471,10 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                       ),
                     ],
                   ),
-                  if (_episode!.overview != null && _episode!.overview!.isNotEmpty) ...[const SizedBox(height: 8), Text(_episode!.overview!, style: const TextStyle(height: 1.5))],
+                  if (_episode!.overview != null && _episode!.overview!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(_episode!.overview!, style: const TextStyle(height: 1.5)),
+                  ],
                   if (_episode!.voteAverage != null) ...[
                     const SizedBox(height: 8),
                     Row(

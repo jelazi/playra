@@ -90,22 +90,16 @@ void main() {
     final video = VideoNameParser.parse('True.Detective.S01E02.720p.mkv');
 
     test('orders by score, highest first', () {
-      final sorted = SubtitleRelevanceService.sortByRelevance(
-        [_sub('True Detective'), _sub('True Detective S01E02'), _sub('True Detective S02E02')],
-        video,
-      );
+      final sorted = SubtitleRelevanceService.sortByRelevance([_sub('True Detective'), _sub('True Detective S01E02'), _sub('True Detective S02E02')], video);
       expect(sorted.allSorted.map((s) => s.title), ['True Detective S01E02', 'True Detective S02E02', 'True Detective']);
     });
 
     test('splits at a score of 70', () {
-      final sorted = SubtitleRelevanceService.sortByRelevance(
-        [
-          _sub('True Detective S01E02'), // 100
-          _sub('True Detective S01E05'), // 70 - the boundary counts as relevant
-          _sub('True Detective S02E02'), // 50
-        ],
-        video,
-      );
+      final sorted = SubtitleRelevanceService.sortByRelevance([
+        _sub('True Detective S01E02'), // 100
+        _sub('True Detective S01E05'), // 70 - the boundary counts as relevant
+        _sub('True Detective S02E02'), // 50
+      ], video);
       expect(sorted.relevant.map((s) => s.title), ['True Detective S01E02', 'True Detective S01E05']);
       expect(sorted.others.map((s) => s.title), ['True Detective S02E02']);
       expect(sorted.relevantCount, 2);

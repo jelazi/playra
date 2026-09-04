@@ -143,7 +143,14 @@ class SmbProxyServer {
     return Response(partial ? 206 : 200, body: Stream<List<int>>.value(bodyBytes), headers: headers);
   }
 
-  Future<Uint8List> _readRangeWithCache(ServerConnection server, String fileKeyPrefix, String smbPath, {required int start, required int end, required int totalSize}) async {
+  Future<Uint8List> _readRangeWithCache(
+    ServerConnection server,
+    String fileKeyPrefix,
+    String smbPath, {
+    required int start,
+    required int end,
+    required int totalSize,
+  }) async {
     final expectedLength = end - start + 1;
     final buffer = BytesBuilder(copy: false);
 

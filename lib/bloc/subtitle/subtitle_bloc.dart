@@ -200,7 +200,13 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     }
   }
 
-  Future<_SearchResultWithQuery> _searchWithProgressiveFallback(VideoInfo videoInfo, List<String> queries, String? languageFilter, int token, Emitter<SubtitleState> emit) async {
+  Future<_SearchResultWithQuery> _searchWithProgressiveFallback(
+    VideoInfo videoInfo,
+    List<String> queries,
+    String? languageFilter,
+    int token,
+    Emitter<SubtitleState> emit,
+  ) async {
     if (queries.isEmpty) {
       return const _SearchResultWithQuery([], '');
     }
@@ -311,7 +317,11 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
       debugPrint('🔵 Loading page $nextPage for query: ${currentState.searchQuery}');
 
-      final newSubtitles = await _repository.searchSubtitles(currentState.searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter, page: nextPage);
+      final newSubtitles = await _repository.searchSubtitles(
+        currentState.searchQuery,
+        languageFilter: languageFilter == 'all' ? null : languageFilter,
+        page: nextPage,
+      );
 
       if (newSubtitles.isEmpty) {
         emit(currentState.copyWith(hasMore: false, isLoadingMore: false));

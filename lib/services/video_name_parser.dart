@@ -53,15 +53,10 @@ class VideoNameParser {
   }
 
   static String? _deriveDirectoryTitle(List<String> ancestors, bool isTV) {
-    final seasonFolderPattern = RegExp(
-      r'^(season\s*\d+|serie\s*\d+|s\d{1,2}|s\d{1,2}\s*[- ]\s*s?\d{1,2}|series\s*\d+\s*[- ]\s*\d+)$',
-      caseSensitive: false,
-    );
+    final seasonFolderPattern = RegExp(r'^(season\s*\d+|serie\s*\d+|s\d{1,2}|s\d{1,2}\s*[- ]\s*s?\d{1,2}|series\s*\d+\s*[- ]\s*\d+)$', caseSensitive: false);
 
     // Keep close-to-file ordering: parent -> grandparent -> ...
-    final cleaned = ancestors
-        .map((name) => _sanitizeTitleCandidate(name, removeYear: true))
-        .toList();
+    final cleaned = ancestors.map((name) => _sanitizeTitleCandidate(name, removeYear: true)).toList();
 
     if (isTV) {
       // If parent is a season folder, prefer the next usable ancestor.

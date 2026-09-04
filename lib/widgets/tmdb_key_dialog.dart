@@ -10,11 +10,7 @@ import '../../services/tmdb_service.dart';
 /// Returns true when a key was saved or removed. The stored key is never put
 /// back into the field — the dialog only reports whether one exists.
 Future<bool> showTmdbKeyDialog(BuildContext context) async {
-  final saved = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => const _TmdbKeyDialog(),
-  );
+  final saved = await showDialog<bool>(context: context, barrierDismissible: false, builder: (_) => const _TmdbKeyDialog());
   return saved ?? false;
 }
 
@@ -103,10 +99,7 @@ class _TmdbKeyDialogState extends State<_TmdbKeyDialog> {
               hintText: _hasStoredKey ? 'settings.tmdb_key_stored'.tr() : null,
               errorText: _error,
               border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                icon: Icon(_obscured ? Icons.visibility_off : Icons.visibility),
-                onPressed: () => setState(() => _obscured = !_obscured),
-              ),
+              suffixIcon: IconButton(icon: Icon(_obscured ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscured = !_obscured)),
             ),
             onSubmitted: (_) => _verifying ? null : _save(),
           ),

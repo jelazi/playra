@@ -129,9 +129,14 @@ Good one
 
   group('applyKeyBasedSync', () {
     List<SubtitleEntry> fiveEntries() => List.generate(
-          5,
-          (i) => SubtitleEntry(index: i + 1, startTime: Duration(seconds: i * 10), endTime: Duration(seconds: i * 10 + 2), text: 'line ${i + 1}'),
-        );
+      5,
+      (i) => SubtitleEntry(
+        index: i + 1,
+        startTime: Duration(seconds: i * 10),
+        endTime: Duration(seconds: i * 10 + 2),
+        text: 'line ${i + 1}',
+      ),
+    );
 
     test('applies a single key point to everything', () {
       final result = SrtParserService.applyKeyBasedSync(fiveEntries(), {3: const Duration(seconds: 5)});
@@ -140,20 +145,14 @@ Good one
 
     test('interpolates linearly between two key points', () {
       // First entry +1s, last entry +5s: the middle entry lands halfway, at +3s.
-      final result = SrtParserService.applyKeyBasedSync(
-        fiveEntries(),
-        {1: const Duration(seconds: 1), 5: const Duration(seconds: 5)},
-      );
+      final result = SrtParserService.applyKeyBasedSync(fiveEntries(), {1: const Duration(seconds: 1), 5: const Duration(seconds: 5)});
       expect(result[0].startTime, const Duration(seconds: 1));
       expect(result[2].startTime, const Duration(seconds: 20 + 3));
       expect(result[4].startTime, const Duration(seconds: 40 + 5));
     });
 
     test('holds the outer key offsets beyond the key range', () {
-      final result = SrtParserService.applyKeyBasedSync(
-        fiveEntries(),
-        {2: const Duration(seconds: 2), 4: const Duration(seconds: 4)},
-      );
+      final result = SrtParserService.applyKeyBasedSync(fiveEntries(), {2: const Duration(seconds: 2), 4: const Duration(seconds: 4)});
       expect(result[0].startTime, const Duration(seconds: 2));
       expect(result[4].startTime, const Duration(seconds: 44));
     });

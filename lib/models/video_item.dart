@@ -24,7 +24,15 @@ class VideoItem {
     return dot > 0 ? name.substring(dot + 1).toLowerCase() : '';
   }
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'uri': uri, 'source': source.name, 'sizeBytes': sizeBytes, 'modified': modified?.toIso8601String(), 'folder': folder};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'uri': uri,
+    'source': source.name,
+    'sizeBytes': sizeBytes,
+    'modified': modified?.toIso8601String(),
+    'folder': folder,
+  };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
     id: json['id'] as String,

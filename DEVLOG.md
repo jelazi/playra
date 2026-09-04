@@ -2,6 +2,50 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 8) — fix: repair the failing CI and extend it with format, coverage and a build job
+
+### What was fixed
+
+- **CI had been red since the SecretStore commit, and it was my bug.**
+  `test/secret_store_test.dart` checked the key file permissions with
+  `stat -f '%Lp'`, which is BSD/macOS syntax. On the Linux runner `-f` means "file system status",
+  so the test compared `'600'` against `File: "/tmp/..."`. It passed locally on macOS and failed on
+  every push. Replaced with `(await keyFile.stat()).mode & 0x1FF`, rendered as octal — no
+  subprocess, and identical on both platforms.
+
+### What was done
+
+- **Formatting gate.** `dart format --output=none --set-exit-if-changed .` added to CI. This was
+  not free: the codebase is hand-formatted, and 73 of 83 files differed from the 80-column
+  default. `analysis_options.yaml` now pins `formatter: page_width: 160`, which matches the
+  existing style (p99 line length is 146) and cuts the churn to 50 files; the repo was then
+  formatted once. The change is whitespace and wrapping only — analyze stayed clean and all 146
+  tests still pass.
+- **Coverage.** `flutter test --coverage` plus `codecov/codecov-action@v5`, with
+  `fail_ci_if_error: false` so a Codecov outage can never fail the build. Codecov badge added to
+  the README next to the CI badge.
+- **Build job.** A second job on `ubuntu-latest` running `flutter build apk --debug`, with
+  `actions/setup-java@v4` (temurin 17, matching `android/app/build.gradle.kts`). It deliberately
+  passes no TMDB key, so the job also proves the app builds without one.
+- The Flutter version is now a single `FLUTTER_VERSION` env var instead of being repeated per job.
+
+### Current state
+
+- `dart format --set-exit-if-changed`: passes. `flutter analyze`: no issues.
+  `flutter test --coverage`: 146/146, `coverage/lcov.info` written (23 KB).
+- `flutter build apk --debug` verified locally (335 s) before adding it to CI, rather than
+  assuming the Android job would work.
+
+### Pending / next steps
+
+- Codecov: the badge stays "unknown" until the first upload lands. Tokenless upload works for
+  public repos but is rate-limited; adding a `CODECOV_TOKEN` repository secret makes it reliable.
+  The workflow already reads it and tolerates its absence.
+- The one-time reformat is a large, mechanical diff. It is worth committing on its own and listing
+  in a `.git-blame-ignore-revs` file so `git blame` skips it.
+- Still open: tagging a release with attached artifacts, the repo social preview image, and the
+  `Blade.Runner.2049.2017` year-parsing bug from part 6.
+
 ## 2026-09-04 (part 7) — refactor: extract a shared widget layer and split the god screens into directories
 
 ### What was done

@@ -81,9 +81,9 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                       SnackBar(content: Text(msg), backgroundColor: state.merged ? Colors.orange : Colors.red, duration: const Duration(seconds: 5)),
                     );
                   } else {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)),
+                    );
                   }
                   // Use cached data from before download
                   debugPrint('🔍 Opening player with cached data:');
@@ -249,12 +249,20 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton.icon(onPressed: () => _playVideoWithoutSubtitles(), icon: const Icon(Icons.play_arrow), label: Text('video.play'.tr())),
+                    child: ElevatedButton.icon(
+                      onPressed: () => _playVideoWithoutSubtitles(),
+                      icon: const Icon(Icons.play_arrow),
+                      label: Text('video.play'.tr()),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
-                    child: OutlinedButton.icon(onPressed: _pickSubtitleFromFile, icon: const Icon(Icons.upload_file), label: const Text('Přidat titulky ze souboru')),
+                    child: OutlinedButton.icon(
+                      onPressed: _pickSubtitleFromFile,
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Přidat titulky ze souboru'),
+                    ),
                   ),
                 ],
               )
@@ -389,7 +397,9 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: SelectableText(
-                    state.showOthers ? 'Zobrazeno všech ${state.subtitles.length} titulků' : 'Zobrazeno ${state.sortedSubtitles!.relevantCount} nejrelevantnějších titulků',
+                    state.showOthers
+                        ? 'Zobrazeno všech ${state.subtitles.length} titulků'
+                        : 'Zobrazeno ${state.sortedSubtitles!.relevantCount} nejrelevantnějších titulků',
                     style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.w500),
                   ),
                 ),
@@ -512,7 +522,10 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                                 onPressed: () => _downloadSubtitle(subtitle),
                                 icon: const Icon(Icons.download, size: 18),
                                 label: const Text('Stáhnout'),
-                                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), backgroundColor: isRelevant ? null : Colors.grey),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  backgroundColor: isRelevant ? null : Colors.grey,
+                                ),
                               ),
                             if (isPhone) Icon(Icons.chevron_right, color: Colors.grey[400]),
                           ],

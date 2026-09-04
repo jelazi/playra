@@ -27,7 +27,6 @@ import '../player_launcher.dart';
 import 'track_keys.dart';
 import 'widgets/subtitle_options_sheet.dart';
 
-
 class PlayraPlayerScreen extends StatefulWidget {
   final VideoItem video;
 
@@ -1116,7 +1115,12 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                   children: [
                     Positioned.fill(
                       child: _videoZoom == 1.0
-                          ? Video(controller: _videoController, fit: _currentVideoBoxFit(), controls: (_) => const SizedBox.shrink(), subtitleViewConfiguration: subtitleCfg)
+                          ? Video(
+                              controller: _videoController,
+                              fit: _currentVideoBoxFit(),
+                              controls: (_) => const SizedBox.shrink(),
+                              subtitleViewConfiguration: subtitleCfg,
+                            )
                           : Transform.scale(
                               scale: _videoZoom,
                               child: Video(
@@ -1308,7 +1312,11 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                   children: [
                     LinearProgressIndicator(value: progress),
                     const SizedBox(height: 12),
-                    Text(received != null && total != null ? '$received / $total' : videoName, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
+                    Text(
+                      received != null && total != null ? '$received / $total' : videoName,
+                      style: const TextStyle(fontSize: 13),
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
                 actions: [
@@ -1520,7 +1528,12 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   Future<void> _pickAudioTrack() async {
     final tracks = _player.state.tracks.audio;
     final current = _player.state.track.audio;
-    final picked = await _showTrackPicker<AudioTrack>(title: 'player.audio_track'.tr(), tracks: tracks, current: current, label: (t) => t.title ?? t.language ?? t.id);
+    final picked = await _showTrackPicker<AudioTrack>(
+      title: 'player.audio_track'.tr(),
+      tracks: tracks,
+      current: current,
+      label: (t) => t.title ?? t.language ?? t.id,
+    );
     if (picked != null) {
       final setAudio = await _runPlayerAction(() => _player.setAudioTrack(picked), operation: 'set picked audio track');
       if (!setAudio) return;

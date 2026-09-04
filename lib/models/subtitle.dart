@@ -59,7 +59,17 @@ class Subtitle extends Equatable {
     };
   }
 
-  Subtitle copyWith({String? id, String? title, String? language, String? format, String? downloadUrl, String? rating, String? uploader, String? details, bool? isSynced}) {
+  Subtitle copyWith({
+    String? id,
+    String? title,
+    String? language,
+    String? format,
+    String? downloadUrl,
+    String? rating,
+    String? uploader,
+    String? details,
+    bool? isSynced,
+  }) {
     return Subtitle(
       id: id ?? this.id,
       title: title ?? this.title,

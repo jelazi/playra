@@ -36,7 +36,12 @@ class SmbBrowserService {
       return _connect!;
     }
     await close();
-    _connect = await SmbConnect.connectAuth(host: server.host, domain: '', username: server.username ?? '', password: server.password ?? '').timeout(_connectionTimeout);
+    _connect = await SmbConnect.connectAuth(
+      host: server.host,
+      domain: '',
+      username: server.username ?? '',
+      password: server.password ?? '',
+    ).timeout(_connectionTimeout);
     _server = server;
     _lastConnectedAt = DateTime.now();
     return _connect!;

@@ -70,7 +70,10 @@ class LibraryCubit extends Cubit<LibraryState> {
     try {
       final loadedVideos = await _service.listFolders(folders, recursive: true);
 
-      final videos = loadedVideos.where((video) => kSupportedVideoExtensions.contains(video.extension.toLowerCase())).fold<List<VideoItem>>(<VideoItem>[], (acc, video) {
+      final videos = loadedVideos.where((video) => kSupportedVideoExtensions.contains(video.extension.toLowerCase())).fold<List<VideoItem>>(<VideoItem>[], (
+        acc,
+        video,
+      ) {
         if (acc.any((existing) => existing.id == video.id)) return acc;
         acc.add(video);
         return acc;

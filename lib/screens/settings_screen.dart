@@ -449,10 +449,7 @@ class SettingsScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VideoLibraryScreen())),
               ),
-              SubtitleStyleControls(
-                style: s,
-                onChanged: (updated) => context.read<PlayraSettingsCubit>().updateStyle(updated),
-              ),
+              SubtitleStyleControls(style: s, onChanged: (updated) => context.read<PlayraSettingsCubit>().updateStyle(updated)),
               ListTile(
                 leading: const Icon(Icons.cloud_download),
                 title: Text('settings.subtitle_manager'.tr()),
@@ -547,9 +544,6 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
-
-
-
 }
 
 class _TmdbKeyTile extends StatefulWidget {
@@ -563,11 +557,7 @@ class _TmdbKeyTileState extends State<_TmdbKeyTile> {
   @override
   Widget build(BuildContext context) {
     if (TmdbService.isKeyFixedAtBuildTime) {
-      return ListTile(
-        leading: const Icon(Icons.key),
-        title: Text('settings.tmdb_key'.tr()),
-        subtitle: Text('settings.tmdb_key_from_build'.tr()),
-      );
+      return ListTile(leading: const Icon(Icons.key), title: Text('settings.tmdb_key'.tr()), subtitle: Text('settings.tmdb_key_from_build'.tr()));
     }
 
     final configured = SecretStore.tmdbApiKey.isNotEmpty;

@@ -48,7 +48,8 @@ class VideoDetailScreen extends StatelessWidget {
                       width: 150,
                       height: 225,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(width: 150, height: 225, color: Colors.grey[300], child: const Icon(Icons.movie, size: 48)),
+                      errorBuilder: (context, error, stackTrace) =>
+                          Container(width: 150, height: 225, color: Colors.grey[300], child: const Icon(Icons.movie, size: 48)),
                     ),
                   ),
                 ),
@@ -140,7 +141,11 @@ class VideoDetailScreen extends StatelessWidget {
                     onPressed: onEditSubtitles,
                     icon: const Icon(Icons.edit),
                     label: Text('player.edit_subtitles'.tr()),
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
               ],

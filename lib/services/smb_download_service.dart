@@ -159,9 +159,22 @@ class SmbDownloadService {
     }
   }
 
-  static Future<void> _downloadSubtitleSidecars({required String videoProxyUrl, required String downloadsDirPath, DownloadCancellationToken? cancellationToken, SmbBrowserService? browser, ServerConnection? server, String? smbPath}) async {
+  static Future<void> _downloadSubtitleSidecars({
+    required String videoProxyUrl,
+    required String downloadsDirPath,
+    DownloadCancellationToken? cancellationToken,
+    SmbBrowserService? browser,
+    ServerConnection? server,
+    String? smbPath,
+  }) async {
     if (browser != null && server != null && smbPath != null) {
-      await _downloadSubtitleSidecarsDirect(downloadsDirPath: downloadsDirPath, cancellationToken: cancellationToken, browser: browser, server: server, videoSmbPath: smbPath);
+      await _downloadSubtitleSidecarsDirect(
+        downloadsDirPath: downloadsDirPath,
+        cancellationToken: cancellationToken,
+        browser: browser,
+        server: server,
+        videoSmbPath: smbPath,
+      );
       return;
     }
 
@@ -181,7 +194,13 @@ class SmbDownloadService {
     );
   }
 
-  static Future<void> _downloadSubtitleSidecarsDirect({required String downloadsDirPath, required SmbBrowserService browser, required ServerConnection server, required String videoSmbPath, DownloadCancellationToken? cancellationToken}) async {
+  static Future<void> _downloadSubtitleSidecarsDirect({
+    required String downloadsDirPath,
+    required SmbBrowserService browser,
+    required ServerConnection server,
+    required String videoSmbPath,
+    DownloadCancellationToken? cancellationToken,
+  }) async {
     final dir = p.dirname(videoSmbPath);
     final base = p.basenameWithoutExtension(videoSmbPath);
     final names = <String>['$base.srt', '$base.cs.srt', '$base.cz.srt', '$base.czech.srt', '$base.en.srt', '$base.english.srt'];
@@ -260,7 +279,16 @@ class SmbDownloadService {
       await sink.close();
     }
 
-    unawaited(_downloadSubtitleSidecars(videoProxyUrl: '', downloadsDirPath: dir.path, cancellationToken: cancellationToken, browser: browser, server: server, smbPath: smbPath));
+    unawaited(
+      _downloadSubtitleSidecars(
+        videoProxyUrl: '',
+        downloadsDirPath: dir.path,
+        cancellationToken: cancellationToken,
+        browser: browser,
+        server: server,
+        smbPath: smbPath,
+      ),
+    );
 
     return targetVideoPath;
   }

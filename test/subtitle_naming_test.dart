@@ -35,7 +35,15 @@ void main() {
     test('Both subtitles use same title field structure', () {
       final original = Subtitle(id: '1', title: 'Movie Title Original', language: 'cs', format: 'srt', downloadUrl: 'test1');
 
-      final alternative = Subtitle(id: '2', title: 'Movie Title Alternative', language: 'cs', format: 'srt', downloadUrl: 'test2', uploader: 'user', details: 'details');
+      final alternative = Subtitle(
+        id: '2',
+        title: 'Movie Title Alternative',
+        language: 'cs',
+        format: 'srt',
+        downloadUrl: 'test2',
+        uploader: 'user',
+        details: 'details',
+      );
 
       // Both should have the same type and structure for title
       expect(original.title.runtimeType, alternative.title.runtimeType);

@@ -15,13 +15,7 @@ void main() {
     final file = File(p.join(tempDir.path, relativePath));
     await file.parent.create(recursive: true);
     await file.writeAsString('not really a video');
-    return VideoItem(
-      id: file.path,
-      name: p.basename(file.path),
-      uri: file.path,
-      source: VideoSource.local,
-      folder: p.basename(file.parent.path),
-    );
+    return VideoItem(id: file.path, name: p.basename(file.path), uri: file.path, source: VideoSource.local, folder: p.basename(file.parent.path));
   }
 
   test('finds the next episode in the same folder', () async {
@@ -109,12 +103,7 @@ void main() {
   });
 
   test('returns null for a non-local source', () async {
-    const remote = VideoItem(
-      id: 'smb://nas/media/Show.S01E01.mkv',
-      name: 'Show.S01E01.mkv',
-      uri: 'smb://nas/media/Show.S01E01.mkv',
-      source: VideoSource.smb,
-    );
+    const remote = VideoItem(id: 'smb://nas/media/Show.S01E01.mkv', name: 'Show.S01E01.mkv', uri: 'smb://nas/media/Show.S01E01.mkv', source: VideoSource.smb);
     expect(await EpisodeContinuationService.findNextEpisode(remote), isNull);
   });
 

@@ -43,8 +43,14 @@ class _FolderEntry {
 
   const _FolderEntry._({this.sectionKey, this.title, this.count, this.expanded, this.video, this.level = 0, this.isRoot = false});
 
-  const _FolderEntry.header({required String sectionKey, required String title, required int count, required bool expanded, required int level, required bool isRoot})
-    : this._(sectionKey: sectionKey, title: title, count: count, expanded: expanded, level: level, isRoot: isRoot);
+  const _FolderEntry.header({
+    required String sectionKey,
+    required String title,
+    required int count,
+    required bool expanded,
+    required int level,
+    required bool isRoot,
+  }) : this._(sectionKey: sectionKey, title: title, count: count, expanded: expanded, level: level, isRoot: isRoot);
 
   const _FolderEntry.video(VideoInfo video, {required int level}) : this._(video: video, level: level);
 
@@ -230,7 +236,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           children: [
                             const Icon(Icons.star, color: Colors.amber, size: 24),
                             const SizedBox(width: 8),
-                            SelectableText(_selectedMediaInfo!.voteAverage!.toStringAsFixed(1), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            SelectableText(
+                              _selectedMediaInfo!.voteAverage!.toStringAsFixed(1),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
                             SelectableText(' / 10', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
                           ],
                         ),
@@ -284,7 +293,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                       onPressed: () => _openSubtitleEditor(_selectedVideo!),
                       icon: const Icon(Icons.edit),
                       label: Text('player.edit_subtitles'.tr()),
-                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -305,7 +318,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
             // Button for changing the mapping
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(onPressed: () => _editMediaInfo(_selectedVideo!), icon: const Icon(Icons.edit), label: Text('video.edit_media_info'.tr())),
+              child: OutlinedButton.icon(
+                onPressed: () => _editMediaInfo(_selectedVideo!),
+                icon: const Icon(Icons.edit),
+                label: Text('video.edit_media_info'.tr()),
+              ),
             ),
           ] else if (_isSearching) ...[
             const Center(child: CircularProgressIndicator()),
@@ -316,7 +333,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                ElevatedButton.icon(onPressed: () => _searchMediaInfo(_selectedVideo!), icon: const Icon(Icons.refresh), label: Text('video.search_again'.tr())),
+                ElevatedButton.icon(
+                  onPressed: () => _searchMediaInfo(_selectedVideo!),
+                  icon: const Icon(Icons.refresh),
+                  label: Text('video.search_again'.tr()),
+                ),
                 const SizedBox(width: 12),
                 ElevatedButton.icon(onPressed: () => _editMediaInfo(_selectedVideo!), icon: const Icon(Icons.search), label: Text('video.manual_search'.tr())),
               ],
@@ -391,14 +412,21 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: _isDragging ? Colors.blue : Theme.of(context).dividerColor, width: _isDragging ? 2 : 1),
-                          color: _isDragging ? Colors.blue.withValues(alpha: 0.08) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                          color: _isDragging
+                              ? Colors.blue.withValues(alpha: 0.08)
+                              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                         ),
                         child: Row(
                           children: [
                             Icon(Icons.upload_file, size: 18, color: Theme.of(context).colorScheme.primary),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text('video.drag_drop_hint'.tr(), maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                              child: Text(
+                                'video.drag_drop_hint'.tr(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
                             ),
                           ],
                         ),
@@ -525,7 +553,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                                 bottom: -2,
                                                 child: Container(
                                                   padding: const EdgeInsets.all(2),
-                                                  decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                                  decoration: BoxDecoration(
+                                                    color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
+                                                    shape: BoxShape.circle,
+                                                  ),
                                                   child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
                                                 ),
                                               ),
@@ -565,7 +596,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                                 padding: const EdgeInsets.only(top: 4),
                                                 child: Text(
                                                   'Dvojklik = vyhledat titulky',
-                                                  style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
                                                 ),
                                               ),
                                           ],
@@ -575,7 +610,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                             : Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
+                                                  IconButton(
+                                                    icon: const Icon(Icons.play_circle_outline, size: 24),
+                                                    tooltip: 'video.play'.tr(),
+                                                    onPressed: () => _playVideo(video),
+                                                  ),
                                                   IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
                                                 ],
                                               ),
@@ -673,7 +712,10 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                               bottom: -2,
                                               child: Container(
                                                 padding: const EdgeInsets.all(2),
-                                                decoration: BoxDecoration(color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange, shape: BoxShape.circle),
+                                                decoration: BoxDecoration(
+                                                  color: video.hasPhysicalSubtitles ? Colors.green : Colors.orange,
+                                                  shape: BoxShape.circle,
+                                                ),
                                                 child: const Icon(Icons.subtitles, color: Colors.white, size: 10),
                                               ),
                                             ),
@@ -713,7 +755,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                               padding: const EdgeInsets.only(top: 4),
                                               child: Text(
                                                 'Dvojklik = vyhledat titulky',
-                                                style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                                                  fontStyle: FontStyle.italic,
+                                                ),
                                               ),
                                             ),
                                         ],
@@ -723,7 +769,11 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                           : Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                IconButton(icon: const Icon(Icons.play_circle_outline, size: 24), tooltip: 'video.play'.tr(), onPressed: () => _playVideo(video)),
+                                                IconButton(
+                                                  icon: const Icon(Icons.play_circle_outline, size: 24),
+                                                  tooltip: 'video.play'.tr(),
+                                                  onPressed: () => _playVideo(video),
+                                                ),
                                                 IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => _removeVideo(video)),
                                               ],
                                             ),
@@ -1073,7 +1123,13 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
       // Search TMDB
       final language = context.locale.languageCode;
-      final results = await _tmdbService.search(query: parsed.cleanName, language: language, searchMovies: !parsed.isTV, searchTV: parsed.isTV, year: parsed.year);
+      final results = await _tmdbService.search(
+        query: parsed.cleanName,
+        language: language,
+        searchMovies: !parsed.isTV,
+        searchTV: parsed.isTV,
+        year: parsed.year,
+      );
 
       if (results.isNotEmpty) {
         // Show the picker dialog
@@ -1279,7 +1335,8 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                         width: 40,
                                         height: 60,
                                         fit: BoxFit.cover,
-                                        errorBuilder: (_, _, _) => Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
+                                        errorBuilder: (_, _, _) =>
+                                            Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
                                       ),
                                     )
                                   : Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
@@ -1287,7 +1344,8 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (media.originalTitle != media.title) Text(media.originalTitle, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
+                                  if (media.originalTitle != media.title)
+                                    Text(media.originalTitle, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
                                   Text(
                                     '${media.releaseDate?.substring(0, 4) ?? '?'} • ${media.type == MediaType.movie ? 'Film' : 'Seriál'} • ⭐ ${media.voteAverage?.toStringAsFixed(1) ?? '?'}',
                                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),

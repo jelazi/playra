@@ -74,7 +74,10 @@ class EpisodeContinuationService {
 
   static Directory _pickSearchRoot(Directory currentDir) {
     final name = p.basename(currentDir.path);
-    final isSeasonFolder = RegExp(r'^(season\s*\d+|serie\s*\d+|s\d{1,2}|s\d{1,2}\s*[- ]\s*s?\d{1,2})$', caseSensitive: false).hasMatch(name.replaceAll(RegExp(r'[._\-+]'), ' '));
+    final isSeasonFolder = RegExp(
+      r'^(season\s*\d+|serie\s*\d+|s\d{1,2}|s\d{1,2}\s*[- ]\s*s?\d{1,2})$',
+      caseSensitive: false,
+    ).hasMatch(name.replaceAll(RegExp(r'[._\-+]'), ' '));
 
     if (!isSeasonFolder) return currentDir;
     return Directory(p.dirname(currentDir.path));

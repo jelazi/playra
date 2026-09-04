@@ -82,7 +82,6 @@ class PlayraStorage {
     await _player?.put(_playerKey, merged.encode());
   }
 
-
   static List<String> getLibraryFolders() {
     final raw = _libraryFolders?.get(_libraryFoldersKey);
     if (raw != null) {

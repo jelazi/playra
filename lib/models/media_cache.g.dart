@@ -13,9 +13,7 @@ class MediaCacheAdapter extends TypeAdapter<MediaCache> {
   @override
   MediaCache read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final fields = <int, dynamic>{
-      for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
-    };
+    final fields = <int, dynamic>{for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read()};
     return MediaCache(
       cleanName: fields[0] as String,
       tmdbId: fields[1] as int,
@@ -66,9 +64,5 @@ class MediaCacheAdapter extends TypeAdapter<MediaCache> {
   int get hashCode => typeId.hashCode;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is MediaCacheAdapter &&
-          runtimeType == other.runtimeType &&
-          typeId == other.typeId;
+  bool operator ==(Object other) => identical(this, other) || other is MediaCacheAdapter && runtimeType == other.runtimeType && typeId == other.typeId;
 }
