@@ -53,7 +53,7 @@ falls back to the Settings field.
 ### How the stored key is protected
 
 - It lives in `SecretStore` — a Hive box encrypted with AES (`HiveAesCipher`), separate from the
-  plaintext settings box.
+  plaintext settings box. The same box holds the password of every saved SMB/server connection.
 - The 32-byte encryption key is written to `.playra_secret_key` in the application-support
   directory and chmod-ed to `600` on macOS and Linux, so the Hive file alone is useless.
 - The key is never written back into the input field, never included in the LAN-sync snapshot, and

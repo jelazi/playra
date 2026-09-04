@@ -2,6 +2,58 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 (part 4) — feat: move SMB server passwords into the encrypted secret box
+
+### What was done
+
+- **`SecretStore` gained a per-server password API** — `serverPassword(id)` and
+  `setServerPassword(id, password)`, keyed `server_password:<id>`, alongside the TMDB key.
+- **`PlayraStorage` splits the credential on write and merges it on read.** `saveServer()` writes
+  `s.withoutPassword().encode()` into the plaintext `playra_servers` box and puts the password in
+  `SecretStore`; `getServers()` merges it back, falling back to a password still embedded in the
+  box so a connection keeps working if the migration could not run; `deleteServer()` drops the
+  stored password too. Every call site (`servers_screen`, `smb_browser_service`,
+  `smb_proxy_server`, `library_service`, …) is untouched — they still read `server.password`.
+- **`ServerConnection.withoutPassword()`** — `copyWith` cannot express this, since a null argument
+  there means "keep the current value".
+- **Migration for existing servers.** `PlayraStorage.migrateSecretsToSecretStore()` walks the
+  `playra_servers` box, moves any embedded password into `SecretStore` and rewrites the entry
+  without it. Entries already migrated are skipped.
+- **Restructured the migration ownership.** `SecretStore` no longer imports `PlayraStorage` (it was
+  a circular import): it is now a pure store, and `PlayraStorage` — which owns the legacy boxes —
+  holds both migrations behind one `migrateSecretsToSecretStore()` call, run from `main()` after
+  `SecretStore.init()`. `takeLegacyTmdbApiKey()` is gone, replaced by the private
+  `_migrateTmdbApiKey()`.
+- **`SecretStore.init({Directory? keyDirectory})`** — a test seam, because path_provider is not
+  available to unit tests.
+- **New `test/secret_store_test.dart`** — 11 tests over a temporary Hive directory.
+
+### What was fixed
+
+- SMB server passwords were stored as plaintext JSON in the `playra_servers` Hive box, readable by
+  anything that could open the file.
+
+### Current state
+
+- `flutter analyze`: no issues found.
+- `flutter test`: 37/37 passing.
+- `flutter build bundle`: succeeds.
+- The security claim is now actually exercised rather than only compiled: one test writes a known
+  canary string as a server password and a TMDB key, flushes the box and asserts neither appears
+  anywhere in the raw `playra_secrets.hive` bytes on disk; another asserts the key file is mode
+  `600` via `stat`. The round trip, per-id isolation, deletion, the legacy migration and the
+  already-migrated no-op are each covered.
+
+### Pending / next steps
+
+- Two plaintext credentials remain, both out of scope for this change: `PlayerSettings.syncPassword`
+  (LAN sync, `playra_player` box) and the titulky.com login in `AppSettings` (legacy
+  `SettingsService` box, which uses a generated Hive adapter). Both can move the same way.
+- The server edit dialog still pre-fills the stored password into its (obscured) field, unlike the
+  TMDB dialog. That is deliberate — not pre-filling would silently wipe the password on every edit
+  unless a "keep existing" path is added.
+- Still unverified on a running app: the first-launch dialog and the on-device migration.
+
 ## 2026-09-04 (part 3) — chore: make env.json feed the build-time TMDB key automatically
 
 ### What was done

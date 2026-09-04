@@ -8,6 +8,7 @@ import '../models/player_settings.dart';
 import '../models/server_connection.dart';
 import '../models/subtitle_style_settings.dart';
 import '../models/video_item.dart';
+import 'secret_store.dart';
 import 'video_name_parser.dart';
 
 /// Centralised storage for the new Playra app data (player settings,
@@ -81,26 +82,6 @@ class PlayraStorage {
     await _player?.put(_playerKey, merged.encode());
   }
 
-  /// Returns a TMDB key left over in the plaintext settings box by an earlier
-  /// build and rewrites the box without it. Re-encoding also drops the fields
-  /// of removed features, so no stale credential stays on disk.
-  static Future<String?> takeLegacyTmdbApiKey() async {
-    final raw = _player?.get(_playerKey);
-    if (raw == null) return null;
-
-    String? legacy;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map && decoded['tmdbApiKey'] is String) {
-        legacy = (decoded['tmdbApiKey'] as String).trim();
-      }
-      final reencoded = PlayerSettings.fromJson(Map<String, dynamic>.from(decoded as Map)).encode();
-      if (reencoded != raw) await _player?.put(_playerKey, reencoded);
-    } catch (_) {
-      return null;
-    }
-    return legacy;
-  }
 
   static List<String> getLibraryFolders() {
     final raw = _libraryFolders?.get(_libraryFoldersKey);
@@ -1230,13 +1211,18 @@ class PlayraStorage {
   }
 
   // --- Servers ---
+  /// Server list with each password merged back in from [SecretStore]. A
+  /// password still embedded in the box is used as a fallback, so a connection
+  /// keeps working if the migration below could not run.
   static List<ServerConnection> getServers() {
     final box = _servers;
     if (box == null) return const [];
     return box.values
         .map((s) {
           try {
-            return ServerConnection.decode(s);
+            final server = ServerConnection.decode(s);
+            final stored = SecretStore.serverPassword(server.id);
+            return stored == null ? server : server.copyWith(password: stored);
           } catch (_) {
             return null;
           }
@@ -1246,10 +1232,54 @@ class PlayraStorage {
   }
 
   static Future<void> saveServer(ServerConnection s) async {
-    await _servers?.put(s.id, s.encode());
+    await SecretStore.setServerPassword(s.id, s.password);
+    await _servers?.put(s.id, s.withoutPassword().encode());
   }
 
   static Future<void> deleteServer(String id) async {
+    await SecretStore.setServerPassword(id, null);
     await _servers?.delete(id);
+  }
+
+  /// Moves credentials that older builds wrote as plaintext into [SecretStore]
+  /// and rewrites the plaintext boxes without them. Runs once per start, after
+  /// both stores are open; entries already migrated are left alone.
+  static Future<void> migrateSecretsToSecretStore() async {
+    await _migrateTmdbApiKey();
+    await _migrateServerPasswords();
+  }
+
+  static Future<void> _migrateTmdbApiKey() async {
+    final raw = _player?.get(_playerKey);
+    if (raw == null) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final legacy = decoded['tmdbApiKey'];
+      if (legacy is String && legacy.trim().isNotEmpty && SecretStore.tmdbApiKey.isEmpty) {
+        await SecretStore.setTmdbApiKey(legacy.trim());
+      }
+      // Re-encoding also drops the fields of removed features.
+      final reencoded = PlayerSettings.fromJson(Map<String, dynamic>.from(decoded)).encode();
+      if (reencoded != raw) await _player?.put(_playerKey, reencoded);
+    } catch (_) {}
+  }
+
+  static Future<void> _migrateServerPasswords() async {
+    final box = _servers;
+    if (box == null) return;
+    for (final key in box.keys.toList()) {
+      final raw = box.get(key);
+      if (raw == null) continue;
+      try {
+        final server = ServerConnection.decode(raw);
+        final embedded = server.password;
+        if (embedded == null || embedded.isEmpty) continue;
+        if (SecretStore.serverPassword(server.id) == null) {
+          await SecretStore.setServerPassword(server.id, embedded);
+        }
+        await box.put(key, server.withoutPassword().encode());
+      } catch (_) {}
+    }
   }
 }

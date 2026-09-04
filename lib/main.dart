@@ -35,6 +35,7 @@ void main() async {
   await MediaCacheService.init();
   await PlayraStorage.init();
   await SecretStore.init();
+  await PlayraStorage.migrateSecretsToSecretStore();
   // LAN sync server should not block app startup in release builds.
   unawaited(LanSyncService.instance.start().catchError((_) {}));
 

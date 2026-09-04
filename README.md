@@ -37,7 +37,8 @@ Built on [media_kit](https://pub.dev/packages/media_kit), so it plays what libmp
 
 ## Network sources
 
-- **SMB shares** — save server connections, browse them in-app and stream straight from a NAS
+- **SMB shares** — save server connections, browse them in-app and stream straight from a NAS;
+  passwords are kept in the AES-encrypted secret box, never in the plaintext settings
 - **Local streaming proxy** — a small `shelf` HTTP server bridges SMB to the player, with a
   configurable stream cache size, so no full download is needed before playback starts
 - **LAN sync** — keep library state consistent across machines on the same network

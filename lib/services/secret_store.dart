@@ -6,10 +6,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import 'playra_storage.dart';
-
-/// Encrypted Hive box holding user-supplied credentials (currently the TMDB
-/// API key).
+/// Encrypted Hive box holding user-supplied credentials: the TMDB API key and
+/// the password of every saved server connection.
 ///
 /// The AES key is kept in a separate owner-only file rather than inside the
 /// box, so a Hive file that leaks through a backup, a synced folder or a
@@ -18,11 +16,14 @@ class SecretStore {
   static const String _boxName = 'playra_secrets';
   static const String _keyFileName = '.playra_secret_key';
   static const String _tmdbEntry = 'tmdb_api_key';
+  static const String _serverPasswordPrefix = 'server_password:';
 
   static Box<String>? _box;
 
-  static Future<void> init() async {
-    final cipher = HiveAesCipher(await _loadOrCreateEncryptionKey());
+  /// [keyDirectory] overrides where the encryption key file lives; tests pass a
+  /// temporary directory because path_provider is unavailable to them.
+  static Future<void> init({Directory? keyDirectory}) async {
+    final cipher = HiveAesCipher(await _loadOrCreateEncryptionKey(keyDirectory));
     try {
       _box = await Hive.openBox<String>(_boxName, encryptionCipher: cipher);
     } catch (e) {
@@ -30,7 +31,6 @@ class SecretStore {
       await Hive.deleteBoxFromDisk(_boxName);
       _box = await Hive.openBox<String>(_boxName, encryptionCipher: cipher);
     }
-    await _migrateFromPlayerSettings();
   }
 
   static String get tmdbApiKey => _box?.get(_tmdbEntry)?.trim() ?? '';
@@ -44,8 +44,22 @@ class SecretStore {
     }
   }
 
-  static Future<List<int>> _loadOrCreateEncryptionKey() async {
-    final dir = await getApplicationSupportDirectory();
+  /// Password of the saved server [serverId], or null when none is stored.
+  static String? serverPassword(String serverId) {
+    final stored = _box?.get('$_serverPasswordPrefix$serverId');
+    return (stored == null || stored.isEmpty) ? null : stored;
+  }
+
+  static Future<void> setServerPassword(String serverId, String? password) async {
+    if (password == null || password.isEmpty) {
+      await _box?.delete('$_serverPasswordPrefix$serverId');
+    } else {
+      await _box?.put('$_serverPasswordPrefix$serverId', password);
+    }
+  }
+
+  static Future<List<int>> _loadOrCreateEncryptionKey(Directory? override) async {
+    final dir = override ?? await getApplicationSupportDirectory();
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, _keyFileName));
 
@@ -76,13 +90,6 @@ class SecretStore {
       await Process.run('chmod', ['600', file.path]);
     } catch (e) {
       debugPrint('SecretStore: could not restrict key file permissions ($e)');
-    }
-  }
-
-  static Future<void> _migrateFromPlayerSettings() async {
-    final legacy = await PlayraStorage.takeLegacyTmdbApiKey();
-    if (legacy != null && legacy.isNotEmpty && tmdbApiKey.isEmpty) {
-      await setTmdbApiKey(legacy);
     }
   }
 }

@@ -28,6 +28,19 @@ class ServerConnection {
     password: password ?? this.password,
   );
 
+  /// Copy without the password. `copyWith` cannot express this — a null there
+  /// means "keep the current value".
+  ServerConnection withoutPassword() => ServerConnection(
+    id: id,
+    name: name,
+    type: type,
+    host: host,
+    port: port,
+    share: share,
+    path: path,
+    username: username,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
