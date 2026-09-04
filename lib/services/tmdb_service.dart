@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 
 import '../models/media_info.dart';
@@ -38,7 +39,7 @@ class TmdbService {
 
       return results;
     } catch (e) {
-      print('TMDB search error: $e');
+      debugPrint('TMDB search error: $e');
       return [];
     }
   }
@@ -57,7 +58,7 @@ class TmdbService {
       final results = response.data['results'] as List;
       return results.map((json) => MediaInfo.fromJson(json, MediaType.movie)).toList();
     } catch (e) {
-      print('Movie search error: $e');
+      debugPrint('Movie search error: $e');
       return [];
     }
   }
@@ -76,7 +77,7 @@ class TmdbService {
       final results = response.data['results'] as List;
       return results.map((json) => MediaInfo.fromJson(json, MediaType.tv)).toList();
     } catch (e) {
-      print('TV search error: $e');
+      debugPrint('TV search error: $e');
       return [];
     }
   }
@@ -88,7 +89,7 @@ class TmdbService {
 
       return MediaInfo.fromJson(response.data, MediaType.movie);
     } catch (e) {
-      print('Get movie details error: $e');
+      debugPrint('Get movie details error: $e');
       return null;
     }
   }
@@ -100,7 +101,7 @@ class TmdbService {
 
       return MediaInfo.fromJson(response.data, MediaType.tv);
     } catch (e) {
-      print('Get TV details error: $e');
+      debugPrint('Get TV details error: $e');
       return null;
     }
   }
@@ -142,7 +143,7 @@ class TmdbService {
         airDate: localized.airDate ?? english.airDate,
       );
     } catch (e) {
-      print('Get episode details error: $e');
+      debugPrint('Get episode details error: $e');
       return null;
     }
   }

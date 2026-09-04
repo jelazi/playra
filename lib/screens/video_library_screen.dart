@@ -69,7 +69,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
   bool _isSearching = false;
   bool _isDragging = false;
   bool _isFromCache = false; // Příznak, že info je z cache
-  Map<String, bool> _expandedSections = {};
+  final Map<String, bool> _expandedSections = {};
 
   final TmdbService _tmdbService = TmdbService();
 
@@ -114,7 +114,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
     // Zkusit auto-login pokud máme uložené údaje
     if (settings.username != null && settings.username!.isNotEmpty && settings.password != null && settings.password!.isNotEmpty) {
-      print('🔵 VideoLibraryScreen: Attempting auto-login');
+      debugPrint('🔵 VideoLibraryScreen: Attempting auto-login');
       subtitleBloc.add(AutoLoginToTitulky());
     } else {
       // Zobrazit přihlášení
@@ -238,12 +238,12 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                       const SizedBox(height: 16),
                       // Rok vydání / Sezóny
                       if (_selectedMediaInfo!.type == MediaType.movie && _selectedMediaInfo!.releaseDate != null)
-                        SelectableText('video.release_date'.tr() + ': ${_selectedMediaInfo!.releaseDate}', style: const TextStyle(fontSize: 16)),
+                        SelectableText('${'video.release_date'.tr()}: ${_selectedMediaInfo!.releaseDate}', style: const TextStyle(fontSize: 16)),
                       if (_selectedMediaInfo!.type == MediaType.tv) ...[
                         if (_selectedMediaInfo!.numberOfSeasons != null)
-                          SelectableText('video.seasons'.tr() + ': ${_selectedMediaInfo!.numberOfSeasons}', style: const TextStyle(fontSize: 16)),
+                          SelectableText('${'video.seasons'.tr()}: ${_selectedMediaInfo!.numberOfSeasons}', style: const TextStyle(fontSize: 16)),
                         if (_selectedMediaInfo!.numberOfEpisodes != null)
-                          SelectableText('video.episodes'.tr() + ': ${_selectedMediaInfo!.numberOfEpisodes}', style: const TextStyle(fontSize: 16)),
+                          SelectableText('${'video.episodes'.tr()}: ${_selectedMediaInfo!.numberOfEpisodes}', style: const TextStyle(fontSize: 16)),
                       ],
                     ],
                   ),
@@ -503,7 +503,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                     child: AnimatedContainer(
                                       duration: const Duration(milliseconds: 180),
                                       decoration: BoxDecoration(
-                                        color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
+                                        color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12) : null,
                                         border: isSelected
                                             ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
                                             : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
@@ -566,7 +566,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                                 padding: const EdgeInsets.only(top: 4),
                                                 child: Text(
                                                   'Dvojklik = vyhledat titulky',
-                                                  style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
+                                                  style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
                                                 ),
                                               ),
                                           ],
@@ -651,7 +651,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 180),
                                     decoration: BoxDecoration(
-                                      color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : null,
+                                      color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12) : null,
                                       border: isSelected
                                           ? Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 4))
                                           : const Border(left: BorderSide(color: Colors.transparent, width: 4)),
@@ -714,7 +714,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                               padding: const EdgeInsets.only(top: 4),
                                               child: Text(
                                                 'Dvojklik = vyhledat titulky',
-                                                style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withOpacity(0.7), fontStyle: FontStyle.italic),
+                                                style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
                                               ),
                                             ),
                                         ],
@@ -1032,7 +1032,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     });
     _searchMediaInfo(video).then((_) {
       // Na telefonu otevřít detail screen po načtení
-      if (!_isTabletOrDesktop(context) && mounted) {
+      if (mounted && !_isTabletOrDesktop(context)) {
         _showVideoDetailScreen(video);
       }
     });
@@ -1044,13 +1044,13 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
     try {
       // Parsovat název souboru
       final parsed = VideoNameParser.parse(video.path);
-      print('Parsed name: ${parsed.cleanName}');
-      print('Is TV: ${parsed.isTV}, Season: ${parsed.season}, Episode: ${parsed.episode}');
+      debugPrint('Parsed name: ${parsed.cleanName}');
+      debugPrint('Is TV: ${parsed.isTV}, Season: ${parsed.season}, Episode: ${parsed.episode}');
 
       // Zkontrolovat cache
       final cached = MediaCacheService.getMapping(parsed.cleanName);
       if (cached != null) {
-        print('✅ Found in cache: ${cached.title}');
+        debugPrint('✅ Found in cache: ${cached.title}');
 
         // Načíst detaily z cache
         final language = context.locale.languageCode;
@@ -1098,7 +1098,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
 
             // Uložit do cache
             await MediaCacheService.saveMapping(parsed.cleanName, finalInfo);
-            print('💾 Saved to cache: ${parsed.cleanName} → ${finalInfo.title}');
+            debugPrint('💾 Saved to cache: ${parsed.cleanName} → ${finalInfo.title}');
 
             if (mounted) {
               setState(() {
@@ -1118,7 +1118,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
         }
       }
     } catch (e) {
-      print('Error searching media info: $e');
+      debugPrint('Error searching media info: $e');
       if (mounted) {
         setState(() => _isSearching = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('video.search_error'.tr())));
@@ -1165,7 +1165,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                           width: 40,
                           height: 60,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
+                          errorBuilder: (_, _, _) => Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
                         ),
                       )
                     : Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
@@ -1285,7 +1285,7 @@ class _VideoLibraryScreenState extends State<VideoLibraryScreen> {
                                         width: 40,
                                         height: 60,
                                         fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
+                                        errorBuilder: (_, _, _) => Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),
                                       ),
                                     )
                                   : Container(width: 40, height: 60, color: Colors.grey[300], child: const Icon(Icons.movie, size: 24)),

@@ -2,6 +2,82 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-09-04 — chore: finish the Playra rebrand and clean the repository up for public review
+
+### What was done
+
+- **Renamed the GitHub repository** `titulky_com` -> `playra` and repointed the local `origin`.
+  GitHub keeps a redirect from the old URL. Set a description and ten topics; both were empty before.
+- **Rewrote the README identity.** It was still titled `# Titulky.com` and described the v1
+  subtitle downloader, while `pubspec.yaml` had moved on to Playra 2.0.1 — a video player. Added CI,
+  Flutter, platform and licence badges, and grouped the feature list into library/playback,
+  identification and subtitles. The new entries were taken from services that exist in `lib/`:
+  the built-in player, `EpisodeContinuationService`, the SMB browser and its HTTP streaming proxy,
+  `LanSyncService`, `CinemetaService`, `TranslationService`, `SubtitleRelevanceService` and the
+  subtitle editor. None of that was mentioned anywhere in the README.
+- **Cleared the repository root.** Removed eight ad-hoc `test_*.dart` scripts plus
+  `inspect_login_form.dart`, and three working notes (`ENHANCED_DETAILS_SUMMARY.md`,
+  `IMPLEMENTATION_SUMMARY.md`, `QUICK_START.md`). Moved `GUIDE.md` and `TMDB_SETUP.md` into `docs/`
+  and `create_icon.py` into `tool/`.
+- **Salvaged two of the deleted scripts into real tests** rather than dropping them:
+  - `test_enhanced_details.dart` was already written against `flutter_test`, so it moved to
+    `test/subtitle_details_test.dart`; its trailing block of twelve `print` calls was removed.
+  - `test_subtitle_indicators.dart` was a manual script with no assertions at all. The behaviour it
+    poked at is now covered properly by a new `test/subtitle_file_service_test.dart` — 12 tests over
+    `SubtitleFileService.checkSubtitleFiles`, `getExpectedSubtitlePath` and `filterExistingVideos`,
+    including language-suffixed variants, unsupported extensions and a missing directory.
+  - The other seven scripts drive live HTTP against titulky.com behind a login. They cannot become
+    unit tests without an account and a network, so they were simply deleted.
+- **Added `LICENSE`** (MIT) and a `## License` section in the README.
+- **Added `.github/workflows/ci.yml`** — `flutter pub get` + `flutter analyze` + `flutter test` on
+  push/PR against `main`, Flutter pinned to 3.44.3.
+- **Fixed the broken `TMDB_SETUP.md` link** in the README after the move, and replaced two stale
+  `titulky_com` repository URLs in `docs/TMDB_SETUP.md`.
+
+### What was fixed
+
+Analyzer findings went from **422 to zero**.
+
+- **391 `avoid_print`.** Converted all 149 `print(` calls under `lib/` to `debugPrint(`, and added
+  `package:flutter/foundation.dart` to the five files that then had `debugPrint` out of scope
+  (`app_config.dart`, `titulky_repository.dart`, `tmdb_service.dart`, `subtitle_file_service.dart`,
+  `subtitle_bloc.dart`). The remaining 243 were inside the deleted root scripts. Worst offenders were
+  `titulky_repository.dart` with 64 and `subtitle_bloc.dart` with 37.
+- **One real compile error.** `test_download.dart:75` passed a `SubtitleSaveResult` where a `String`
+  was expected — the script had not compiled for some time. It went with the rest of the root scripts.
+- **24 findings via `dart fix --apply`**: deprecated `withOpacity` -> `withValues`, a deprecated form
+  field `value` -> `initialValue`, `unnecessary_underscores`, `prefer_interpolation_to_compose_strings`,
+  `prefer_final_fields` and an unnecessary interpolation brace.
+- **Three `use_build_context_synchronously`**, each fixed to match its situation rather than by
+  blanket guard:
+  - `servers_screen.dart` `_editServer()` read `ServersCubit` off the context after `await showDialog`;
+    the cubit is now captured before the dialog opens.
+  - `subtitle_search_screen.dart` read `SubtitleBloc` in the `.then` callback after returning from the
+    player; it now returns early if the element is gone, after resetting `_hasNavigatedToPlayer`.
+  - `video_library_screen.dart` tested `!_isTabletOrDesktop(context) && mounted`, touching the context
+    before checking `mounted`; the operands are now the other way round.
+
+### Current state
+
+- `flutter analyze`: **No issues found** (was 422 issues — 1 error, 421 info).
+- `flutter test`: **19 tests passed**, up from 4 (of which one was a placeholder).
+- CI has never run yet; the workflow reaches GitHub with this commit.
+
+### Pending / next steps
+
+- **The TMDB API key is still live and public.** `lib/services/tmdb_service.dart:10` holds
+  `***REMOVED***`, it is present in all 44 commits, and a request to
+  `api.themoviedb.org` with it still answers `HTTP 200`. Deleting the line changes nothing while the
+  history stands: **the key has to be revoked and reissued on themoviedb.org**, which only the account
+  owner can do. After that it should become `String.fromEnvironment('TMDB_API_KEY')`, and the README's
+  "Set up TMDB API key" section — which currently tells the reader to paste a key into the source —
+  needs rewriting to describe `--dart-define`.
+- No `screenshots/` yet; the README carries no images of the player or library.
+- God files remain: `playra_player_screen.dart` 75 KB, `home_screen.dart` 75 KB,
+  `video_library_screen.dart` 69 KB, `playra_storage.dart` 46 KB, `subtitle_search_screen.dart` 41 KB.
+- Coverage is still thin at 3 test files against 75 files under `lib/`. `video_name_parser.dart`,
+  `srt_parser_service.dart` and `subtitle_relevance_service.dart` are pure enough to test directly.
+
 ## 2026-06-26 (part 5) — feat: notify user about multi-disc subtitles on download
 
 ### What was done

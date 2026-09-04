@@ -33,7 +33,7 @@ class ServersScreen extends StatelessWidget {
           }
           return ListView.separated(
             itemCount: state.servers.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
               final s = state.servers[i];
               return ListTile(
@@ -68,12 +68,13 @@ class ServersScreen extends StatelessWidget {
   }
 
   Future<void> _editServer(BuildContext context, ServerConnection? existing) async {
+    final cubit = context.read<ServersCubit>();
     final result = await showDialog<ServerConnection>(
       context: context,
       builder: (_) => _ServerEditDialog(initial: existing),
     );
     if (result != null) {
-      await context.read<ServersCubit>().save(result);
+      await cubit.save(result);
     }
   }
 }
@@ -119,7 +120,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<ServerType>(
-              value: _type,
+              initialValue: _type,
               decoration: InputDecoration(labelText: 'servers.type'.tr()),
               items: ServerType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name.toUpperCase()))).toList(),
               onChanged: (v) => setState(() => _type = v ?? ServerType.smb),

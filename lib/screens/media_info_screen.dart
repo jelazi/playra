@@ -278,7 +278,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                                         width: 36,
                                         height: 54,
                                         fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => const SizedBox(width: 36, height: 54),
+                                        errorBuilder: (_, _, _) => const SizedBox(width: 36, height: 54),
                                       ),
                                     )
                                   : const SizedBox(width: 36),
@@ -368,7 +368,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                   background: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(media.backdropUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                      Image.network(media.backdropUrl, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink()),
                       const DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
@@ -398,7 +398,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                     if (media.posterUrl.isNotEmpty) ...[
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(media.posterUrl, width: 120, height: 180, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                        child: Image.network(media.posterUrl, width: 120, height: 180, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink()),
                       ),
                       const SizedBox(width: 16),
                     ],

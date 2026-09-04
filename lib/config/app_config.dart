@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
@@ -30,7 +31,7 @@ class AppConfig {
         return AppConfig.fromJson(json);
       }
     } catch (e) {
-      print('Error loading config: $e');
+      debugPrint('Error loading config: $e');
     }
     return AppConfig();
   }
@@ -42,7 +43,7 @@ class AppConfig {
       final json = jsonEncode(toJson());
       await configFile.writeAsString(json);
     } catch (e) {
-      print('Error saving config: $e');
+      debugPrint('Error saving config: $e');
     }
   }
 
@@ -54,7 +55,7 @@ class AppConfig {
         await configFile.delete();
       }
     } catch (e) {
-      print('Error clearing config: $e');
+      debugPrint('Error clearing config: $e');
     }
   }
 

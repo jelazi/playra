@@ -6,8 +6,6 @@ import 'package:playra/repositories/titulky_repository.dart';
 void main() {
   group('Enhanced Original Subtitle Details Tests', () {
     test('AlternativeSubtitlesResult structure', () {
-      final originalSubtitle = Subtitle(id: '123', title: 'Test Movie (2024)', language: 'cs', format: 'srt', downloadUrl: 'https://test.com/detail?id=123');
-
       final enhancedSubtitle = Subtitle(
         id: '123',
         title: 'Test Movie (2024)',
@@ -73,17 +71,4 @@ void main() {
       expect(enhanced.details, 'new details');
     });
   });
-
-  print('✅ Enhanced Original Subtitle Tests');
-  print('===================================');
-  print('✓ AlternativeSubtitlesResult structure works correctly');
-  print('✓ Original subtitle preservation works');
-  print('✓ Enhanced properties are properly added');
-  print('');
-  print('🎯 Expected behavior in app:');
-  print('1. Click on a subtitle in search results');
-  print('2. App fetches alternative subtitles AND enhances original with details');
-  print('3. Selected subtitle shows additional info (uploader, details, etc.)');
-  print('4. Alternative subtitles show their own detailed info');
-  print('5. Non-selected subtitles show basic info only');
 }

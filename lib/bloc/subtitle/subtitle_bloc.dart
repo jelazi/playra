@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/subtitle.dart';
@@ -29,57 +30,57 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
   }
 
   Future<void> _onLoginToTitulky(LoginToTitulky event, Emitter<SubtitleState> emit) async {
-    print('🔵 SubtitleBloc: LoginToTitulky event received for username: ${event.username}');
+    debugPrint('🔵 SubtitleBloc: LoginToTitulky event received for username: ${event.username}');
     emit(SubtitleLoggingIn());
-    print('🔵 SubtitleBloc: Emitted SubtitleLoggingIn state');
+    debugPrint('🔵 SubtitleBloc: Emitted SubtitleLoggingIn state');
     try {
-      print('🔵 SubtitleBloc: Calling repository.login()...');
+      debugPrint('🔵 SubtitleBloc: Calling repository.login()...');
       final success = await _repository.login(event.username, event.password);
-      print('🔵 SubtitleBloc: Login result: $success');
+      debugPrint('🔵 SubtitleBloc: Login result: $success');
       if (success) {
-        print('🔵 SubtitleBloc: Login successful, emitting SubtitleLoggedIn');
+        debugPrint('🔵 SubtitleBloc: Login successful, emitting SubtitleLoggedIn');
         // Save login credentials if requested
         if (event.saveCredentials) {
           await SettingsService.saveCredentials(event.username, event.password);
-          print('🔵 SubtitleBloc: Credentials saved');
+          debugPrint('🔵 SubtitleBloc: Credentials saved');
         }
         emit(SubtitleLoggedIn(event.username));
       } else {
-        print('🔵 SubtitleBloc: Login failed, emitting SubtitleLoginFailed');
+        debugPrint('🔵 SubtitleBloc: Login failed, emitting SubtitleLoginFailed');
         emit(SubtitleLoginFailed('auth.login_failed'));
       }
     } catch (e) {
-      print('🔴 SubtitleBloc: Login error: $e');
+      debugPrint('🔴 SubtitleBloc: Login error: $e');
       emit(SubtitleLoginFailed('auth.login_error'));
     }
   }
 
   /// Auto-login from saved credentials
   Future<void> _onAutoLoginToTitulky(AutoLoginToTitulky event, Emitter<SubtitleState> emit) async {
-    print('🔵 SubtitleBloc: AutoLoginToTitulky event received');
+    debugPrint('🔵 SubtitleBloc: AutoLoginToTitulky event received');
     final settings = SettingsService.getSettings();
 
     if (settings.username == null || settings.username!.isEmpty || settings.password == null || settings.password!.isEmpty) {
-      print('🔵 SubtitleBloc: No saved credentials, skipping auto-login');
+      debugPrint('🔵 SubtitleBloc: No saved credentials, skipping auto-login');
       return;
     }
 
-    print('🔵 SubtitleBloc: Found saved credentials for: ${settings.username}');
+    debugPrint('🔵 SubtitleBloc: Found saved credentials for: ${settings.username}');
     emit(SubtitleLoggingIn());
 
     try {
       final success = await _repository.login(settings.username!, settings.password!);
-      print('🔵 SubtitleBloc: Auto-login result: $success');
+      debugPrint('🔵 SubtitleBloc: Auto-login result: $success');
       if (success) {
-        print('🔵 SubtitleBloc: Auto-login successful');
+        debugPrint('🔵 SubtitleBloc: Auto-login successful');
         emit(SubtitleLoggedIn(settings.username!));
       } else {
-        print('🔵 SubtitleBloc: Auto-login failed, clearing credentials');
+        debugPrint('🔵 SubtitleBloc: Auto-login failed, clearing credentials');
         await SettingsService.clearCredentials();
         emit(SubtitleInitial());
       }
     } catch (e) {
-      print('🔴 SubtitleBloc: Auto-login error: $e');
+      debugPrint('🔴 SubtitleBloc: Auto-login error: $e');
       emit(SubtitleInitial());
     }
   }
@@ -89,13 +90,13 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
     // Parse video name to extract season/episode
     final parsedVideo = VideoNameParser.parse(event.videoInfo.path);
-    print('🔵 Parsed video: ${parsedVideo.cleanName}, isTV: ${parsedVideo.isTV}, S${parsedVideo.season}E${parsedVideo.episode}');
+    debugPrint('🔵 Parsed video: ${parsedVideo.cleanName}, isTV: ${parsedVideo.isTV}, S${parsedVideo.season}E${parsedVideo.episode}');
 
     final preferredTitle = _resolvePreferredSearchTitle(parsedVideo.cleanName);
     final searchQueries = _buildProgressiveQueries(baseTitle: preferredTitle, parsedVideo: parsedVideo);
 
     final firstQuery = searchQueries.isNotEmpty ? searchQueries.first : preferredTitle;
-    print('🔵 Search queries (${searchQueries.length}): $searchQueries');
+    debugPrint('🔵 Search queries (${searchQueries.length}): $searchQueries');
 
     emit(SubtitleSearching(event.videoInfo, searchQuery: firstQuery));
     try {
@@ -117,7 +118,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       } else {
         // Sort subtitles by relevance
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
-        print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
+        debugPrint('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
 
         // If we have exactly 25 results, there probably is another page
         final hasMore = subtitles.length >= 25;
@@ -140,7 +141,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     } on _SearchCancelledException {
       // Ignore; explicit cancel handler already emitted a user-facing state.
     } catch (e) {
-      print('🔴 SubtitleBloc: Search error: $e');
+      debugPrint('🔴 SubtitleBloc: Search error: $e');
       emit(SubtitleError(_mapSearchErrorToMessageKey(e)));
     }
   }
@@ -153,7 +154,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     final searchQueries = _buildProgressiveQueries(baseTitle: manualQuery, parsedVideo: parsedVideo);
     final firstQuery = searchQueries.isNotEmpty ? searchQueries.first : manualQuery;
 
-    print('🔵 Manual search queries (${searchQueries.length}): $searchQueries');
+    debugPrint('🔵 Manual search queries (${searchQueries.length}): $searchQueries');
     emit(SubtitleSearching(event.videoInfo, searchQuery: firstQuery));
 
     try {
@@ -173,7 +174,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         emit(SubtitleError('subtitle.no_results_after_fallback'));
       } else {
         final sortedSubtitles = SubtitleRelevanceService.sortByRelevance(subtitles, parsedVideo);
-        print('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
+        debugPrint('🔵 Sorted subtitles: ${sortedSubtitles.relevantCount} relevant, ${sortedSubtitles.othersCount} others');
 
         final hasMore = subtitles.length >= 25;
 
@@ -194,7 +195,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     } on _SearchCancelledException {
       // Ignore; explicit cancel handler already emitted a user-facing state.
     } catch (e) {
-      print('🔴 SubtitleBloc: Manual search error: $e');
+      debugPrint('🔴 SubtitleBloc: Manual search error: $e');
       emit(SubtitleError(_mapSearchErrorToMessageKey(e)));
     }
   }
@@ -237,10 +238,10 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       for (final s in alternative) {
         if (seen.add(s.id)) merged.add(s);
       }
-      print('🔵 Merged fsf=1 results: +${merged.length - primary.length} extra (total ${merged.length})');
+      debugPrint('🔵 Merged fsf=1 results: +${merged.length - primary.length} extra (total ${merged.length})');
       return merged;
     } catch (e) {
-      print('🟡 Alternative search (fsf=1) failed: $e');
+      debugPrint('🟡 Alternative search (fsf=1) failed: $e');
       return primary;
     }
   }
@@ -287,7 +288,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
     final allSubtitles = <Subtitle>[...enrichedOriginals, ...extras];
     final sorted = SubtitleRelevanceService.sortByRelevance(allSubtitles, parsedVideo);
-    print('🔵 Flattened alternatives: +${extras.length} (total ${allSubtitles.length})');
+    debugPrint('🔵 Flattened alternatives: +${extras.length} (total ${allSubtitles.length})');
 
     emit(currentState.copyWith(subtitles: allSubtitles, sortedSubtitles: sorted));
   }
@@ -308,7 +309,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       final languageFilter = settings.preferredSubtitleLanguage ?? 'cs';
       final nextPage = currentState.currentPage + 1;
 
-      print('🔵 Loading page $nextPage for query: ${currentState.searchQuery}');
+      debugPrint('🔵 Loading page $nextPage for query: ${currentState.searchQuery}');
 
       final newSubtitles = await _repository.searchSubtitles(currentState.searchQuery, languageFilter: languageFilter == 'all' ? null : languageFilter, page: nextPage);
 
@@ -326,10 +327,10 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
 
         emit(currentState.copyWith(subtitles: allSubtitles, sortedSubtitles: sortedSubtitles, currentPage: nextPage, hasMore: hasMore, isLoadingMore: false));
 
-        print('🔵 Loaded ${newSubtitles.length} more subtitles. Total: ${allSubtitles.length}');
+        debugPrint('🔵 Loaded ${newSubtitles.length} more subtitles. Total: ${allSubtitles.length}');
       }
     } catch (e) {
-      print('🔴 SubtitleBloc: Load more error: $e');
+      debugPrint('🔴 SubtitleBloc: Load more error: $e');
       emit(currentState.copyWith(isLoadingMore: false));
     }
   }
@@ -433,7 +434,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
       if (result != null) {
         // Save the information that subtitles were downloaded for this video
         await SettingsService.markVideoWithSubtitles(event.videoInfo.path);
-        print('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
+        debugPrint('🔵 SubtitleBloc: Marked video ${event.videoInfo.path} as having downloaded subtitles');
 
         emit(SubtitleDownloaded(event.subtitle, result.path, partCount: result.partCount, merged: result.merged));
 
@@ -442,19 +443,19 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         if (previousState != null) {
           await Future.delayed(const Duration(milliseconds: 100));
           emit(previousState.copyWith(selectedSubtitle: event.subtitle));
-          print('🔵 SubtitleBloc: Restored SubtitleSearchResults state with selection preserved');
+          debugPrint('🔵 SubtitleBloc: Restored SubtitleSearchResults state with selection preserved');
         }
       } else {
         emit(SubtitleError('subtitle.download_error'));
       }
     } catch (e) {
-      print('🔴 SubtitleBloc: Download error: $e');
+      debugPrint('🔴 SubtitleBloc: Download error: $e');
       emit(SubtitleError('subtitle.download_error'));
     }
   }
 
   Future<void> _onLogoutFromTitulky(LogoutFromTitulky event, Emitter<SubtitleState> emit) async {
-    print('🔵 SubtitleBloc: Logout, clearing credentials');
+    debugPrint('🔵 SubtitleBloc: Logout, clearing credentials');
     await _repository.logout();
     await SettingsService.clearCredentials();
     emit(SubtitleInitial());
@@ -477,18 +478,18 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
     emit(currentState.copyWith(selectedSubtitle: event.subtitle, isLoadingAlternatives: true, clearAlternatives: true));
 
     try {
-      print('🔵 Fetching alternative subtitles and enhanced details for: ${event.subtitle.title}');
+      debugPrint('🔵 Fetching alternative subtitles and enhanced details for: ${event.subtitle.title}');
 
       final result = await _repository.getAlternativeSubtitles(event.subtitle);
 
-      print('🔵 Found ${result.alternatives.length} alternative subtitles');
-      print('🔵 Enhanced original subtitle with details: ${result.enhancedOriginal.uploader != null || result.enhancedOriginal.details != null}');
+      debugPrint('🔵 Found ${result.alternatives.length} alternative subtitles');
+      debugPrint('🔵 Enhanced original subtitle with details: ${result.enhancedOriginal.uploader != null || result.enhancedOriginal.details != null}');
 
       // Filter out duplicates that are already in the main list
       final existingIds = currentState.subtitles.map((s) => s.id).toSet();
       final newAlternatives = result.alternatives.where((alt) => !existingIds.contains(alt.id)).toList();
 
-      print('🔵 New alternatives (not in main list): ${newAlternatives.length}');
+      debugPrint('🔵 New alternatives (not in main list): ${newAlternatives.length}');
 
       // Get current state again in case it changed
       if (state is SubtitleSearchResults) {
@@ -496,7 +497,7 @@ class SubtitleBloc extends Bloc<SubtitleEvent, SubtitleState> {
         emit(updatedState.copyWith(enhancedOriginal: result.enhancedOriginal, alternativeSubtitles: newAlternatives, isLoadingAlternatives: false));
       }
     } catch (e) {
-      print('🔴 Error fetching alternative subtitles: $e');
+      debugPrint('🔴 Error fetching alternative subtitles: $e');
       if (state is SubtitleSearchResults) {
         final updatedState = state as SubtitleSearchResults;
         emit(updatedState.copyWith(isLoadingAlternatives: false));

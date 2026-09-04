@@ -1,19 +1,39 @@
-# Titulky.com
+# Playra
 
-Cross-platform Flutter application for video management and subtitle downloading from titulky.com with automatic movie and TV series identification.
+Cross-platform Flutter video player with integrated subtitle management. Playra indexes a local or
+network video library, identifies what each file is, plays it back, and finds, edits and synchronises
+matching subtitles — without leaving the app.
+
+[![CI](https://github.com/jelazi/playra/actions/workflows/ci.yml/badge.svg)](https://github.com/jelazi/playra/actions/workflows/ci.yml)
+![Flutter](https://img.shields.io/badge/Flutter-3.44-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-iOS%20|%20Android%20|%20macOS%20|%20Windows%20|%20Linux-lightgrey.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Features
 
-- ✅ **Video Library** with drag & drop support (desktop)
-- ✅ **Automatic identification** of movies and TV series from file names
-- ✅ **TMDB integration** - display movie/TV information in Czech/English
-- ✅ **Intelligent subtitle search** based on TMDB titles
-- ✅ **Login** to titulky.com with premium account
-- ✅ **Subtitle testing** in player before downloading
-- ✅ **Timing verification** of subtitles with video
-- ✅ **Automatic download** and subtitle renaming
-- ✅ **Localization** - Czech and English
-- ✅ **Cross-platform** - iOS, Android, macOS, Windows, Linux
+### Library and playback
+- ✅ **Video library** with drag & drop (desktop) and file picker (mobile)
+- ✅ **Built-in player** with subtitle rendering and per-track selection
+- ✅ **Episode continuation** — finds the likely next episode of a series and offers to play it
+- ✅ **SMB network shares** — browse and stream from a NAS through a local HTTP proxy
+- ✅ **LAN sync** — keep library state in step across machines on the same network
+
+### Identification
+- ✅ **Filename parsing** of movies and TV episodes (e.g. `True.Detective.S01E02.720p.BluRay`)
+- ✅ **TMDB integration** — posters, ratings, genres and descriptions in Czech or English
+- ✅ **Cinemeta lookup** as an additional metadata source
+- ✅ **Translation fallback** for episode metadata TMDB does not localise
+
+### Subtitles
+- ✅ **Search on titulky.com** driven by the resolved TMDB title, with premium account login
+- ✅ **Relevance ranking** of candidate subtitles against the actual video file
+- ✅ **Preview in the player** before committing to a download
+- ✅ **Subtitle editor** with timing offset correction and SRT re-export
+- ✅ **Automatic download and renaming** to match the video file
+
+### General
+- ✅ **Localization** — Czech and English
+- ✅ **Cross-platform** — iOS, Android, macOS, Windows, Linux
 
 ## How it works?
 
@@ -99,7 +119,7 @@ flutter pub get
 
 **The app requires a TMDB API key for movie identification!**
 
-Read the detailed guide in [TMDB_SETUP.md](TMDB_SETUP.md)
+Read the detailed guide in [docs/TMDB_SETUP.md](docs/TMDB_SETUP.md)
 
 Quick setup:
 1. Sign up at https://www.themoviedb.org/signup
@@ -204,6 +224,10 @@ The app recognizes these formats:
 - `True.Detective.S01E02.720p.BluRay.mkv` → True Detective S01E02
 - `Breaking.Bad.S05E16.1080p.WEB-DL.mkv` → Breaking Bad S05E16
 - `Game of Thrones - S08E06 - 4K.mkv` → Game of Thrones S08E06
+
+## License
+
+Released under the [MIT License](LICENSE).
 
 ## Titulky.com API
 

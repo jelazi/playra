@@ -17,7 +17,7 @@ TMDB (The Movie Database) is a free database that provides information about mov
    - Select "Developer"
    - Fill in the required information:
      - Application name: `Titulky.com Desktop App` (or any name)
-     - Application URL: You can use `https://github.com/yourusername/titulky_com`
+     - Application URL: You can use `https://github.com/yourusername/playra`
      - Application summary: `Desktop application for downloading subtitles`
    - Accept the terms and submit
 
@@ -55,7 +55,7 @@ TMDB (The Movie Database) je bezplatná databáze, která poskytuje informace o 
    - Vyberte "Developer"
    - Vyplňte požadované informace:
      - Název aplikace: `Titulky.com Desktop App` (nebo jakýkoliv název)
-     - URL aplikace: Můžete použít `https://github.com/vaseuzivatelskejmeno/titulky_com`
+     - URL aplikace: Můžete použít `https://github.com/vaseuzivatelskejmeno/playra`
      - Popis aplikace: `Desktopová aplikace pro stahování titulků`
    - Přijměte podmínky a odešlete
 

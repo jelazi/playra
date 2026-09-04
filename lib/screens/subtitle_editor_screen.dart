@@ -57,7 +57,7 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
       _videoController = VideoController(_player!);
 
       _player!.stream.error.listen((error) {
-        print('🔴 SubtitleEditor: Player error: $error');
+        debugPrint('🔴 SubtitleEditor: Player error: $error');
       });
 
       final mediaUri = widget.videoPath.startsWith('file://') ? widget.videoPath : 'file://${widget.videoPath}';
@@ -111,7 +111,7 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
       final subtitleUri = tempPath.startsWith('file://') ? tempPath : 'file://$tempPath';
       await _player!.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
     } catch (e) {
-      print('🔴 SubtitleEditor: Error reloading subtitles: $e');
+      debugPrint('🔴 SubtitleEditor: Error reloading subtitles: $e');
     }
   }
 
@@ -200,7 +200,7 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
                   child: _currentSubtitleText.isNotEmpty
                       ? Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(8)),
+                          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(8)),
                           child: Text(
                             _currentSubtitleText,
                             textAlign: TextAlign.center,
@@ -220,7 +220,7 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black.withOpacity(0.8), Colors.transparent]),
+        gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent]),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -42,22 +42,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     super.initState();
     _currentSubtitlePath = widget.subtitlePath;
     _currentSubtitle = widget.currentSubtitle;
-    print('🎬 VideoPlayerScreen: Available subtitles: ${widget.availableSubtitles?.length ?? 0}');
-    print('🎬 VideoPlayerScreen: Alternative subtitles: ${widget.alternativeSubtitles?.length ?? 0}');
-    print('🎬 VideoPlayerScreen: Current subtitle: ${widget.currentSubtitle?.title}');
-    print('🎬 VideoPlayerScreen: Selected subtitle: ${widget.selectedSubtitle?.title}');
+    debugPrint('🎬 VideoPlayerScreen: Available subtitles: ${widget.availableSubtitles?.length ?? 0}');
+    debugPrint('🎬 VideoPlayerScreen: Alternative subtitles: ${widget.alternativeSubtitles?.length ?? 0}');
+    debugPrint('🎬 VideoPlayerScreen: Current subtitle: ${widget.currentSubtitle?.title}');
+    debugPrint('🎬 VideoPlayerScreen: Selected subtitle: ${widget.selectedSubtitle?.title}');
     _initializeVideo();
   }
 
   Future<void> _initializeVideo() async {
-    print('🎬 VideoPlayerScreen: Initializing video...');
+    debugPrint('🎬 VideoPlayerScreen: Initializing video...');
     try {
       final videoPath = widget.videoInfo.path;
-      print('🎬 VideoPlayerScreen: Loading video: $videoPath');
+      debugPrint('🎬 VideoPlayerScreen: Loading video: $videoPath');
 
       // Zkontrolujeme zda soubor existuje
       final fileExists = await File(videoPath).exists();
-      print('🎬 VideoPlayerScreen: File exists: $fileExists');
+      debugPrint('🎬 VideoPlayerScreen: File exists: $fileExists');
 
       if (!fileExists) {
         setState(() {
@@ -72,24 +72,24 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       // Nastavit callback pro chyby
       _player!.stream.error.listen((error) {
-        print('🔴 VideoPlayerScreen: Player error: $error');
+        debugPrint('🔴 VideoPlayerScreen: Player error: $error');
       });
 
       // Open video file - use file:// protocol for local files
-      print('🎬 VideoPlayerScreen: Opening media...');
+      debugPrint('🎬 VideoPlayerScreen: Opening media...');
       final mediaUri = videoPath.startsWith('file://') ? videoPath : 'file://$videoPath';
-      print('🎬 VideoPlayerScreen: Media URI: $mediaUri');
+      debugPrint('🎬 VideoPlayerScreen: Media URI: $mediaUri');
       await _player!.open(Media(mediaUri));
 
       // Add subtitles if available
       if (widget.subtitlePath != null) {
-        print('🎬 VideoPlayerScreen: Setting subtitle: ${widget.subtitlePath}');
+        debugPrint('🎬 VideoPlayerScreen: Setting subtitle: ${widget.subtitlePath}');
         final subtitleUri = widget.subtitlePath!.startsWith('file://') ? widget.subtitlePath! : 'file://${widget.subtitlePath}';
         await _player!.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
       }
 
       // Wait for video to load and get information
-      print('🎬 VideoPlayerScreen: Waiting for video to load...');
+      debugPrint('🎬 VideoPlayerScreen: Waiting for video to load...');
 
       // Wait for first frame or timeout
       int attempts = 0;
@@ -101,18 +101,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       _duration = _player!.state.duration;
       final width = _player!.state.width;
       final height = _player!.state.height;
-      print('🎬 VideoPlayerScreen: Video loaded, duration: $_duration, size: ${width}x$height');
+      debugPrint('🎬 VideoPlayerScreen: Video loaded, duration: $_duration, size: ${width}x$height');
 
       // Automatically start playback
       await _player!.play();
-      print('🎬 VideoPlayerScreen: Playback started');
+      debugPrint('🎬 VideoPlayerScreen: Playback started');
 
       setState(() {
         _isLoading = false;
       });
     } catch (e, stackTrace) {
-      print('🔴 VideoPlayerScreen: Error loading video: $e');
-      print('🔴 Stack trace: $stackTrace');
+      debugPrint('🔴 VideoPlayerScreen: Error loading video: $e');
+      debugPrint('🔴 Stack trace: $stackTrace');
       setState(() {
         _isLoading = false;
         _errorMessage = 'video.load_error';
@@ -122,7 +122,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   void dispose() {
-    print('🎬 VideoPlayerScreen: Disposing...');
+    debugPrint('🎬 VideoPlayerScreen: Disposing...');
     _player?.dispose();
     super.dispose();
   }
@@ -264,7 +264,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4, offset: const Offset(0, -2))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -510,7 +510,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         ).showSnackBar(SnackBar(content: Text('Titulky změněny: ${subtitle.title}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
       }
     } catch (e) {
-      print('🔴 Error reloading subtitle: $e');
+      debugPrint('🔴 Error reloading subtitle: $e');
       setState(() {
         _isLoading = false;
       });

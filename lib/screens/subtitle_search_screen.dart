@@ -86,11 +86,11 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                     ).showSnackBar(SnackBar(content: Text('Titulky uloženy: ${state.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 2)));
                   }
                   // Use cached data from before download
-                  print('🔍 Opening player with cached data:');
-                  print('   - Available subtitles: ${_cachedAvailableSubtitles?.length ?? 0}');
-                  print('   - Alternative subtitles: ${_cachedAlternativeSubtitles?.length ?? 0}');
-                  print('   - Selected subtitle: ${_cachedSelectedSubtitle?.title}');
-                  print('   - Current subtitle: ${state.subtitle.title}');
+                  debugPrint('🔍 Opening player with cached data:');
+                  debugPrint('   - Available subtitles: ${_cachedAvailableSubtitles?.length ?? 0}');
+                  debugPrint('   - Alternative subtitles: ${_cachedAlternativeSubtitles?.length ?? 0}');
+                  debugPrint('   - Selected subtitle: ${_cachedSelectedSubtitle?.title}');
+                  debugPrint('   - Current subtitle: ${state.subtitle.title}');
 
                   Navigator.push(
                     context,
@@ -107,12 +107,13 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                   ).then((_) {
                     // Reset flag when returning from player
                     _hasNavigatedToPlayer = false;
+                    if (!context.mounted) return;
                     // When returning from player, log current state
                     final returnState = context.read<SubtitleBloc>().state;
                     if (returnState is SubtitleSearchResults) {
-                      print('🔙 Returned from player:');
-                      print('   - Selected subtitle: ${returnState.selectedSubtitle?.title}');
-                      print('   - Alternative subtitles: ${returnState.alternativeSubtitles?.length ?? 0}');
+                      debugPrint('🔙 Returned from player:');
+                      debugPrint('   - Selected subtitle: ${returnState.selectedSubtitle?.title}');
+                      debugPrint('   - Alternative subtitles: ${returnState.alternativeSubtitles?.length ?? 0}');
                     }
                   });
                 }
@@ -167,7 +168,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
                     ),
                   );
                 } else if (state is SubtitleSearchResults) {
-                  print('✅ Found ${state.subtitles.length} primary + ${state.alternativeSubtitles?.length ?? 0} alternative subtitles');
+                  debugPrint('✅ Found ${state.subtitles.length} primary + ${state.alternativeSubtitles?.length ?? 0} alternative subtitles');
                   if (state.subtitles.isEmpty && (state.alternativeSubtitles?.isEmpty ?? true)) {
                     return Center(
                       child: SingleChildScrollView(
@@ -827,7 +828,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
       // Always overwrite the existing subtitle file so the player uses the new one
       if (!p.equals(targetPath, pickedPath)) {
         await sourceFile.copy(targetPath);
-        print('🔵 Copied picked subtitle to: $targetPath');
+        debugPrint('🔵 Copied picked subtitle to: $targetPath');
       }
 
       await SettingsService.markVideoWithSubtitles(videoPath);
@@ -840,7 +841,7 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
         ),
       );
     } catch (e, st) {
-      print('🔴 Pick subtitle error: $e\n$st');
+      debugPrint('🔴 Pick subtitle error: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při načítání titulku: $e'), backgroundColor: Colors.red));
       }
@@ -917,6 +918,6 @@ class _SubtitleSearchScreenState extends State<SubtitleSearchScreen> {
     final uploader = displaySubtitle.uploader?.isNotEmpty == true ? displaySubtitle.uploader! : "?";
     final downloadCount = displaySubtitle.downloadCount?.isNotEmpty == true ? displaySubtitle.downloadCount! : "0";
 
-    return '$format • $uploader • ${downloadCount}× staženo';
+    return '$format • $uploader • $downloadCount× staženo';
   }
 }

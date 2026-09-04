@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -68,13 +69,13 @@ class TitulkyRepository {
   Future<bool> login(String username, String password) async {
     try {
       // Step 1: Get main page for initial cookies
-      print('Getting main page for initial cookies...');
+      debugPrint('Getting main page for initial cookies...');
       final homeResponse = await _dio.get('/');
       _updateCookies(homeResponse.headers['set-cookie']);
 
       // Step 2: Login using correct form fields
       // Premium server uses different fields than regular server
-      print('Logging in with username: $username');
+      debugPrint('Logging in with username: $username');
 
       final loginResponse = await _dio.post(
         '/', // Action je přímo na homepage
@@ -93,7 +94,7 @@ class TitulkyRepository {
       _updateCookies(loginResponse.headers['set-cookie']);
 
       // Step 3: Verify login
-      print('Verifying login...');
+      debugPrint('Verifying login...');
       final verifyResponse = await _dio.get(
         '/',
         options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}),
@@ -105,15 +106,15 @@ class TitulkyRepository {
       final success = htmlContent.contains('Odhlásit') || htmlContent.contains(username);
 
       if (success) {
-        print('✅ Login successful!');
+        debugPrint('✅ Login successful!');
       } else {
-        print('❌ Login failed!');
+        debugPrint('❌ Login failed!');
       }
 
       return success;
     } catch (e, stackTrace) {
-      print('Login error: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Login error: $e');
+      debugPrint('Stack trace: $stackTrace');
       return false;
     }
   }
@@ -127,7 +128,7 @@ class TitulkyRepository {
     }
 
     try {
-      print('Searching for: $query (language filter: ${languageFilter ?? 'all'}, page: $page, fsf: $alternativeSearch)');
+      debugPrint('Searching for: $query (language filter: ${languageFilter ?? 'all'}, page: $page, fsf: $alternativeSearch)');
 
       // Build query parameters
       final queryParams = <String, dynamic>{'action': 'search', 'Fulltext': query};
@@ -153,7 +154,7 @@ class TitulkyRepository {
 
       // Debug: Print part of HTML
       if (response.data.toString().contains('přihlásit') && !response.data.toString().contains('Odhlásit')) {
-        print('WARNING: Not logged in on premium server!');
+        debugPrint('WARNING: Not logged in on premium server!');
       }
 
       // Premium server uses different structure - look for links with action=detail
@@ -171,7 +172,7 @@ class TitulkyRepository {
           final id = idMatch?.group(1) ?? '';
 
           // Debug
-          // print('Processing: href=$href, id=$id');
+          // debugPrint('Processing: href=$href, id=$id');
 
           if (id.isEmpty) continue;
 
@@ -206,23 +207,23 @@ class TitulkyRepository {
 
           subtitles.add(subtitle);
         } catch (e) {
-          print('Error parsing detail link: $e');
+          debugPrint('Error parsing detail link: $e');
           continue;
         }
       }
 
-      print('Found ${subtitles.length} unique subtitles');
+      debugPrint('Found ${subtitles.length} unique subtitles');
 
       // Filter by language if specified
       if (languageFilter != null && languageFilter != 'all') {
         subtitles.removeWhere((s) => s.language != languageFilter);
-        print('After language filter: ${subtitles.length} subtitles');
+        debugPrint('After language filter: ${subtitles.length} subtitles');
       }
 
       return subtitles;
     } catch (e, stackTrace) {
-      print('Search error: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Search error: $e');
+      debugPrint('Stack trace: $stackTrace');
       return [];
     }
   }
@@ -234,7 +235,7 @@ class TitulkyRepository {
     }
 
     try {
-      print('Downloading subtitle: ${subtitle.title}');
+      debugPrint('Downloading subtitle: ${subtitle.title}');
 
       // Download subtitle file
       final response = await _dio.get(
@@ -250,11 +251,11 @@ class TitulkyRepository {
       final file = File(filePath);
       await file.writeAsBytes(response.data);
 
-      print('Subtitle saved to: $filePath');
+      debugPrint('Subtitle saved to: $filePath');
       return filePath;
     } catch (e, stackTrace) {
-      print('Download error: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Download error: $e');
+      debugPrint('Stack trace: $stackTrace');
       return null;
     }
   }
@@ -267,7 +268,7 @@ class TitulkyRepository {
       final videoName = path.basenameWithoutExtension(videoPath);
 
       // Stáhnout titulek na detail stránku pro získání skutečného download linku
-      print('Getting subtitle download link from: ${subtitle.downloadUrl}');
+      debugPrint('Getting subtitle download link from: ${subtitle.downloadUrl}');
       final detailResponse = await _dio.get(
         subtitle.downloadUrl,
         options: Options(headers: {'Cookie': _cookieHeader, 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}),
@@ -280,11 +281,11 @@ class TitulkyRepository {
       downloadLink ??= document.querySelector('a[href*="idown.php"]');
 
       if (downloadLink == null) {
-        print('❌ Download link not found on detail page');
-        print('Available links:');
+        debugPrint('❌ Download link not found on detail page');
+        debugPrint('Available links:');
         final allLinks = document.querySelectorAll('a[href]');
         for (var link in allLinks.take(10)) {
-          print('  - ${link.attributes["href"]}');
+          debugPrint('  - ${link.attributes["href"]}');
         }
         return null;
       }
@@ -296,7 +297,7 @@ class TitulkyRepository {
         downloadUrl = downloadUrl.startsWith('/') ? '$_baseUrl$downloadUrl' : '$_baseUrl/$downloadUrl';
       }
 
-      print('✅ Found download link: $downloadUrl');
+      debugPrint('✅ Found download link: $downloadUrl');
 
       // Zjistit formát z URL nebo názvu souboru
       var format = subtitle.format;
@@ -308,8 +309,8 @@ class TitulkyRepository {
       // Premium server stahuje přímo, bez countdown stránky
       final finalDownloadUrl = downloadUrl;
 
-      print('Downloading subtitle from: $finalDownloadUrl');
-      print('Saving to: $subtitlePath');
+      debugPrint('Downloading subtitle from: $finalDownloadUrl');
+      debugPrint('Saving to: $subtitlePath');
 
       // Stáhnout soubor
       final response = await _dio.get(
@@ -322,7 +323,7 @@ class TitulkyRepository {
       );
 
       if (response.data == null || (response.data as List).isEmpty) {
-        print('❌ Downloaded file is empty');
+        debugPrint('❌ Downloaded file is empty');
         return null;
       }
 
@@ -332,17 +333,17 @@ class TitulkyRepository {
 
       // Kontrola na denní limit a captcha (obsahuje "denní limit" nebo captcha formulář)
       if (sampleString.contains('denní limit') || sampleString.contains('captcha.php') || sampleString.contains('downkod')) {
-        print('❌ Denní limit stahování překročen nebo captcha požadována');
-        print('   Pro obejití limitu použijte prémiový účet nebo zkuste později.');
-        print('');
-        print('💡 TIP: Prémiové účty mají 25 stažení/den bez ohledu na IP adresu.');
-        print('   Registrujte se na: https://www.netusers.cz/');
+        debugPrint('❌ Denní limit stahování překročen nebo captcha požadována');
+        debugPrint('   Pro obejití limitu použijte prémiový účet nebo zkuste později.');
+        debugPrint('');
+        debugPrint('💡 TIP: Prémiové účty mají 25 stažení/den bez ohledu na IP adresu.');
+        debugPrint('   Registrujte se na: https://www.netusers.cz/');
         throw Exception('daily_limit_exceeded');
       }
 
       // Kontrola na countdown stránku (bez limitu - má imgLoader ale ne captcha)
       if (sampleString.contains('imgLoader') && !sampleString.contains('captcha')) {
-        print('⏳ Detekována countdown stránka (bez limitu) - čekání 7 sekund...');
+        debugPrint('⏳ Detekována countdown stránka (bez limitu) - čekání 7 sekund...');
         await Future.delayed(const Duration(seconds: 7));
 
         // Po countdown zkusit znovu
@@ -360,7 +361,7 @@ class TitulkyRepository {
           sampleString = String.fromCharCodes(bytes.take(1000));
 
           if (sampleString.contains('denní limit') || sampleString.contains('captcha')) {
-            print('❌ Po countdown stále vyžadována captcha - denní limit překročen');
+            debugPrint('❌ Po countdown stále vyžadována captcha - denní limit překročen');
             throw Exception('daily_limit_exceeded');
           }
         }
@@ -368,7 +369,7 @@ class TitulkyRepository {
 
       // Zkontrolovat, jestli je to ZIP soubor (začíná na PK)
       if (bytes.length > 2 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
-        print('📦 Downloaded file is ZIP archive, extracting...');
+        debugPrint('📦 Downloaded file is ZIP archive, extracting...');
 
         try {
           // Rozbalit ZIP
@@ -395,7 +396,7 @@ class TitulkyRepository {
           }
 
           if (subtitleFiles.isEmpty) {
-            print('❌ No subtitle file found in ZIP archive');
+            debugPrint('❌ No subtitle file found in ZIP archive');
             return null;
           }
 
@@ -411,18 +412,18 @@ class TitulkyRepository {
           var mergedOk = false;
           if (subtitleFiles.length == 1) {
             subtitleBytes = subtitleFiles.first.content as List<int>;
-            print('   Found subtitle file in archive: ${subtitleFiles.first.name}');
+            debugPrint('   Found subtitle file in archive: ${subtitleFiles.first.name}');
           } else {
-            print('   Found ${subtitleFiles.length} subtitle parts: ${subtitleFiles.map((f) => f.name).join(', ')}');
+            debugPrint('   Found ${subtitleFiles.length} subtitle parts: ${subtitleFiles.map((f) => f.name).join(', ')}');
             final merged = _mergeSrtParts(subtitleFiles.map((f) => f.content as List<int>).toList());
             if (merged != null) {
               subtitleBytes = merged;
               mergedOk = true;
-              print('🔗 Merged ${subtitleFiles.length} subtitle parts into a single track');
+              debugPrint('🔗 Merged ${subtitleFiles.length} subtitle parts into a single track');
             } else {
               // Nelze sloučit (např. nejde o SRT) – uložit aspoň první díl jako dřív.
               subtitleBytes = subtitleFiles.first.content as List<int>;
-              print('⚠️ Could not merge parts (not SRT?), saved first part only: ${subtitleFiles.first.name}');
+              debugPrint('⚠️ Could not merge parts (not SRT?), saved first part only: ${subtitleFiles.first.name}');
             }
           }
 
@@ -430,13 +431,13 @@ class TitulkyRepository {
           await file.writeAsBytes(subtitleBytes);
 
           final fileSize = await file.length();
-          print('✅ Subtitle extracted and saved successfully!');
-          print('   Path: $subtitlePath');
-          print('   Size: $fileSize bytes');
+          debugPrint('✅ Subtitle extracted and saved successfully!');
+          debugPrint('   Path: $subtitlePath');
+          debugPrint('   Size: $fileSize bytes');
 
           return SubtitleSaveResult(path: subtitlePath, partCount: subtitleFiles.length, merged: mergedOk);
         } catch (e) {
-          print('❌ Error extracting ZIP: $e');
+          debugPrint('❌ Error extracting ZIP: $e');
           return null;
         }
       }
@@ -444,8 +445,8 @@ class TitulkyRepository {
       // Pokud to není ZIP, zkontrolovat, zda nejde o HTML stránku (error page)
       final sample = String.fromCharCodes(bytes.take(100));
       if (sample.toLowerCase().contains('<!doctype') || sample.toLowerCase().contains('<html')) {
-        print('❌ Downloaded file is HTML, not subtitle file');
-        print('First 100 bytes: $sample');
+        debugPrint('❌ Downloaded file is HTML, not subtitle file');
+        debugPrint('First 100 bytes: $sample');
         return null;
       }
 
@@ -454,14 +455,14 @@ class TitulkyRepository {
       await file.writeAsBytes(bytes);
 
       final fileSize = await file.length();
-      print('✅ Subtitle saved successfully!');
-      print('   Path: $subtitlePath');
-      print('   Size: $fileSize bytes');
+      debugPrint('✅ Subtitle saved successfully!');
+      debugPrint('   Path: $subtitlePath');
+      debugPrint('   Size: $fileSize bytes');
 
       return SubtitleSaveResult(path: subtitlePath, partCount: 1, merged: false);
     } catch (e, stackTrace) {
-      print('❌ Error saving subtitle with video: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('❌ Error saving subtitle with video: $e');
+      debugPrint('Stack trace: $stackTrace');
       return null;
     }
   }
@@ -471,9 +472,9 @@ class TitulkyRepository {
     try {
       // Vymazat cookies
       _cookies.clear();
-      print('Logged out successfully');
+      debugPrint('Logged out successfully');
     } catch (e) {
-      print('Logout error: $e');
+      debugPrint('Logout error: $e');
     }
   }
 
@@ -485,7 +486,7 @@ class TitulkyRepository {
     }
 
     try {
-      print('Fetching alternative subtitles for: ${subtitle.title}');
+      debugPrint('Fetching alternative subtitles for: ${subtitle.title}');
 
       // Fetch the detail page
       final response = await _dio.get(
@@ -516,7 +517,7 @@ class TitulkyRepository {
             final match = RegExp(r'(?:Přidal:|Autor:|Uživatel:|Nahrál:)\s*([^\s,\n\r]+)').firstMatch(text);
             if (match != null) {
               uploader = match.group(1);
-              print('🔍 Found uploader in element: $uploader');
+              debugPrint('🔍 Found uploader in element: $uploader');
             }
           }
 
@@ -527,7 +528,7 @@ class TitulkyRepository {
             final match = releasePattern.firstMatch(text);
             if (match != null) {
               details = match.group(1);
-              print('🔍 Found release details: $details');
+              debugPrint('🔍 Found release details: $details');
             }
           }
 
@@ -536,7 +537,7 @@ class TitulkyRepository {
             final countMatch = RegExp(r'(\d+)(?:×|krát|staženo)').firstMatch(text);
             if (countMatch != null) {
               downloadCount = countMatch.group(1);
-              print('🔍 Found download count: $downloadCount');
+              debugPrint('🔍 Found download count: $downloadCount');
             }
           }
         }
@@ -556,13 +557,13 @@ class TitulkyRepository {
               !cellText.contains('BluRay')) {
             // This might be a username
             uploader = cellText;
-            print('🔍 Found potential uploader in table cell: $uploader');
+            debugPrint('🔍 Found potential uploader in table cell: $uploader');
           }
 
           // Look for detailed release strings in cells
           if (details == null && (cellText.contains('BDRip') || cellText.contains('BluRay') || cellText.contains('x264'))) {
             details = cellText;
-            print('🔍 Found release details in table cell: $details');
+            debugPrint('🔍 Found release details in table cell: $details');
           }
         }
 
@@ -581,10 +582,10 @@ class TitulkyRepository {
             movieName: subtitle.movieName,
             isSynced: subtitle.isSynced,
           );
-          print('🔵 Enhanced original subtitle: uploader=$uploader, details=$details, downloadCount=$downloadCount');
+          debugPrint('🔵 Enhanced original subtitle: uploader=$uploader, details=$details, downloadCount=$downloadCount');
         }
       } catch (e) {
-        print('Could not extract enhanced original subtitle details: $e');
+        debugPrint('Could not extract enhanced original subtitle details: $e');
       }
 
       // Look for the "Alternativní titulky" table
@@ -641,17 +642,17 @@ class TitulkyRepository {
 
             alternatives.add(alternativeSubtitle);
           } catch (e) {
-            print('Error parsing alternative subtitle row: $e');
+            debugPrint('Error parsing alternative subtitle row: $e');
             continue;
           }
         }
       }
 
-      print('Found ${alternatives.length} alternative subtitles');
+      debugPrint('Found ${alternatives.length} alternative subtitles');
       return AlternativeSubtitlesResult(enhancedOriginal: enhancedOriginal, alternatives: alternatives);
     } catch (e, stackTrace) {
-      print('Error fetching alternative subtitles: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Error fetching alternative subtitles: $e');
+      debugPrint('Stack trace: $stackTrace');
       return AlternativeSubtitlesResult(enhancedOriginal: subtitle, alternatives: []);
     }
   }

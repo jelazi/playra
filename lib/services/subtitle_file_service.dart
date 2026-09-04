@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 
 import '../models/video_info.dart';
@@ -60,7 +61,7 @@ class SubtitleFileService {
         }
       }
     } catch (e) {
-      print('Error checking subtitle files: $e');
+      debugPrint('Error checking subtitle files: $e');
       return SubtitleFileInfo(hasSubtitles: false, subtitleFiles: []);
     }
 
