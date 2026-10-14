@@ -157,6 +157,21 @@ Good one
       expect(result[4].startTime, const Duration(seconds: 44));
     });
 
+    test('interpolates by time, not by subtitle order', () {
+      final entries = [
+        const SubtitleEntry(index: 1, startTime: Duration(seconds: 0), endTime: Duration(seconds: 1), text: 'a'),
+        const SubtitleEntry(index: 2, startTime: Duration(seconds: 10), endTime: Duration(seconds: 11), text: 'b'),
+        const SubtitleEntry(index: 3, startTime: Duration(seconds: 11), endTime: Duration(seconds: 12), text: 'c'),
+        const SubtitleEntry(index: 4, startTime: Duration(seconds: 100), endTime: Duration(seconds: 101), text: 'd'),
+      ];
+
+      final result = SrtParserService.applyKeyBasedSync(entries, {1: Duration.zero, 4: const Duration(seconds: 10)});
+
+      expect(result[1].startTime, const Duration(seconds: 11));
+      expect(result[2].startTime, const Duration(milliseconds: 12100));
+      expect(result[3].startTime, const Duration(seconds: 110));
+    });
+
     test('returns the entries unchanged when there are no key points', () {
       final entries = fiveEntries();
       expect(SrtParserService.applyKeyBasedSync(entries, {}), entries);

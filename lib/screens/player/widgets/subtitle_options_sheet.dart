@@ -21,11 +21,18 @@ import '../track_keys.dart';
 /// settings page uses; only the [Theme] wrapped around them differs, which is
 /// what makes this overlay dark without a second copy of the controls.
 class SubtitleOptionsSheet extends StatefulWidget {
-  const SubtitleOptionsSheet({super.key, required this.player, required this.video, required this.onOpenSubtitleDelayPopup});
+  const SubtitleOptionsSheet({
+    super.key,
+    required this.player,
+    required this.video,
+    required this.onOpenSubtitleDelayPopup,
+    required this.onOpenSubtitleEditor,
+  });
 
   final Player player;
   final VideoItem video;
   final Future<void> Function() onOpenSubtitleDelayPopup;
+  final Future<void> Function() onOpenSubtitleEditor;
 
   @override
   State<SubtitleOptionsSheet> createState() => _SubtitleOptionsSheetState();
@@ -89,6 +96,16 @@ class _SubtitleOptionsSheetState extends State<SubtitleOptionsSheet> {
                   trailing: [
                     if (widget.video.source == VideoSource.local) ...[
                       const Divider(),
+                      ListTile(
+                        leading: const Icon(Icons.edit_note),
+                        title: Text('player.edit_subtitles'.tr()),
+                        subtitle: Text('player.edit_subtitles_hint'.tr()),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          await widget.onOpenSubtitleEditor();
+                        },
+                      ),
                       ListTile(
                         leading: const Icon(Icons.cloud_download),
                         title: Text('player.download_subtitles'.tr()),

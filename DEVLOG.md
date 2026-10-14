@@ -2,6 +2,150 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-10-14 (part 4) — Deployed the current build to the iPad Air 2 (iPadOS 15.8.8)
+
+### What was done
+
+- Built `flutter build ios --release --dart-define-from-file=env.json` (signed automatically
+  with team `BZF32VC6NQ`, bundle `com.lubomir.playra.dev`, 48.8 MB) and installed it with
+  `ios-deploy --id ee4853b77c83be7bd029b702f256ba81a542d722 --bundle build/ios/iphoneos/Runner.app`.
+
+### Design decisions
+
+- **Xcode 27 cannot talk to this iPad.** `xcrun devicectl` lists the iPad Air 2 (`iPad5,3`)
+  only by ECID with `pairingState: unsupported`, and `flutter devices` does not show it at all,
+  so `flutter run` / `flutter install` are not an option. `ios-deploy` (Homebrew) still uses the
+  legacy MobileDevice path and sees it as "Lubomír - iPad" over USB.
+- Release mode is required: a debug build on iOS 14+ only starts with a debugger attached.
+- iPadOS 15.8 is the newest release for this iPad, so the iOS deployment target must stay at
+  15.0 (part 2); raising it would lock this device out.
+
+### Current state
+
+- `ios-deploy`: `[100%] Installed package build/ios/iphoneos/Runner.app`. Not launched or
+  checked on the device by me.
+
+## 2026-10-14 (part 3) — feat: open the subtitle editor from the player's subtitle sheet
+
+### What was done
+
+- **`SubtitleOptionsSheet`** (player → subtitles) gained an "Edit subtitles" tile above
+  "Download subtitles" for local videos, wired through a new required `onOpenSubtitleEditor`
+  callback (the sheet pops itself first, like the delay popup).
+- **`_PlayraPlayerScreenState._openSubtitleEditor`**: picks the SRT file next to the video
+  (`SubtitleFileService.checkSubtitleFiles`, `.srt` only since the editor parses SRT), preferring
+  the one whose name matches the active track title, otherwise the only one, otherwise a picker
+  sheet; shows `player.no_editable_subtitles` when there is none. Pauses playback, pushes
+  `SubtitleEditorScreen`, and on return loads the saved file as the subtitle track, stores it as
+  the preferred track, resets a non-zero per-video subtitle delay (the saved file already carries
+  the corrected timing, so the delay would shift it twice), and resumes if it was playing.
+- **`SubtitleEditorScreen` now pops with the last saved path** (`PopScope` +
+  `onPopInvokedWithResult`); null when nothing was saved. Existing callers ignore the result.
+- Translations: `player.edit_subtitles_hint`, `player.no_editable_subtitles`,
+  `player.choose_subtitle_file` (cs, en); reused the existing `player.edit_subtitles`.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 150 passed. `flutter build macos --debug`: built.
+- Not tried by hand in the running app.
+
+### Pending / next steps
+
+- `HomeScreen._editSubtitles` and the library still offer `.ass`/`.vtt`/`.sub` files to the
+  editor, which only parses SRT; filter them the same way.
+- SMB/remote videos still have no editing entry (the editor needs a local file).
+
+## 2026-10-14 (part 2) — fix: raise macOS and iOS deployment targets for Xcode 27
+
+### What was done
+
+- **macOS 10.15 → 12.0:** `macos/Podfile` (`platform :osx`), the three
+  `MACOSX_DEPLOYMENT_TARGET` entries in `macos/Runner.xcodeproj/project.pbxproj`, and a
+  `post_install` override that forces every pod target to 12.0 (pods otherwise keep the minimum
+  from their own podspec, e.g. `media_kit_libs_macos_video`). `pod install` re-run.
+- **iOS 13.0 → 15.0:** `ios/Podfile` now declares `platform :ios, '15.0'` (it was commented
+  out), the three `IPHONEOS_DEPLOYMENT_TARGET` entries in `ios/Runner.xcodeproj/project.pbxproj`,
+  and the same `post_install` override for pods.
+- **iOS Swift Package Manager migration (done by the Flutter tool during the iOS build):**
+  plugins that support SwiftPM moved out of CocoaPods (`ios/Podfile.lock` shrank),
+  `FlutterGeneratedPluginSwiftPackage` was added to `project.pbxproj`, the `Runner` scheme got
+  the "Run Prepare Flutter Framework Script" pre-action, and `Package.resolved` files appeared
+  under `ios/Runner.xcworkspace/xcshareddata/swiftpm/` and
+  `ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/`. Kept as generated; macOS
+  was not migrated because `media_kit_video` / `media_kit_libs_macos_video` do not support
+  SwiftPM yet.
+
+### What was fixed
+
+- `flutter run -d macos` failed with `The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET'
+  is set to 10.15, but the range of supported deployment target versions is 12.0 to 27.0.x`
+  for Runner, Flutter Assemble and every pod. Xcode 27's SDKs dropped the older targets; the
+  iOS SDK's minimum is 15.0 (`MinimumDeploymentTarget` in `iPhoneOS.sdk/SDKSettings.plist`),
+  so iOS 13.0 would have failed the same way.
+
+### Current state
+
+- `flutter build macos --debug`: `✓ Built build/macos/Build/Products/Debug/Playra.app`
+  (only plugin header warnings from `media_kit_video`).
+- `flutter build ios --debug --no-codesign`: `✓ Built build/ios/iphoneos/Runner.app`.
+- No `*_DEPLOYMENT_TARGET` below the new minimums left in either `Pods.xcodeproj`.
+
+### Pending / next steps
+
+- The app now requires macOS 12+ and iOS 15+.
+- Run on a physical iOS device with signing to confirm the SwiftPM-migrated plugins at runtime.
+
+## 2026-10-14 — feat: rework key-based subtitle sync into a "place the subtitle in the video" flow
+
+### What was done
+
+- **New key workflow in `SubtitleEditorScreen` (Key-Based Sync tab).** Tapping a subtitle enters
+  a picking mode: the video pauses at the subtitle's current start, the list is replaced by a
+  panel showing the line, step-by-step instructions, a live readout (where the subtitle will
+  start, shift from the original file, original time), nudge buttons (−1 s, −0.1 s, play/pause,
+  +0.1 s, +1 s), "Back to starting point", and one big **Save key here** button. Saving pins the
+  subtitle to the current video position, leaves picking mode and replays from 2 s before the
+  key so the user can check it. Existing keys can be removed from the same panel; the header has
+  "Remove all keys".
+- **Keys are applied immediately.** Removed the separate *Recalculate* step and the
+  ±ms per-subtitle offset buttons. `SubtitleEditorBloc` now recomputes `modifiedEntries` on
+  every change via `_withTiming`: key-based sync first, then the global shift on top.
+- **Bloc API:** events `SetKeyPoint(entryIndex, startTime)`, `ClearSubtitleSelection`,
+  `ClearKeyPoints` replace `MarkAsKeyPoint`, `AdjustSelectedKeyOffset`,
+  `RecalculateFromKeyPoints` and the unused `SetKeySubtitleOffset`. State dropped
+  `individualOffsets`/`keyRecalculated` and gained `isPickingKey`, `originalEntry`,
+  `modifiedEntry`, `totalShiftOf`, `activeAt`. Removed the unused `generateTempSubtitleFile`.
+  A key's stored offset is `position − originalStart − globalShift`, so it lands exactly where
+  it was placed regardless of the global shift.
+- **`SrtParserService.applyKeyBasedSync` interpolates by original start time** instead of by
+  subtitle order, so dense dialogue between two keys no longer skews the correction.
+- The subtitle list shows each line's current time (and "originally …" when shifted) and the
+  key's total shift in seconds; global-shift buttons and readouts now use seconds too.
+- Translations (`cs.json`, `en.json`): new `editor.*` strings for the flow, obsolete keys removed;
+  the app-bar save is now labelled "Save subtitles to file" to avoid confusion with "Save key".
+
+### What was fixed
+
+- **Two subtitle layers on the video.** The media_kit `Video` widget rendered the loaded SRT
+  through its own `SubtitleView` (the small one behind) while the screen drew its own overlay on
+  top. The editor no longer loads the subtitle into the player (`SubtitleTrack.no()`, which also
+  stops mpv auto-loading a sibling `.srt`), hides `SubtitleView`, and draws a single overlay
+  computed from `modifiedEntries` at the current position. This also removed the temp
+  `.editor_temp.srt` file that was rewritten and reloaded on every state change.
+- In picking mode the overlay shows only the subtitle being placed (amber, labelled), so it is
+  clear what to listen for; outside picking mode it shows the live, synced subtitles.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: all 150 tests pass (bloc key-point tests
+  rewritten for the new events; new parser test for time-based interpolation).
+- Not yet tried by hand in the running app.
+
+### Pending / next steps
+
+- Manually test the flow on desktop and Android with a real video: picking, nudging, saving a
+  key, the verification replay, and the list scroll position after leaving picking mode.
+
 ## 2026-09-04 (part 9) — fix: green the Android CI job by dropping a machine-local JDK path
 
 ### What was done

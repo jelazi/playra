@@ -14,12 +14,12 @@ class SubtitleEditorBloc extends Bloc<SubtitleEditorEvent, SubtitleEditorState> 
     on<LoadSubtitleFile>(_onLoadSubtitleFile);
     on<ApplyGlobalShift>(_onApplyGlobalShift);
     on<ResetGlobalShift>(_onResetGlobalShift);
-    on<MarkAsKeyPoint>(_onMarkAsKeyPoint);
-    on<RemoveKeyPoint>(_onRemoveKeyPoint);
-    on<RecalculateFromKeyPoints>(_onRecalculateFromKeyPoints);
-    on<SaveSubtitles>(_onSaveSubtitles);
     on<SelectSubtitleEntry>(_onSelectSubtitleEntry);
-    on<AdjustSelectedKeyOffset>(_onAdjustSelectedKeyOffset);
+    on<ClearSubtitleSelection>(_onClearSubtitleSelection);
+    on<SetKeyPoint>(_onSetKeyPoint);
+    on<RemoveKeyPoint>(_onRemoveKeyPoint);
+    on<ClearKeyPoints>(_onClearKeyPoints);
+    on<SaveSubtitles>(_onSaveSubtitles);
   }
 
   Future<void> _onLoadSubtitleFile(LoadSubtitleFile event, Emitter<SubtitleEditorState> emit) async {
@@ -40,70 +40,57 @@ class SubtitleEditorBloc extends Bloc<SubtitleEditorEvent, SubtitleEditorState> 
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
 
-    final newShift = currentState.globalShift + event.offset;
-    final modified = SrtParserService.applyGlobalShift(currentState.originalEntries, newShift);
-
-    emit(currentState.copyWith(globalShift: newShift, modifiedEntries: modified));
+    emit(_withTiming(currentState, globalShift: currentState.globalShift + event.offset));
   }
 
   void _onResetGlobalShift(ResetGlobalShift event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
 
-    emit(currentState.copyWith(globalShift: Duration.zero, modifiedEntries: List.from(currentState.originalEntries)));
+    emit(_withTiming(currentState, globalShift: Duration.zero));
   }
 
   void _onSelectSubtitleEntry(SelectSubtitleEntry event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
+    if (currentState.originalEntry(event.entryIndex) == null) return;
 
     emit(currentState.copyWith(selectedEntryIndex: event.entryIndex));
   }
 
-  void _onAdjustSelectedKeyOffset(AdjustSelectedKeyOffset event, Emitter<SubtitleEditorState> emit) {
+  void _onClearSubtitleSelection(ClearSubtitleSelection event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
-    if (currentState.selectedEntryIndex < 0) return;
 
-    final srtIndex = currentState.selectedEntryIndex;
-    final currentOffset = currentState.individualOffsets[srtIndex] ?? Duration.zero;
-    final newOffset = currentOffset + event.delta;
-
-    final newOffsets = Map<int, Duration>.from(currentState.individualOffsets);
-    newOffsets[srtIndex] = newOffset;
-
-    emit(currentState.copyWith(individualOffsets: newOffsets));
+    emit(currentState.copyWith(selectedEntryIndex: -1));
   }
 
-  void _onMarkAsKeyPoint(MarkAsKeyPoint event, Emitter<SubtitleEditorState> emit) {
+  void _onSetKeyPoint(SetKeyPoint event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
+    final original = currentState.originalEntry(event.entryIndex);
+    if (original == null) return;
 
     final newKeyPoints = Map<int, Duration>.from(currentState.keyPoints);
-    final offset = currentState.individualOffsets[event.entryIndex] ?? event.offset;
-    newKeyPoints[event.entryIndex] = offset;
+    newKeyPoints[event.entryIndex] = event.startTime - original.startTime - currentState.globalShift;
 
-    emit(currentState.copyWith(keyPoints: newKeyPoints, keyRecalculated: false));
+    emit(_withTiming(currentState, keyPoints: newKeyPoints, selectedEntryIndex: -1));
   }
 
   void _onRemoveKeyPoint(RemoveKeyPoint event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
 
-    final newKeyPoints = Map<int, Duration>.from(currentState.keyPoints);
-    newKeyPoints.remove(event.entryIndex);
+    final newKeyPoints = Map<int, Duration>.from(currentState.keyPoints)..remove(event.entryIndex);
 
-    emit(currentState.copyWith(keyPoints: newKeyPoints, keyRecalculated: false));
+    emit(_withTiming(currentState, keyPoints: newKeyPoints));
   }
 
-  void _onRecalculateFromKeyPoints(RecalculateFromKeyPoints event, Emitter<SubtitleEditorState> emit) {
+  void _onClearKeyPoints(ClearKeyPoints event, Emitter<SubtitleEditorState> emit) {
     final currentState = state;
     if (currentState is! SubtitleEditorLoaded) return;
-    if (currentState.keyPoints.isEmpty) return;
 
-    final recalculated = SrtParserService.applyKeyBasedSync(currentState.originalEntries, currentState.keyPoints);
-
-    emit(currentState.copyWith(modifiedEntries: recalculated, keyRecalculated: true));
+    emit(_withTiming(currentState, keyPoints: const {}, selectedEntryIndex: -1));
   }
 
   Future<void> _onSaveSubtitles(SaveSubtitles event, Emitter<SubtitleEditorState> emit) async {
@@ -125,11 +112,15 @@ class SubtitleEditorBloc extends Bloc<SubtitleEditorEvent, SubtitleEditorState> 
     }
   }
 
-  /// Helper to generate a temporary SRT file with current modifications
-  /// for the video player to display.
-  Future<String> generateTempSubtitleFile(List<SubtitleEntry> entries, String originalPath) async {
-    final tempPath = '$originalPath.temp.srt';
-    await SrtParserService.writeFile(tempPath, entries);
-    return tempPath;
+  SubtitleEditorLoaded _withTiming(SubtitleEditorLoaded current, {Duration? globalShift, Map<int, Duration>? keyPoints, int? selectedEntryIndex}) {
+    final shift = globalShift ?? current.globalShift;
+    final keys = keyPoints ?? current.keyPoints;
+    final List<SubtitleEntry> synced = SrtParserService.applyKeyBasedSync(current.originalEntries, keys);
+    return current.copyWith(
+      globalShift: shift,
+      keyPoints: keys,
+      selectedEntryIndex: selectedEntryIndex,
+      modifiedEntries: SrtParserService.applyGlobalShift(synced, shift),
+    );
   }
 }

@@ -122,87 +122,129 @@ void main() {
   });
 
   group('key points', () {
-    test('marking one records its offset', () async {
-      await loadFixture();
-
-      bloc.add(MarkAsKeyPoint(entryIndex: 1, offset: const Duration(seconds: 1)));
-      final state = await bloc.stream.first as SubtitleEditorLoaded;
-
-      expect(state.keyPoints, {1: const Duration(seconds: 1)});
-      expect(state.keyRecalculated, isFalse);
-    });
-
-    test('removing one drops it again', () async {
-      await loadFixture();
-
-      bloc.add(MarkAsKeyPoint(entryIndex: 1, offset: const Duration(seconds: 1)));
-      await bloc.stream.first;
-      bloc.add(RemoveKeyPoint(entryIndex: 1));
-      final state = await bloc.stream.first as SubtitleEditorLoaded;
-
-      expect(state.keyPoints, isEmpty);
-    });
-
-    test('an individual offset wins over the offset carried by the event', () async {
+    test('selecting an entry enters the picking mode', () async {
       await loadFixture();
 
       bloc.add(SelectSubtitleEntry(entryIndex: 2));
-      await bloc.stream.first;
-      bloc.add(AdjustSelectedKeyOffset(const Duration(seconds: 4)));
-      await bloc.stream.first;
-      bloc.add(MarkAsKeyPoint(entryIndex: 2, offset: const Duration(seconds: 99)));
-      final state = await bloc.stream.first as SubtitleEditorLoaded;
-
-      expect(state.keyPoints[2], const Duration(seconds: 4));
-    });
-
-    test('adjusting the selected offset accumulates', () async {
-      await loadFixture();
-
-      bloc.add(SelectSubtitleEntry(entryIndex: 2));
-      await bloc.stream.first;
-      bloc.add(AdjustSelectedKeyOffset(const Duration(seconds: 1)));
-      await bloc.stream.first;
-      bloc.add(AdjustSelectedKeyOffset(const Duration(seconds: 2)));
       final state = await bloc.stream.first as SubtitleEditorLoaded;
 
       expect(state.selectedEntryIndex, 2);
-      expect(state.individualOffsets[2], const Duration(seconds: 3));
+      expect(state.isPickingKey, isTrue);
     });
 
-    test('adjusting does nothing while no entry is selected', () async {
-      final loaded = await loadFixture();
-      expect(loaded.selectedEntryIndex, -1);
-
-      bloc.add(AdjustSelectedKeyOffset(const Duration(seconds: 1)));
-      await Future<void>.delayed(Duration.zero);
-
-      expect((bloc.state as SubtitleEditorLoaded).individualOffsets, isEmpty);
-    });
-
-    test('recalculating interpolates between the key points', () async {
+    test('selecting an unknown entry is ignored', () async {
       await loadFixture();
 
-      bloc.add(MarkAsKeyPoint(entryIndex: 1, offset: const Duration(seconds: 1)));
+      bloc.add(SelectSubtitleEntry(entryIndex: 99));
+      await Future<void>.delayed(Duration.zero);
+
+      expect((bloc.state as SubtitleEditorLoaded).isPickingKey, isFalse);
+    });
+
+    test('cancelling the selection leaves the picking mode', () async {
+      await loadFixture();
+
+      bloc.add(SelectSubtitleEntry(entryIndex: 2));
       await bloc.stream.first;
-      bloc.add(MarkAsKeyPoint(entryIndex: 3, offset: const Duration(seconds: 5)));
-      await bloc.stream.first;
-      bloc.add(RecalculateFromKeyPoints());
+      bloc.add(ClearSubtitleSelection());
       final state = await bloc.stream.first as SubtitleEditorLoaded;
 
-      expect(state.keyRecalculated, isTrue);
+      expect(state.isPickingKey, isFalse);
+    });
+
+    test('a key pins the subtitle to the video position and ends the picking', () async {
+      await loadFixture();
+
+      bloc.add(SelectSubtitleEntry(entryIndex: 2));
+      await bloc.stream.first;
+      bloc.add(SetKeyPoint(entryIndex: 2, startTime: const Duration(seconds: 24)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.keyPoints, {2: const Duration(seconds: 4)});
+      expect(state.isPickingKey, isFalse);
+      expect(state.modifiedEntry(2)!.startTime, const Duration(seconds: 24));
+      expect(state.totalShiftOf(2), const Duration(seconds: 4));
+    });
+
+    test('a single key shifts every subtitle immediately', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 1, startTime: const Duration(seconds: 11)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.modifiedEntries.map((e) => e.startTime.inSeconds), [11, 21, 31]);
+    });
+
+    test('two keys interpolate the subtitles between them', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 1, startTime: const Duration(seconds: 11)));
+      await bloc.stream.first;
+      bloc.add(SetKeyPoint(entryIndex: 3, startTime: const Duration(seconds: 35)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
       expect(state.modifiedEntries[0].startTime, const Duration(seconds: 11));
       expect(state.modifiedEntries[1].startTime, const Duration(seconds: 23));
       expect(state.modifiedEntries[2].startTime, const Duration(seconds: 35));
     });
 
-    test('recalculating without key points changes nothing', () async {
+    test('a key lands exactly where it was placed even with a global shift', () async {
       await loadFixture();
 
-      bloc.add(RecalculateFromKeyPoints());
-      await Future<void>.delayed(Duration.zero);
+      bloc.add(ApplyGlobalShift(const Duration(seconds: 3)));
+      await bloc.stream.first;
+      bloc.add(SetKeyPoint(entryIndex: 2, startTime: const Duration(seconds: 25)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
 
-      expect((bloc.state as SubtitleEditorLoaded).keyRecalculated, isFalse);
+      expect(state.keyPoints[2], const Duration(seconds: 2));
+      expect(state.modifiedEntry(2)!.startTime, const Duration(seconds: 25));
+    });
+
+    test('the global shift moves keyed subtitles too', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 2, startTime: const Duration(seconds: 25)));
+      await bloc.stream.first;
+      bloc.add(ApplyGlobalShift(const Duration(seconds: 1)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.modifiedEntry(2)!.startTime, const Duration(seconds: 26));
+    });
+
+    test('removing a key restores the timing without it', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 1, startTime: const Duration(seconds: 15)));
+      await bloc.stream.first;
+      bloc.add(RemoveKeyPoint(entryIndex: 1));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.keyPoints, isEmpty);
+      expect(state.modifiedEntries[0].startTime, const Duration(seconds: 10));
+    });
+
+    test('clearing all keys restores the original timing', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 1, startTime: const Duration(seconds: 15)));
+      await bloc.stream.first;
+      bloc.add(SetKeyPoint(entryIndex: 3, startTime: const Duration(seconds: 40)));
+      await bloc.stream.first;
+      bloc.add(ClearKeyPoints());
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.keyPoints, isEmpty);
+      expect(state.modifiedEntries.map((e) => e.startTime.inSeconds), [10, 20, 30]);
+    });
+
+    test('activeAt returns the subtitle on screen with the current timing', () async {
+      await loadFixture();
+
+      bloc.add(SetKeyPoint(entryIndex: 1, startTime: const Duration(seconds: 15)));
+      final state = await bloc.stream.first as SubtitleEditorLoaded;
+
+      expect(state.activeAt(const Duration(seconds: 11)), isEmpty);
+      expect(state.activeAt(const Duration(seconds: 16)).single.text, 'one');
     });
   });
 
@@ -244,14 +286,5 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(bloc.state, isA<SubtitleEditorInitial>());
     });
-  });
-
-  test('generateTempSubtitleFile writes a sibling temp file', () async {
-    final loaded = await loadFixture();
-    final tempPath = await bloc.generateTempSubtitleFile(loaded.modifiedEntries, subtitlePath);
-
-    expect(tempPath, '$subtitlePath.temp.srt');
-    expect(await File(tempPath).exists(), isTrue);
-    expect(await SrtParserService.parseFile(tempPath), hasLength(3));
   });
 }

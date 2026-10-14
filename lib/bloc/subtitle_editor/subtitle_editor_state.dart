@@ -16,7 +16,7 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
   /// Original parsed entries (unmodified)
   final List<SubtitleEntry> originalEntries;
 
-  /// Modified entries (after shifts/interpolation)
+  /// Entries with the key points and the global shift applied
   final List<SubtitleEntry> modifiedEntries;
 
   /// Path to the original subtitle file
@@ -25,21 +25,14 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
   /// Path to the video file
   final String videoPath;
 
-  /// Global time shift offset
+  /// Global time shift offset, applied on top of the key points
   final Duration globalShift;
 
-  /// Key points: map of original SRT index -> offset duration
+  /// Key points: map of original SRT index -> offset from the original start time
   final Map<int, Duration> keyPoints;
 
-  /// Currently selected subtitle index for key-based editing (-1 = none)
+  /// Subtitle currently being pinned to a moment in the video (-1 = none)
   final int selectedEntryIndex;
-
-  /// Individual offset adjustments for key-based sync (before saving as key)
-  /// Map of original SRT index -> current adjustment offset
-  final Map<int, Duration> individualOffsets;
-
-  /// Whether key-based recalculation has been applied
-  final bool keyRecalculated;
 
   SubtitleEditorLoaded({
     required this.originalEntries,
@@ -49,9 +42,36 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
     this.globalShift = Duration.zero,
     this.keyPoints = const {},
     this.selectedEntryIndex = -1,
-    this.individualOffsets = const {},
-    this.keyRecalculated = false,
   });
+
+  bool get isPickingKey => selectedEntryIndex >= 0;
+
+  SubtitleEntry? originalEntry(int srtIndex) {
+    for (final entry in originalEntries) {
+      if (entry.index == srtIndex) return entry;
+    }
+    return null;
+  }
+
+  SubtitleEntry? modifiedEntry(int srtIndex) {
+    for (final entry in modifiedEntries) {
+      if (entry.index == srtIndex) return entry;
+    }
+    return null;
+  }
+
+  /// How far the subtitle has moved from its time in the original file.
+  Duration totalShiftOf(int srtIndex) {
+    final original = originalEntry(srtIndex);
+    final modified = modifiedEntry(srtIndex);
+    if (original == null || modified == null) return Duration.zero;
+    return modified.startTime - original.startTime;
+  }
+
+  /// Subtitles that are on screen at [position] with the current timing.
+  List<SubtitleEntry> activeAt(Duration position) {
+    return modifiedEntries.where((e) => e.startTime <= position && position < e.endTime).toList();
+  }
 
   SubtitleEditorLoaded copyWith({
     List<SubtitleEntry>? originalEntries,
@@ -61,8 +81,6 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
     Duration? globalShift,
     Map<int, Duration>? keyPoints,
     int? selectedEntryIndex,
-    Map<int, Duration>? individualOffsets,
-    bool? keyRecalculated,
   }) {
     return SubtitleEditorLoaded(
       originalEntries: originalEntries ?? this.originalEntries,
@@ -72,23 +90,11 @@ class SubtitleEditorLoaded extends SubtitleEditorState {
       globalShift: globalShift ?? this.globalShift,
       keyPoints: keyPoints ?? this.keyPoints,
       selectedEntryIndex: selectedEntryIndex ?? this.selectedEntryIndex,
-      individualOffsets: individualOffsets ?? this.individualOffsets,
-      keyRecalculated: keyRecalculated ?? this.keyRecalculated,
     );
   }
 
   @override
-  List<Object?> get props => [
-    originalEntries,
-    modifiedEntries,
-    subtitlePath,
-    videoPath,
-    globalShift,
-    keyPoints,
-    selectedEntryIndex,
-    individualOffsets,
-    keyRecalculated,
-  ];
+  List<Object?> get props => [originalEntries, modifiedEntries, subtitlePath, videoPath, globalShift, keyPoints, selectedEntryIndex];
 }
 
 class SubtitleEditorError extends SubtitleEditorState {

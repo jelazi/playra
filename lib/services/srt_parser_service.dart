@@ -102,73 +102,39 @@ class SrtParserService {
   /// [keyPoints] - Map of entry index to the offset that should be applied at that point.
   ///               The key is the original entry index, the value is the time offset.
   ///
-  /// Subtitles between key points are linearly interpolated.
-  /// Subtitles before the first key point use the first key's offset ratio.
-  /// Subtitles after the last key point use the last key's offset ratio.
+  /// Subtitles between key points are linearly interpolated by their original
+  /// start time, so a drift that grows with playback time is corrected evenly.
+  /// Subtitles before the first key point use the first key's offset.
+  /// Subtitles after the last key point use the last key's offset.
   static List<SubtitleEntry> applyKeyBasedSync(List<SubtitleEntry> entries, Map<int, Duration> keyPoints) {
     if (entries.isEmpty || keyPoints.isEmpty) return entries;
 
-    // Sort key point indices
-    final sortedKeys = keyPoints.keys.toList()..sort();
-
-    // Find entry indices in the list (entries are 1-indexed in SRT)
-    // Create a mapping from entry list index to entry
-    final result = List<SubtitleEntry>.from(entries);
-
-    // Convert keyPoints to use list indices instead of SRT indices
-    // Find list index for each key entry
-    final keyListIndices = <int, Duration>{};
-    for (final srtIndex in sortedKeys) {
-      final listIndex = entries.indexWhere((e) => e.index == srtIndex);
-      if (listIndex != -1) {
-        keyListIndices[listIndex] = keyPoints[srtIndex]!;
-      }
+    final keys = <({Duration at, Duration offset})>[];
+    for (final entry in entries) {
+      final offset = keyPoints[entry.index];
+      if (offset != null) keys.add((at: entry.startTime, offset: offset));
     }
+    if (keys.isEmpty) return entries;
+    keys.sort((a, b) => a.at.compareTo(b.at));
 
-    if (keyListIndices.isEmpty) return entries;
+    return entries.map((entry) => entry.shifted(_offsetAt(entry.startTime, keys))).toList();
+  }
 
-    final sortedListKeys = keyListIndices.keys.toList()..sort();
+  static Duration _offsetAt(Duration time, List<({Duration at, Duration offset})> keys) {
+    if (time <= keys.first.at) return keys.first.offset;
+    if (time >= keys.last.at) return keys.last.offset;
 
-    for (int i = 0; i < entries.length; i++) {
-      Duration offset;
+    for (int k = 0; k < keys.length - 1; k++) {
+      final prev = keys[k];
+      final next = keys[k + 1];
+      if (time > next.at) continue;
 
-      if (sortedListKeys.length == 1) {
-        // Only one key point - apply the same offset to all
-        offset = keyListIndices[sortedListKeys.first]!;
-      } else if (i <= sortedListKeys.first) {
-        // Before or at first key point - use first key's offset
-        offset = keyListIndices[sortedListKeys.first]!;
-      } else if (i >= sortedListKeys.last) {
-        // After or at last key point - use last key's offset
-        offset = keyListIndices[sortedListKeys.last]!;
-      } else {
-        // Between two key points - linear interpolation
-        int prevKey = sortedListKeys.first;
-        int nextKey = sortedListKeys.last;
-
-        for (int k = 0; k < sortedListKeys.length - 1; k++) {
-          if (i >= sortedListKeys[k] && i <= sortedListKeys[k + 1]) {
-            prevKey = sortedListKeys[k];
-            nextKey = sortedListKeys[k + 1];
-            break;
-          }
-        }
-
-        final prevOffset = keyListIndices[prevKey]!;
-        final nextOffset = keyListIndices[nextKey]!;
-
-        // Linear interpolation between the two key points
-        final totalRange = nextKey - prevKey;
-        final position = i - prevKey;
-        final ratio = position / totalRange;
-
-        final offsetMs = prevOffset.inMilliseconds + ((nextOffset.inMilliseconds - prevOffset.inMilliseconds) * ratio).round();
-        offset = Duration(milliseconds: offsetMs);
-      }
-
-      result[i] = entries[i].shifted(offset);
+      final span = (next.at - prev.at).inMilliseconds;
+      if (span == 0) return prev.offset;
+      final ratio = (time - prev.at).inMilliseconds / span;
+      final offsetMs = prev.offset.inMilliseconds + ((next.offset.inMilliseconds - prev.offset.inMilliseconds) * ratio).round();
+      return Duration(milliseconds: offsetMs);
     }
-
-    return result;
+    return keys.last.offset;
   }
 }

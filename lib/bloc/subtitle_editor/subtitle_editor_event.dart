@@ -30,26 +30,28 @@ class ApplyGlobalShift extends SubtitleEditorEvent {
 /// Reset global shift to zero
 class ResetGlobalShift extends SubtitleEditorEvent {}
 
-/// Set the offset for a specific subtitle entry (key-based sync)
-class SetKeySubtitleOffset extends SubtitleEditorEvent {
+/// Select the subtitle the user is about to pin to a moment in the video
+class SelectSubtitleEntry extends SubtitleEditorEvent {
   final int entryIndex;
-  final Duration offset;
 
-  SetKeySubtitleOffset({required this.entryIndex, required this.offset});
+  SelectSubtitleEntry({required this.entryIndex});
 
   @override
-  List<Object?> get props => [entryIndex, offset];
+  List<Object?> get props => [entryIndex];
 }
 
-/// Mark a subtitle as a key point with its current offset
-class MarkAsKeyPoint extends SubtitleEditorEvent {
-  final int entryIndex;
-  final Duration offset;
+/// Leave the key-picking mode without saving
+class ClearSubtitleSelection extends SubtitleEditorEvent {}
 
-  MarkAsKeyPoint({required this.entryIndex, required this.offset});
+/// Pin a subtitle so that it starts exactly at [startTime] in the video
+class SetKeyPoint extends SubtitleEditorEvent {
+  final int entryIndex;
+  final Duration startTime;
+
+  SetKeyPoint({required this.entryIndex, required this.startTime});
 
   @override
-  List<Object?> get props => [entryIndex, offset];
+  List<Object?> get props => [entryIndex, startTime];
 }
 
 /// Remove a key point
@@ -62,8 +64,8 @@ class RemoveKeyPoint extends SubtitleEditorEvent {
   List<Object?> get props => [entryIndex];
 }
 
-/// Recalculate all subtitles based on key points (linear interpolation)
-class RecalculateFromKeyPoints extends SubtitleEditorEvent {}
+/// Remove all key points
+class ClearKeyPoints extends SubtitleEditorEvent {}
 
 /// Save subtitles to file
 class SaveSubtitles extends SubtitleEditorEvent {
@@ -73,24 +75,4 @@ class SaveSubtitles extends SubtitleEditorEvent {
 
   @override
   List<Object?> get props => [targetPath];
-}
-
-/// Select a subtitle entry (for key-based sync UI)
-class SelectSubtitleEntry extends SubtitleEditorEvent {
-  final int entryIndex;
-
-  SelectSubtitleEntry({required this.entryIndex});
-
-  @override
-  List<Object?> get props => [entryIndex];
-}
-
-/// Adjust the individual offset for the currently selected subtitle in key mode
-class AdjustSelectedKeyOffset extends SubtitleEditorEvent {
-  final Duration delta;
-
-  AdjustSelectedKeyOffset(this.delta);
-
-  @override
-  List<Object?> get props => [delta];
 }

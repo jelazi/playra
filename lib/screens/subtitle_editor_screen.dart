@@ -10,10 +10,11 @@ import '../bloc/subtitle_editor/subtitle_editor_bloc.dart';
 import '../bloc/subtitle_editor/subtitle_editor_event.dart';
 import '../bloc/subtitle_editor/subtitle_editor_state.dart';
 import '../models/subtitle_entry.dart';
-import '../services/srt_parser_service.dart';
 
 /// Subtitle editor screen with video player, global shift controls,
 /// and key-based subtitle synchronization.
+///
+/// Pops with the path of the last saved file, or null when nothing was saved.
 class SubtitleEditorScreen extends StatefulWidget {
   final String videoPath;
   final String subtitlePath;
@@ -25,15 +26,18 @@ class SubtitleEditorScreen extends StatefulWidget {
 }
 
 class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with SingleTickerProviderStateMixin {
+  static const _verifyLeadIn = Duration(seconds: 2);
+
   Player? _player;
   VideoController? _videoController;
   bool _isVideoLoading = true;
   String? _videoError;
   late TabController _tabController;
-  String? _tempSubtitlePath;
 
-  // Current subtitle text displayed on top of the video
-  String _currentSubtitleText = '';
+  /// Where the video was when the user started placing the selected subtitle.
+  Duration _pickAnchor = Duration.zero;
+
+  String? _savedPath;
 
   @override
   void initState() {
@@ -61,11 +65,10 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
       });
 
       final mediaUri = widget.videoPath.startsWith('file://') ? widget.videoPath : 'file://${widget.videoPath}';
-      await _player!.open(Media(mediaUri));
+      await _player!.open(Media(mediaUri), play: false);
 
-      // Load subtitle track
-      final subtitleUri = widget.subtitlePath.startsWith('file://') ? widget.subtitlePath : 'file://${widget.subtitlePath}';
-      await _player!.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
+      // The editor draws the edited timings itself; mpv would otherwise auto-load a sibling .srt.
+      await _player!.setSubtitleTrack(SubtitleTrack.no());
 
       // Wait for video to load
       int attempts = 0;
@@ -76,19 +79,12 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
 
       await _player!.play();
 
-      // Listen to subtitle text updates
-      _player!.stream.subtitle.listen((subtitleLines) {
-        if (mounted) {
-          setState(() {
-            _currentSubtitleText = subtitleLines.join('\n');
-          });
-        }
-      });
-
+      if (!mounted) return;
       setState(() {
         _isVideoLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isVideoLoading = false;
         _videoError = 'editor.video_load_error'.tr();
@@ -96,92 +92,82 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
     }
   }
 
-  Future<void> _reloadSubtitleTrack(List<SubtitleEntry> entries) async {
-    if (_player == null) return;
-
-    try {
-      // Write modified subtitles to a temp file
-      final tempPath = '${widget.subtitlePath}.editor_temp.srt';
-      await SrtParserService.writeFile(tempPath, entries);
-      _tempSubtitlePath = tempPath;
-
-      // Reload subtitle track
-      await _player!.setSubtitleTrack(SubtitleTrack.no());
-      await Future.delayed(const Duration(milliseconds: 50));
-      final subtitleUri = tempPath.startsWith('file://') ? tempPath : 'file://$tempPath';
-      await _player!.setSubtitleTrack(SubtitleTrack.uri(subtitleUri));
-    } catch (e) {
-      debugPrint('🔴 SubtitleEditor: Error reloading subtitles: $e');
-    }
-  }
-
   @override
   void dispose() {
     _player?.dispose();
     _tabController.dispose();
-    // Clean up temp file
-    if (_tempSubtitlePath != null) {
-      File(_tempSubtitlePath!).delete().catchError((_) => File(_tempSubtitlePath!));
-    }
     super.dispose();
+  }
+
+  Duration get _position => _player?.state.position ?? Duration.zero;
+
+  void _seek(Duration position) {
+    _player?.seek(position < Duration.zero ? Duration.zero : position);
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => SubtitleEditorBloc()..add(LoadSubtitleFile(subtitlePath: widget.subtitlePath, videoPath: widget.videoPath)),
-      child: BlocConsumer<SubtitleEditorBloc, SubtitleEditorState>(
-        listener: (context, state) {
-          if (state is SubtitleEditorLoaded) {
-            // Reload subtitle in player when modified entries change
-            _reloadSubtitleTrack(state.modifiedEntries);
-          } else if (state is SubtitleEditorSaved) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('editor.saved_success'.tr(args: [state.savedPath])),
-                backgroundColor: Colors.green,
-              ),
-            );
-          } else if (state is SubtitleEditorError) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
-          }
-        },
-        builder: (context, state) {
-          return Scaffold(
-            appBar: AppBar(
-              title: Text('editor.title'.tr()),
-              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-              actions: [
-                if (state is SubtitleEditorLoaded)
-                  IconButton(icon: const Icon(Icons.save), tooltip: 'editor.save'.tr(), onPressed: () => _showSaveDialog(context, state)),
-              ],
-              bottom: TabBar(
-                controller: _tabController,
-                tabs: [
-                  Tab(icon: const Icon(Icons.timer), text: 'editor.global_shift'.tr()),
-                  Tab(icon: const Icon(Icons.tune), text: 'editor.key_sync'.tr()),
-                ],
-              ),
-            ),
-            body: Column(
-              children: [
-                // Video player section
-                _buildVideoSection(state),
-                // Tab content
-                Expanded(
-                  child: TabBarView(controller: _tabController, children: [_buildGlobalShiftTab(context, state), _buildKeySyncTab(context, state)]),
-                ),
-              ],
-            ),
-          );
-        },
+    return PopScope<String>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) Navigator.of(context).pop(_savedPath);
+      },
+      child: BlocProvider(
+        create: (_) => SubtitleEditorBloc()..add(LoadSubtitleFile(subtitlePath: widget.subtitlePath, videoPath: widget.videoPath)),
+        child: _buildEditor(),
       ),
     );
   }
 
-  Widget _buildVideoSection(SubtitleEditorState state) {
+  Widget _buildEditor() {
+    return BlocConsumer<SubtitleEditorBloc, SubtitleEditorState>(
+      listener: (context, state) {
+        if (state is SubtitleEditorSaved) {
+          _savedPath = state.savedPath;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('editor.saved_success'.tr(args: [state.savedPath])),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else if (state is SubtitleEditorError) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.red));
+        }
+      },
+      builder: (context, state) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('editor.title'.tr()),
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            actions: [
+              if (state is SubtitleEditorLoaded)
+                IconButton(icon: const Icon(Icons.save), tooltip: 'editor.save'.tr(), onPressed: () => _showSaveDialog(context, state)),
+            ],
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: [
+                Tab(icon: const Icon(Icons.timer), text: 'editor.global_shift'.tr()),
+                Tab(icon: const Icon(Icons.tune), text: 'editor.key_sync'.tr()),
+              ],
+            ),
+          ),
+          body: Column(
+            children: [
+              _buildVideoSection(context, state),
+              Expanded(
+                child: TabBarView(controller: _tabController, children: [_buildGlobalShiftTab(context, state), _buildKeySyncTab(context, state)]),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVideoSection(BuildContext context, SubtitleEditorState state) {
+    final height = (MediaQuery.sizeOf(context).height * 0.32).clamp(180.0, 320.0);
     return Container(
-      height: 280,
+      height: height,
       color: Colors.black,
       child: _isVideoLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.white))
@@ -193,29 +179,65 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
               children: [
                 if (_videoController != null)
                   Center(
-                    child: Video(controller: _videoController!, controls: NoVideoControls),
+                    child: Video(
+                      controller: _videoController!,
+                      controls: NoVideoControls,
+                      subtitleViewConfiguration: const SubtitleViewConfiguration(visible: false),
+                    ),
                   ),
-                // Subtitle overlay
-                Positioned(
-                  bottom: 50,
-                  left: 16,
-                  right: 16,
-                  child: _currentSubtitleText.isNotEmpty
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(8)),
-                          child: Text(
-                            _currentSubtitleText,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                // Playback controls overlay
+                if (state is SubtitleEditorLoaded) Positioned(bottom: 64, left: 16, right: 16, child: _buildSubtitleOverlay(state)),
                 Positioned(bottom: 0, left: 0, right: 0, child: _buildCompactControls()),
               ],
             ),
+    );
+  }
+
+  Widget _buildSubtitleOverlay(SubtitleEditorLoaded state) {
+    if (state.isPickingKey) {
+      final target = state.originalEntry(state.selectedEntryIndex);
+      if (target == null) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.amber, width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'editor.target_subtitle'.tr(),
+              style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              target.text,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.amber, fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return StreamBuilder<Duration>(
+      stream: _player?.stream.position,
+      initialData: _position,
+      builder: (context, snapshot) {
+        final active = state.activeAt(snapshot.data ?? Duration.zero);
+        if (active.isEmpty) return const SizedBox.shrink();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(8)),
+          child: Text(
+            active.map((e) => e.text).join('\n'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        );
+      },
     );
   }
 
@@ -228,7 +250,6 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Time slider
           StreamBuilder<Duration>(
             stream: _player?.stream.position,
             initialData: Duration.zero,
@@ -237,7 +258,7 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
               final duration = _player?.state.duration ?? Duration.zero;
               return Row(
                 children: [
-                  Text(_formatDuration(position), style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  Text(_formatClock(position), style: const TextStyle(color: Colors.white, fontSize: 11)),
                   Expanded(
                     child: SliderTheme(
                       data: SliderThemeData(
@@ -250,59 +271,48 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
                         max: duration.inMilliseconds > 0 ? duration.inMilliseconds.toDouble() : 1,
                         activeColor: Colors.white,
                         inactiveColor: Colors.white38,
-                        onChanged: (value) {
-                          _player?.seek(Duration(milliseconds: value.toInt()));
-                        },
+                        onChanged: (value) => _seek(Duration(milliseconds: value.toInt())),
                       ),
                     ),
                   ),
-                  Text(_formatDuration(duration), style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  Text(_formatClock(duration), style: const TextStyle(color: Colors.white, fontSize: 11)),
                 ],
               );
             },
           ),
-          // Playback buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
                 icon: const Icon(Icons.replay_5, color: Colors.white),
                 iconSize: 24,
-                onPressed: () {
-                  final pos = _player?.state.position ?? Duration.zero;
-                  _player?.seek(pos - const Duration(seconds: 5));
-                },
+                onPressed: () => _seek(_position - const Duration(seconds: 5)),
               ),
-              StreamBuilder<bool>(
-                stream: _player?.stream.playing,
-                initialData: _player?.state.playing ?? false,
-                builder: (context, snapshot) {
-                  final isPlaying = snapshot.data ?? false;
-                  return IconButton(
-                    icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white),
-                    iconSize: 32,
-                    onPressed: () {
-                      if (isPlaying) {
-                        _player?.pause();
-                      } else {
-                        _player?.play();
-                      }
-                    },
-                  );
-                },
-              ),
+              _buildPlayPauseButton(color: Colors.white, size: 32),
               IconButton(
                 icon: const Icon(Icons.forward_5, color: Colors.white),
                 iconSize: 24,
-                onPressed: () {
-                  final pos = _player?.state.position ?? Duration.zero;
-                  _player?.seek(pos + const Duration(seconds: 5));
-                },
+                onPressed: () => _seek(_position + const Duration(seconds: 5)),
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlayPauseButton({Color? color, double size = 24}) {
+    return StreamBuilder<bool>(
+      stream: _player?.stream.playing,
+      initialData: _player?.state.playing ?? false,
+      builder: (context, snapshot) {
+        final isPlaying = snapshot.data ?? false;
+        return IconButton(
+          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow, color: color),
+          iconSize: size,
+          onPressed: () => isPlaying ? _player?.pause() : _player?.play(),
+        );
+      },
     );
   }
 
@@ -316,14 +326,12 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
     }
 
     final shiftMs = state.globalShift.inMilliseconds;
-    final shiftSign = shiftMs >= 0 ? '+' : '';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Current shift info
           Card(
             elevation: 2,
             child: Padding(
@@ -333,28 +341,25 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
                   Text('editor.current_shift'.tr(), style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(
-                    '$shiftSign${shiftMs}ms (${(shiftMs / 1000).toStringAsFixed(1)}s)',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: shiftMs == 0 ? Colors.grey : (shiftMs > 0 ? Colors.green : Colors.red),
-                      fontWeight: FontWeight.bold,
-                    ),
+                    _formatShift(context, state.globalShift),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: _shiftColor(shiftMs), fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
             ),
           ),
+          if (state.keyPoints.isNotEmpty) ...[const SizedBox(height: 8), _buildHint(context, 'editor.global_shift_with_keys'.tr())],
           const SizedBox(height: 16),
 
-          // Shift buttons
           Text('editor.shift_earlier'.tr(), style: Theme.of(context).textTheme.titleSmall, textAlign: TextAlign.center),
           const SizedBox(height: 8),
           Row(
             children: [
-              _buildShiftButton(context, '-1s', const Duration(seconds: -1), Colors.red.shade700),
+              _buildShiftButton(context, const Duration(seconds: -1), Colors.red.shade700),
               const SizedBox(width: 8),
-              _buildShiftButton(context, '-500ms', const Duration(milliseconds: -500), Colors.red.shade400),
+              _buildShiftButton(context, const Duration(milliseconds: -500), Colors.red.shade400),
               const SizedBox(width: 8),
-              _buildShiftButton(context, '-100ms', const Duration(milliseconds: -100), Colors.red.shade300),
+              _buildShiftButton(context, const Duration(milliseconds: -100), Colors.red.shade300),
             ],
           ),
           const SizedBox(height: 16),
@@ -363,26 +368,22 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
           const SizedBox(height: 8),
           Row(
             children: [
-              _buildShiftButton(context, '+100ms', const Duration(milliseconds: 100), Colors.green.shade300),
+              _buildShiftButton(context, const Duration(milliseconds: 100), Colors.green.shade300),
               const SizedBox(width: 8),
-              _buildShiftButton(context, '+500ms', const Duration(milliseconds: 500), Colors.green.shade400),
+              _buildShiftButton(context, const Duration(milliseconds: 500), Colors.green.shade400),
               const SizedBox(width: 8),
-              _buildShiftButton(context, '+1s', const Duration(seconds: 1), Colors.green.shade700),
+              _buildShiftButton(context, const Duration(seconds: 1), Colors.green.shade700),
             ],
           ),
           const SizedBox(height: 16),
 
-          // Reset button
           OutlinedButton.icon(
-            onPressed: () {
-              context.read<SubtitleEditorBloc>().add(ResetGlobalShift());
-            },
+            onPressed: () => context.read<SubtitleEditorBloc>().add(ResetGlobalShift()),
             icon: const Icon(Icons.restart_alt),
             label: Text('editor.reset_shift'.tr()),
           ),
           const SizedBox(height: 24),
 
-          // Preview of first few subtitles
           Text('editor.preview'.tr(), style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           ...state.modifiedEntries.take(5).map((entry) => _buildSubtitlePreviewTile(entry, state)),
@@ -400,22 +401,18 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
     );
   }
 
-  Widget _buildShiftButton(BuildContext context, String label, Duration offset, Color color) {
+  Widget _buildShiftButton(BuildContext context, Duration offset, Color color) {
     return Expanded(
       child: ElevatedButton(
-        onPressed: () {
-          context.read<SubtitleEditorBloc>().add(ApplyGlobalShift(offset));
-        },
+        onPressed: () => context.read<SubtitleEditorBloc>().add(ApplyGlobalShift(offset)),
         style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        child: Text(_formatShift(context, offset, decimals: 1), style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }
 
   Widget _buildSubtitlePreviewTile(SubtitleEntry entry, SubtitleEditorLoaded state) {
-    // Find original entry for comparison
-    final original = state.originalEntries.firstWhere((e) => e.index == entry.index, orElse: () => entry);
-    final shifted = entry.startTime != original.startTime;
+    final shifted = state.totalShiftOf(entry.index) != Duration.zero;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 2),
@@ -428,12 +425,10 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
         ),
         title: Text(entry.text.replaceAll('\n', ' '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
         subtitle: Text(
-          '${SrtParserService.formatDuration(entry.startTime)} → ${SrtParserService.formatDuration(entry.endTime)}',
+          '${_formatTime(context, entry.startTime)} → ${_formatTime(context, entry.endTime)}',
           style: TextStyle(fontSize: 11, color: shifted ? Colors.orange : Colors.grey),
         ),
-        onTap: () {
-          _player?.seek(entry.startTime);
-        },
+        onTap: () => _seek(entry.startTime),
       ),
     );
   }
@@ -447,18 +442,18 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
       return const Center(child: CircularProgressIndicator());
     }
 
+    if (state.isPickingKey) {
+      return _buildKeyPickPanel(context, state);
+    }
+
     return Column(
       children: [
-        // Key point info & controls
         _buildKeySyncHeader(context, state),
-        // Subtitle list
         Expanded(
           child: ListView.builder(
+            key: const PageStorageKey('key-sync-list'),
             itemCount: state.originalEntries.length,
-            itemBuilder: (context, index) {
-              final entry = state.originalEntries[index];
-              return _buildKeySyncSubtitleCard(context, entry, state);
-            },
+            itemBuilder: (context, index) => _buildKeySyncSubtitleCard(context, state.originalEntries[index], state),
           ),
         ),
       ],
@@ -473,13 +468,15 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
         border: Border(bottom: BorderSide(color: Colors.blue.shade200)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
               const SizedBox(width: 8),
               Expanded(
-                child: Text('editor.key_sync_info'.tr(), style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
+                child: Text('editor.key_sync_steps'.tr(), style: TextStyle(fontSize: 12, color: Colors.blue.shade900)),
               ),
             ],
           ),
@@ -493,207 +490,235 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
               ),
               const Spacer(),
               if (state.keyPoints.isNotEmpty)
-                ElevatedButton.icon(
-                  onPressed: () {
-                    context.read<SubtitleEditorBloc>().add(RecalculateFromKeyPoints());
-                  },
-                  icon: const Icon(Icons.calculate, size: 18),
-                  label: Text('editor.recalculate'.tr()),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                TextButton.icon(
+                  onPressed: () => context.read<SubtitleEditorBloc>().add(ClearKeyPoints()),
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                  label: Text('editor.clear_keys'.tr()),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
                 ),
             ],
           ),
-          if (state.keyRecalculated)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                  const SizedBox(width: 4),
-                  Text('editor.recalculated_success'.tr(), style: const TextStyle(color: Colors.green, fontSize: 12)),
-                ],
-              ),
-            ),
-          // Selected subtitle adjustment controls
-          if (state.selectedEntryIndex >= 0) ...[const Divider(), _buildSelectedSubtitleControls(context, state)],
         ],
       ),
     );
   }
 
-  Widget _buildSelectedSubtitleControls(BuildContext context, SubtitleEditorLoaded state) {
-    final srtIndex = state.selectedEntryIndex;
-    final entry = state.originalEntries.firstWhere((e) => e.index == srtIndex, orElse: () => state.originalEntries.first);
-    final currentOffset = state.individualOffsets[srtIndex] ?? Duration.zero;
-    final offsetMs = currentOffset.inMilliseconds;
-    final sign = offsetMs >= 0 ? '+' : '';
-    final isKey = state.keyPoints.containsKey(srtIndex);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'editor.adjusting_subtitle'.tr(args: ['$srtIndex']),
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-        ),
-        Text(
-          entry.text.replaceAll('\n', ' '),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'editor.individual_offset'.tr(args: ['$sign${offsetMs}ms']),
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: offsetMs == 0 ? Colors.grey : (offsetMs > 0 ? Colors.green : Colors.red)),
-        ),
-        const SizedBox(height: 8),
-        // Adjustment buttons
-        Row(
-          children: [
-            _buildKeyAdjustButton(context, '-1s', const Duration(seconds: -1), Colors.red.shade700),
-            const SizedBox(width: 4),
-            _buildKeyAdjustButton(context, '-500', const Duration(milliseconds: -500), Colors.red.shade400),
-            const SizedBox(width: 4),
-            _buildKeyAdjustButton(context, '-100', const Duration(milliseconds: -100), Colors.red.shade300),
-            const SizedBox(width: 4),
-            _buildKeyAdjustButton(context, '+100', const Duration(milliseconds: 100), Colors.green.shade300),
-            const SizedBox(width: 4),
-            _buildKeyAdjustButton(context, '+500', const Duration(milliseconds: 500), Colors.green.shade400),
-            const SizedBox(width: 4),
-            _buildKeyAdjustButton(context, '+1s', const Duration(seconds: 1), Colors.green.shade700),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  context.read<SubtitleEditorBloc>().add(MarkAsKeyPoint(entryIndex: srtIndex, offset: currentOffset));
-                },
-                icon: Icon(isKey ? Icons.vpn_key : Icons.vpn_key_outlined, size: 16),
-                label: Text(isKey ? 'editor.update_key'.tr() : 'editor.save_as_key'.tr()),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black87),
-              ),
-            ),
-            if (isKey) ...[
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: () {
-                  context.read<SubtitleEditorBloc>().add(RemoveKeyPoint(entryIndex: srtIndex));
-                },
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                tooltip: 'editor.remove_key'.tr(),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildKeyAdjustButton(BuildContext context, String label, Duration delta, Color color) {
-    return Expanded(
-      child: SizedBox(
-        height: 36,
-        child: ElevatedButton(
-          onPressed: () {
-            context.read<SubtitleEditorBloc>().add(AdjustSelectedKeyOffset(delta));
-            // Also seek video to show the adjusted position
-            final state = context.read<SubtitleEditorBloc>().state;
-            if (state is SubtitleEditorLoaded && state.selectedEntryIndex >= 0) {
-              final entry = state.originalEntries.firstWhere((e) => e.index == state.selectedEntryIndex, orElse: () => state.originalEntries.first);
-              final newOffset = (state.individualOffsets[state.selectedEntryIndex] ?? Duration.zero) + delta;
-              _player?.seek(entry.startTime + newOffset);
-            }
-          },
-          style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, padding: EdgeInsets.zero),
-          child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-        ),
-      ),
-    );
-  }
-
   Widget _buildKeySyncSubtitleCard(BuildContext context, SubtitleEntry entry, SubtitleEditorLoaded state) {
-    final isSelected = state.selectedEntryIndex == entry.index;
     final isKey = state.keyPoints.containsKey(entry.index);
-    final keyOffset = state.keyPoints[entry.index];
+    final current = state.modifiedEntry(entry.index) ?? entry;
+    final shift = current.startTime - entry.startTime;
 
     return Card(
+      key: ValueKey(entry.index),
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      color: isSelected
-          ? Colors.blue.shade50
-          : isKey
-          ? Colors.amber.shade50
-          : null,
-      elevation: isSelected ? 3 : 1,
+      color: isKey ? Colors.amber.shade50 : null,
       child: InkWell(
-        onTap: () {
-          // Select this subtitle and seek video to its start time
-          context.read<SubtitleEditorBloc>().add(SelectSubtitleEntry(entryIndex: entry.index));
-          // Seek taking into account any individual offset
-          final offset = state.individualOffsets[entry.index] ?? Duration.zero;
-          _player?.seek(entry.startTime + offset);
-        },
+        onTap: () => _startPicking(context, entry.index, current.startTime),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              // Index badge
               Container(
                 width: 36,
                 height: 36,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isKey
-                      ? Colors.amber
-                      : isSelected
-                      ? Colors.blue
-                      : Colors.grey.shade300,
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: isKey ? Colors.amber : Colors.grey.shade300),
                 child: Center(
                   child: isKey
                       ? const Icon(Icons.vpn_key, size: 16, color: Colors.white)
                       : Text(
                           '${entry.index}',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade700),
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
                         ),
                 ),
               ),
               const SizedBox(width: 12),
-              // Entry info
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      entry.text.replaceAll('\n', ' '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
-                    ),
+                    Text(entry.text.replaceAll('\n', ' '), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
                     const SizedBox(height: 2),
                     Text(
-                      '${SrtParserService.formatDuration(entry.startTime)} → ${SrtParserService.formatDuration(entry.endTime)}',
+                      shift == Duration.zero
+                          ? _formatTime(context, current.startTime)
+                          : '${_formatTime(context, current.startTime)}  ·  ${'editor.original_time'.tr(args: [_formatTime(context, entry.startTime)])}',
                       style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                     ),
                   ],
                 ),
               ),
-              // Key offset info
-              if (isKey && keyOffset != null)
+              if (isKey)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(12)),
-                  child: Text(
-                    '${keyOffset.inMilliseconds >= 0 ? '+' : ''}${keyOffset.inMilliseconds}ms',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                ),
+                  child: Text(_formatShift(context, shift), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                )
+              else
+                Icon(Icons.chevron_right, color: Colors.grey.shade400),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _startPicking(BuildContext context, int srtIndex, Duration currentStart) {
+    context.read<SubtitleEditorBloc>().add(SelectSubtitleEntry(entryIndex: srtIndex));
+    _pickAnchor = currentStart;
+    _player?.pause();
+    _seek(currentStart);
+  }
+
+  Widget _buildKeyPickPanel(BuildContext context, SubtitleEditorLoaded state) {
+    final srtIndex = state.selectedEntryIndex;
+    final original = state.originalEntry(srtIndex)!;
+    final isKey = state.keyPoints.containsKey(srtIndex);
+    final bloc = context.read<SubtitleEditorBloc>();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.gps_fixed, color: Colors.amber),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('editor.pick_title'.tr(args: ['$srtIndex']), style: Theme.of(context).textTheme.titleMedium),
+              ),
+              TextButton(onPressed: () => bloc.add(ClearSubtitleSelection()), child: Text('common.cancel'.tr())),
+            ],
+          ),
+          Text(
+            '„${original.text.replaceAll('\n', ' ')}“',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          _buildHint(context, 'editor.pick_steps'.tr()),
+          const SizedBox(height: 12),
+          StreamBuilder<Duration>(
+            stream: _player?.stream.position,
+            initialData: _position,
+            builder: (context, snapshot) {
+              final position = snapshot.data ?? Duration.zero;
+              final shift = position - original.startTime;
+              return Card(
+                elevation: 0,
+                color: Colors.amber.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Text('editor.pick_starts_at'.tr(), style: Theme.of(context).textTheme.labelMedium),
+                      Text(
+                        _formatTime(context, position),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, fontFeatures: const [FontFeature.tabularFigures()]),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'editor.pick_shift'.tr(args: [_formatShift(context, shift)]),
+                        style: TextStyle(fontWeight: FontWeight.bold, color: _shiftColor(shift.inMilliseconds)),
+                      ),
+                      Text(
+                        'editor.pick_original'.tr(args: [_formatTime(context, original.startTime)]),
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildNudgeButton(context, const Duration(seconds: -1)),
+              _buildNudgeButton(context, const Duration(milliseconds: -100)),
+              _buildPlayPauseButton(size: 36),
+              _buildNudgeButton(context, const Duration(milliseconds: 100)),
+              _buildNudgeButton(context, const Duration(seconds: 1)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            onPressed: () => _seek(_pickAnchor),
+            icon: const Icon(Icons.replay),
+            label: Text('editor.back_to_start'.tr(args: [_formatTime(context, _pickAnchor)])),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            onPressed: () => _saveKeyHere(context, original),
+            icon: const Icon(Icons.vpn_key),
+            label: Text('editor.save_key_here'.tr()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black87,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+          ),
+          if (isKey) ...[
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () => bloc
+                ..add(RemoveKeyPoint(entryIndex: srtIndex))
+                ..add(ClearSubtitleSelection()),
+              icon: const Icon(Icons.delete_outline),
+              label: Text('editor.remove_key'.tr()),
+              style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNudgeButton(BuildContext context, Duration delta) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: OutlinedButton(
+        onPressed: () => _seek(_position + delta),
+        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(56, 40)),
+        child: Text(_formatShift(context, delta, decimals: 1), style: const TextStyle(fontSize: 12)),
+      ),
+    );
+  }
+
+  void _saveKeyHere(BuildContext context, SubtitleEntry original) {
+    final position = _position;
+    _player?.pause();
+    context.read<SubtitleEditorBloc>().add(SetKeyPoint(entryIndex: original.index, startTime: position));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('editor.key_saved'.tr(args: ['${original.index}', _formatTime(context, position), _formatShift(context, position - original.startTime)])),
+        backgroundColor: Colors.green.shade700,
+      ),
+    );
+
+    _seek(position - _verifyLeadIn);
+    _player?.play();
+  }
+
+  Widget _buildHint(BuildContext context, String text) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(fontSize: 12, color: Colors.blue.shade900)),
+          ),
+        ],
       ),
     );
   }
@@ -726,7 +751,6 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                // Save as new file
                 final newName = originalName.replaceAll('.srt', '_synced.srt');
                 bloc.add(SaveSubtitles(targetPath: '$directory/$newName'));
               },
@@ -736,7 +760,6 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                // Overwrite original
                 bloc.add(SaveSubtitles());
               },
               icon: const Icon(Icons.save),
@@ -749,7 +772,26 @@ class _SubtitleEditorScreenState extends State<SubtitleEditorScreen> with Single
     );
   }
 
-  String _formatDuration(Duration duration) {
+  // ──────────────────────────────────────────
+  // Formatting
+  // ──────────────────────────────────────────
+
+  Color _shiftColor(int shiftMs) => shiftMs == 0 ? Colors.grey : (shiftMs > 0 ? Colors.green : Colors.red);
+
+  String _localizeDecimal(BuildContext context, String value) => context.locale.languageCode == 'cs' ? value.replaceAll('.', ',') : value;
+
+  String _formatShift(BuildContext context, Duration shift, {int decimals = 2}) {
+    final seconds = shift.inMilliseconds / 1000;
+    final sign = shift.inMilliseconds > 0 ? '+' : (shift.inMilliseconds < 0 ? '−' : '');
+    return _localizeDecimal(context, '$sign${seconds.abs().toStringAsFixed(decimals)} s');
+  }
+
+  String _formatTime(BuildContext context, Duration time) {
+    final centis = (time.inMilliseconds.remainder(1000) ~/ 10).toString().padLeft(2, '0');
+    return _localizeDecimal(context, '${_formatClock(time)}.$centis');
+  }
+
+  String _formatClock(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);

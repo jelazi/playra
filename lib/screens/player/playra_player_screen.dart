@@ -18,12 +18,15 @@ import '../../bloc/settings/playra_settings_cubit.dart';
 import '../../models/player_settings.dart';
 import '../../models/server_connection.dart';
 import '../../models/subtitle_style_settings.dart';
+import '../../models/video_info.dart';
 import '../../models/video_item.dart';
 import '../../services/episode_continuation_service.dart';
 import '../../services/playra_storage.dart';
 import '../../services/smb_download_service.dart';
+import '../../services/subtitle_file_service.dart';
 import '../../services/video_hash_service.dart';
 import '../player_launcher.dart';
+import '../subtitle_editor_screen.dart';
 import 'track_keys.dart';
 import 'widgets/subtitle_options_sheet.dart';
 
@@ -1547,7 +1550,80 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       isScrollControlled: true,
       backgroundColor: Colors.grey[900],
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetCtx) => SubtitleOptionsSheet(player: _player, video: widget.video, onOpenSubtitleDelayPopup: _showSubtitleDelayPopup),
+      builder: (sheetCtx) => SubtitleOptionsSheet(
+        player: _player,
+        video: widget.video,
+        onOpenSubtitleDelayPopup: _showSubtitleDelayPopup,
+        onOpenSubtitleEditor: _openSubtitleEditor,
+      ),
+    );
+  }
+
+  Future<void> _openSubtitleEditor() async {
+    final subtitlePath = await _pickEditableSubtitleFile();
+    if (subtitlePath == null || !mounted) return;
+
+    final wasPlaying = _player.state.playing;
+    await _runPlayerAction(() => _player.pause(), operation: 'pause before subtitle editor');
+    if (!mounted) return;
+
+    final savedPath = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => SubtitleEditorScreen(videoPath: widget.video.uri, subtitlePath: subtitlePath),
+      ),
+    );
+    if (!mounted) return;
+
+    if (savedPath != null) {
+      final track = SubtitleTrack.uri(Uri.file(savedPath).toString(), title: p.basename(savedPath));
+      if (await _runPlayerAction(() => _player.setSubtitleTrack(track), operation: 'load edited subtitle')) {
+        await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
+      }
+      // The saved file already carries the corrected timing; a leftover delay would shift it twice.
+      if (PlayraStorage.getSubtitleDelayMs(widget.video.id) != 0) {
+        await _setSubtitleDelayMs(0);
+      }
+    }
+
+    if (wasPlaying) {
+      await _runPlayerAction(() => _player.play(), operation: 'resume after subtitle editor');
+    }
+  }
+
+  Future<String?> _pickEditableSubtitleFile() async {
+    final videoInfo = VideoInfo(path: widget.video.uri, name: widget.video.name, directory: p.dirname(widget.video.uri));
+    final files = SubtitleFileService.checkSubtitleFiles(videoInfo).subtitleFiles.where((f) => p.extension(f).toLowerCase() == '.srt').toList();
+
+    if (files.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('player.no_editable_subtitles'.tr())));
+      return null;
+    }
+
+    final currentTitle = _player.state.track.subtitle.title;
+    final current = files.where((f) => p.basename(f) == currentTitle).firstOrNull;
+    if (current != null) return current;
+    if (files.length == 1) return files.first;
+
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: Text('player.choose_subtitle_file'.tr(), style: const TextStyle(color: Colors.white)),
+            ),
+            ...files.map(
+              (path) => ListTile(
+                leading: const Icon(Icons.subtitles, color: Colors.white70),
+                title: Text(p.basename(path), style: const TextStyle(color: Colors.white)),
+                onTap: () => Navigator.of(ctx).pop(path),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
