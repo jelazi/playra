@@ -2,6 +2,37 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-10-23 (part 9) — feat: secondary subtitle position, colour, alignment and sideways shift
+
+### What was done
+
+- `SubtitleStyleSettings`: `secondaryPosition` (`kSecondarySubtitlePositions`: below / above /
+  top, default below), `secondaryTextColor` (default white), `horizontalAlign`
+  (`kSubtitleHorizontalAligns`: left / center / right, default center) and `horizontalOffset`
+  (fraction of the width, clamped to ±0.4, default 0). Unknown stored values fall back to
+  the defaults.
+- `DualSubtitleView` lays out a bottom block (secondary above or below the main line) and,
+  for `top`, a separate top block; both follow the alignment (`Alignment.x`, `TextAlign`,
+  column cross-axis) and are shifted by `horizontalOffset × width`. With a picture-based
+  main track and the secondary set to "above", the secondary line goes above the
+  picture-subtitle band. The widget now takes `subtitles` / `initialSubtitles` (the
+  player's stream and state) instead of the `Player`, so it can be widget-tested.
+- `SubtitleStyleControls` (settings page and player sheet): position dropdown, secondary
+  colour picker, alignment dropdown, sideways-shift slider (−40…+40 %).
+- Translations: `settings.secondary_subtitle_position`, `secondary_position_below/above/top`,
+  `secondary_subtitle_color`, `subtitle_alignment`, `subtitle_align_left/center/right`,
+  `subtitle_horizontal_offset`, `subtitle_horizontal_offset_hint` (cs, en).
+- Tests: `test/dual_subtitle_view_test.dart` (5: sizes/colour/order, above/top, alignment and
+  shift, picture-based roles, hidden secondary) and a round-trip/fallback test in
+  `test/secondary_subtitle_settings_test.dart`.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 179 passed.
+- Installed on the tablet (APK), the iPad (`ios-deploy`) and this Mac (`/Applications`
+  replaced, running). On the tablet the new rows render in the player's subtitle sheet
+  (screenshot); the options were not tried on a playing video by hand.
+
 ## 2026-10-23 (part 8) — feat: picture-based (PGS) subtitles, swappable with SRT
 
 ### What was done
