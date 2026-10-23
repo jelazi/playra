@@ -9,18 +9,27 @@ import '../../services/library_service.dart';
 import '../../services/playra_storage.dart';
 
 class LibraryState extends Equatable {
+  /// Nothing to show yet: no earlier scan is stored.
   final bool loading;
+
+  /// A scan is running while the videos from the last one are shown.
+  final bool refreshing;
   final List<VideoItem> videos;
   final List<String> folders;
   final String? error;
 
-  const LibraryState({this.loading = false, this.videos = const [], this.folders = const [], this.error});
+  const LibraryState({this.loading = false, this.refreshing = false, this.videos = const [], this.folders = const [], this.error});
 
-  LibraryState copyWith({bool? loading, List<VideoItem>? videos, List<String>? folders, String? error}) =>
-      LibraryState(loading: loading ?? this.loading, videos: videos ?? this.videos, folders: folders ?? this.folders, error: error);
+  LibraryState copyWith({bool? loading, bool? refreshing, List<VideoItem>? videos, List<String>? folders, String? error}) => LibraryState(
+    loading: loading ?? this.loading,
+    refreshing: refreshing ?? this.refreshing,
+    videos: videos ?? this.videos,
+    folders: folders ?? this.folders,
+    error: error,
+  );
 
   @override
-  List<Object?> get props => [loading, videos, folders, error];
+  List<Object?> get props => [loading, refreshing, videos, folders, error];
 }
 
 class LibraryCubit extends Cubit<LibraryState> {
@@ -62,29 +71,37 @@ class LibraryCubit extends Cubit<LibraryState> {
     await _loadInternal(isRetry: false);
   }
 
+  /// Shows the last scan straight away and replaces it folder by folder as
+  /// the new scan finishes; a folder that is unreachable keeps its last
+  /// known videos.
   Future<void> _loadInternal({required bool isRetry}) async {
     final folders = PlayraStorage.getLibraryFolders();
+    final previous = state.videos.isNotEmpty ? state.videos : PlayraStorage.getLibrarySnapshot();
     if (!isRetry) {
-      emit(state.copyWith(loading: true, folders: folders, error: null));
+      final shown = _compose(folders, const {}, previous);
+      emit(state.copyWith(loading: shown.isEmpty, refreshing: true, videos: shown, folders: folders, error: null));
     }
     try {
-      final loadedVideos = await _service.listFolders(folders, recursive: true);
+      final scanned = <String, List<VideoItem>>{};
+      for (final folder in folders) {
+        final result = await _service.scanFolder(folder);
+        if (isClosed) return;
+        if (result == null) continue;
+        scanned[folder] = result;
+        final partial = _compose(folders, scanned, previous);
+        await PlayraStorage.saveLibrarySnapshot(partial);
+        if (!isClosed && partial.isNotEmpty) emit(state.copyWith(loading: false, videos: partial));
+      }
 
-      final videos = loadedVideos.where((video) => kSupportedVideoExtensions.contains(video.extension.toLowerCase())).fold<List<VideoItem>>(<VideoItem>[], (
-        acc,
-        video,
-      ) {
-        if (acc.any((existing) => existing.id == video.id)) return acc;
-        acc.add(video);
-        return acc;
-      });
+      final videos = _compose(folders, scanned, previous);
+      if (folders.isEmpty) await PlayraStorage.saveLibrarySnapshot(videos);
 
       // Merge standalone files (opened via the file picker) into the library.
       // Drop entries whose underlying local file no longer exists.
       _mergeStandaloneFiles(videos);
 
       if (!isClosed) {
-        emit(state.copyWith(loading: false, videos: videos, folders: folders));
+        emit(state.copyWith(loading: false, refreshing: false, videos: videos, folders: folders));
       }
 
       // Schedule a background retry if no videos were found but folders are configured.
@@ -93,13 +110,35 @@ class LibraryCubit extends Cubit<LibraryState> {
       }
     } catch (e) {
       if (!isClosed) {
-        emit(state.copyWith(loading: false, error: e.toString()));
+        emit(state.copyWith(loading: false, refreshing: false, error: e.toString()));
       }
       // Retry even after errors (network mounts can fail transiently).
       if (folders.isNotEmpty) {
         _scheduleRetryIfNeeded(folders);
       }
     }
+  }
+
+  /// The library in folder order: a folder's fresh scan where there is one,
+  /// otherwise its videos from [previous].
+  List<VideoItem> _compose(List<String> folders, Map<String, List<VideoItem>> scanned, List<VideoItem> previous) {
+    final seen = <String>{};
+    final out = <VideoItem>[];
+    for (final folder in folders) {
+      final videos = scanned[folder] ?? previous.where((v) => _isInFolder(v.id, folder));
+      for (final video in videos) {
+        if (!kSupportedVideoExtensions.contains(video.extension.toLowerCase())) continue;
+        if (seen.add(video.id)) out.add(video);
+      }
+    }
+    return out;
+  }
+
+  bool _isInFolder(String videoId, String folder) {
+    final prefix = folder.endsWith('/') || folder.endsWith(Platform.pathSeparator)
+        ? folder
+        : '$folder${folder.startsWith('smb://') ? '/' : Platform.pathSeparator}';
+    return videoId.startsWith(prefix);
   }
 
   /// Merges standalone files into [videos], skipping duplicates and pruning

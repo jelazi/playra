@@ -2,6 +2,181 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-10-23 (part 4) — feat: Kodi .nfo sidecars, "don't identify", instant library start
+
+### What was done
+
+- **New `MediaSidecarService`** (`lib/services/media_sidecar_service.dart`): reads and writes
+  Kodi-style sidecar files next to the video, locally (`LocalSidecarStore`) or on the SMB share
+  (`SmbSidecarStore`), all serialized through one static `SmbBrowserService` connection.
+  - Movie: `<video>.nfo` (`<movie>`: title, originaltitle, year, premiered, plot, genres,
+    TMDB rating, `<uniqueid type="tmdb" default="true">`, poster/fanart URLs) and
+    `<video>-poster.jpg` (TMDB `w780`).
+  - Series: `tvshow.nfo` + `poster.jpg` in the folder from `seriesFolder()`: the parent of a
+    plain season folder ("Season 1", "S01", "2. série", "Série 2"), or of a release-named
+    season folder ("Show.S01.1080p") when the parent is named after the show; otherwise the
+    video's own folder (a lone season without a show folder gets `tvshow.nfo` itself). Never
+    the share root. Every episode gets `<video>.nfo` (`<episodedetails>`: title, showtitle,
+    season, episode, plot, aired, rating, still URL).
+  - Reading accepts foreign Kodi files: `<uniqueid type="tmdb">` or `<tmdbid>`, `movie.nfo`
+    per folder, and "hybrid" files with a scraper URL after the XML. Files without a TMDB id
+    are ignored (and never overwritten by an automatic write).
+  - Existing files are kept unless `overwrite`; an episode `.nfo` whose `<showtitle>` matches
+    neither the show's title nor its original title is replaced (left over from a wrong guess).
+- **`MediaLookupService.lookupForFile`** reads the sidecar first (TMDB id refreshed from TMDB in
+  the UI language, NFO content used offline), then the hash/name caches, then a TMDB search.
+  Any result is written next to the video in the background (missing files only) and the
+  episode is fetched and returned in `MediaLookupResult.episode`.
+- **`MediaLookupService.saveManualPick`** replaces `saveMapping`: stores the pick in the name
+  cache *and* the per-hash cache, and overwrites the sidecar files; returns false when they
+  could not be written (`video.nfo_write_failed` snackbar).
+- **"Don't identify"**: `PlayraStorage.isMediaLookupDisabled` / `setMediaLookupDisabled`
+  (per video id, local). `MediaInfoScreen` offers it in the app bar and on the not-found view;
+  a disabled file shows `_buildLookupDisabled()` with Identify / Manual search / Play; a manual
+  pick re-enables identification. The home "Info o filmu" dialog respects it.
+- **Library start**: `PlayraStorage.getLibrarySnapshot` / `saveLibrarySnapshot`;
+  `LibraryCubit._loadInternal` shows the stored library immediately (`LibraryState.refreshing`),
+  replaces it folder by folder as `LibraryService.scanFolder` finishes (saving the snapshot after
+  each folder), and keeps a folder's last known videos when `scanFolder` returns null
+  (unreachable). `HomeScreen` shows a thin `LinearProgressIndicator` while refreshing, and the
+  recently played row instead of the full-screen spinner when there is no snapshot yet.
+- `SmbBrowserService.readSmallFile`, `exists`, `writeFile` (deletes first: smb_connect writes
+  from offset 0 without truncating). `VideoNameParser.cleanTitle` made public.
+- Added `xml: ^6.6.1` (already a transitive dependency). Translations `video.skip_identification`,
+  `identification_disabled`, `identify_now`, `nfo_write_failed` (cs, en).
+- Tests: `test/media_sidecar_service_test.dart` (11), `test/media_lookup_service_test.dart` (4),
+  `test/bloc/library_cubit_test.dart` (3).
+
+### What was fixed
+
+- A manual "edit media info" never took effect for files with a computed hash: `saveMapping`
+  only updated the name cache, while `lookupForFile` returned the per-hash entry first.
+- The tablet sat on a full-screen spinner for ~2 minutes on every start: `HomeScreen` showed
+  nothing until the recursive SMB scan of all library folders had finished.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 170 passed. Release APK installed on the
+  tablet; after a restart the stored library and recents are on screen within 3 s (screenshot),
+  while the background rescan still takes about 2 minutes.
+- Writing `.nfo` files to the SMB share from the app was not observed on the device yet; the
+  SMB write path is untested against the real NAS.
+
+### Pending / next steps
+
+- Check on the NAS that `.nfo` / poster files appear after opening a movie and an episode, and
+  that a manual edit overwrites them.
+- The SMB rescan itself is still sequential over one connection (~2 min for this library);
+  could reuse the listing's `SmbFile` per folder and scan with a few connections in parallel.
+- The Mac and the iPad need a new build to read/write the sidecars.
+
+## 2026-10-23 (part 3) — fix: sibling SRT files not loaded once a subtitle preference exists
+
+### What was done
+
+- **`_PlayraPlayerScreenState._attachAutoSubtitleIfAvailable`** no longer bails out when a
+  subtitle preference or a default subtitle language exists. It skips only when a track is
+  already selected, or when the preference names an embedded track or "off" (its title is not a
+  subtitle file name, `_isSubtitleFileName`). Otherwise it attaches a sibling file chosen by
+  `_pickSubtitleCandidate`: the candidate whose file name equals the preferred title, else the
+  one whose name suffix matches the default subtitle language (`_subtitleCandidateLanguage`,
+  with `cz`/`czech` → `cs`, `english` → `en`), else the first one. With only a default language
+  and no matching file it attaches nothing, leaving embedded tracks to `_restorePreferredTracks`.
+  The preference is saved only when none existed.
+
+### What was fixed
+
+- SRT subtitles stopped showing on the Android tablet while the Mac build worked. The first
+  play of an SMB video attached `<name>.srt` through the SMB proxy and saved it as the
+  preferred subtitle track; every later open (of that video, of another episode via the
+  per-series preference, or after LAN sync brought the Mac's preference) returned early, and
+  `_restorePreferredTracks` can only match tracks mpv already has. On the Mac the files are
+  local, and mpv loads sibling subtitles on its own, so the track was always there. The same
+  early return applied whenever a default subtitle language was set.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 152 passed.
+- Release APK installed on the tablet (`adb install -r`). Not yet checked on the tablet with
+  the affected video.
+
+## 2026-10-23 (part 2) — fix: recoverable decoder errors no longer block playback
+
+### What was done
+
+- **`_PlayraPlayerScreenState._onPlayerStreamError`** replaces the inline `stream.error`
+  listener: every mpv error is logged with `debugPrint`; a codec/decoder error now only becomes
+  the fatal overlay if, after `_codecStallTimeout` (5 s), the player is still `playing` and
+  `_position` has not moved. The pending `_codecStallTimer` is cancelled in `_openMedia` and
+  `dispose`.
+- The fatal playback overlay gained a **Dismiss** button (`_dismissFatalPlaybackError`) next to
+  Back and Retry.
+
+### What was fixed
+
+- On the Android tablet some files showed "Playback failed — Codec error during playback" while
+  the video kept playing behind it, and the overlay could only be left via Back or Retry. mpv
+  reports decoder errors it recovers from (e.g. the MediaCodec hardware decoder rejecting a
+  stream before mpv falls back to software decoding); any message matching `_isCodecError` was
+  treated as fatal. The same files play on the iPad, whose hardware decoder accepts them.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 152 passed.
+- Release APK installed on the tablet (`adb install -r`). Not yet tried with an affected file;
+  the exact mpv error text was not captured (it was never logged before this change).
+
+### Pending / next steps
+
+- Subtitles reportedly stopped showing on the tablet after the 2.0.1 → 2.0.2 upgrade; cause
+  unknown, waiting for details and a logcat capture.
+- Proposed (not implemented): Kodi-style `.nfo` sidecar files (movie `<name>.nfo`, series
+  `tvshow.nfo`, TMDB `uniqueid`) so media identification is shared across devices and apps.
+
+## 2026-10-23 — fix: LAN sync never started on Android
+
+### What was done
+
+- **`LanSyncService._bind`** (split out of `start()`): the UDP discovery socket now passes
+  `reusePort` only on macOS/iOS, and the UDP socket is closed again if the HTTP server cannot
+  bind. The unused `_httpServer` field is gone.
+- **`LanSyncService.start()`** memoizes the bind in a `Future<void>? _starting` (replacing
+  `bool _started`) and clears it on failure, so concurrent calls share one attempt and a failed
+  attempt is retried on the next sync.
+- `syncNow()` now calls `start()` inside its `try`, so a bind failure comes back as
+  `LanSyncRunResult.error` instead of throwing; `discoverPeerPlaybackSessions()` returns an
+  empty list on it.
+- `main.dart` logs a startup failure with `debugPrint` instead of swallowing it.
+- New `test/lan_sync_service_test.dart`: `start()` binds on the host and can be called
+  repeatedly and concurrently (on the Linux CI it also covers the no-`reusePort` path).
+- Updated the Android tablet (Samsung SM-X200) from 2.0.1 (2, June) to 2.0.2 (3) with
+  `flutter build apk --release --dart-define-from-file=env.json` + `adb install -r` (keeps app
+  data; `flutter run` would uninstall on a signature mismatch). The iPad Air 2 already had
+  2.0.2 (3) (read with `ios-deploy --list_bundle_id --json -k CFBundleShortVersionString`).
+
+### What was fixed
+
+- On Android, `RawDatagramSocket.bind(..., reusePort: true)` throws
+  ``Dart Socket ERROR: socket_linux.cc:157: `reusePort` not supported on this platform``. The
+  error was swallowed by `catchError((_) {})` in `main.dart` while `_started` was already
+  `true`, so the service never retried: no UDP discovery, no HTTP sync server. The tablet could
+  never sync with other devices, ever since LAN sync was added (`95bb163`). Linux/Windows
+  desktop builds had the same problem.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 152 passed.
+- On the tablet after the fix: no `reusePort` error in logcat, `/proc/net/udp` shows UDP 42116
+  bound and `/proc/net/tcp6` shows TCP 42117 listening for the app's uid.
+- An actual sync between the tablet and the Mac was not tried.
+
+### Pending / next steps
+
+- Try "Sync" on the tablet with the Mac app running; both need the same sync username and
+  password (Settings → Sync).
+- Servers, library folders, the TMDB key and player settings are per device and not part of
+  the sync snapshot; set them up on each device.
+
 ## 2026-10-14 (part 4) — Deployed the current build to the iPad Air 2 (iPadOS 15.8.8)
 
 ### What was done

@@ -957,6 +957,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showMovieInfoDialog(VideoItem video) async {
     final lookup = MediaLookupService(TmdbService());
     final language = context.locale.languageCode;
+    final lookupDisabled = PlayraStorage.isMediaLookupDisabled(video.id);
 
     await showDialog<void>(
       context: context,
@@ -966,6 +967,7 @@ class _HomeScreenState extends State<HomeScreen> {
           width: 760,
           child: FutureBuilder<MediaLookupResult?>(
             future: () async {
+              if (lookupDisabled) return null;
               final hash = await VideoHashService.hashForVideo(video);
               if (hash != null) {
                 await PlayraStorage.bindVideoToHash(videoId: video.id, hash: hash, title: video.displayName, sizeBytes: video.sizeBytes);
@@ -979,7 +981,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final result = snapshot.data;
               if (result == null) {
-                return SizedBox(height: 120, child: Center(child: Text('Informace o filmu nebyly nalezeny.')));
+                return SizedBox(
+                  height: 120,
+                  child: Center(child: Text(lookupDisabled ? 'video.identification_disabled'.tr() : 'Informace o filmu nebyly nalezeny.')),
+                );
               }
 
               final media = result.mediaInfo;
@@ -1077,7 +1082,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: BlocBuilder<LibraryCubit, LibraryState>(
         builder: (context, state) {
-          if (state.loading) return const Center(child: CircularProgressIndicator());
+          if (state.loading && _recents.isEmpty) return const Center(child: CircularProgressIndicator());
 
           final displayVideos = _filterDisplayVideos(state.videos);
           final resumeById = PlayraStorage.getResumeMap();
@@ -1131,6 +1136,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: CustomScrollView(
               slivers: [
+                if (state.refreshing) const SliverToBoxAdapter(child: LinearProgressIndicator(minHeight: 2)),
                 if (showRecents && _isRecentsExpanded) ...[
                   SliverToBoxAdapter(
                     child: Padding(
@@ -1194,7 +1200,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SliverToBoxAdapter(child: Divider(height: 24)),
                 ],
-                if (hasFolders && !displayVideos.isNotEmpty)
+                if (hasFolders && !displayVideos.isNotEmpty && !state.loading)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

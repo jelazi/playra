@@ -41,6 +41,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   VideoItem? _nextEpisode;
   bool _loading = true;
   bool _notFound = false;
+  bool _lookupDisabled = false;
   Color _appBarForeground = Colors.white;
 
   @override
@@ -58,9 +59,19 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   }
 
   Future<void> _startLookup() async {
+    if (PlayraStorage.isMediaLookupDisabled(widget.video.id)) {
+      setState(() {
+        _loading = false;
+        _lookupDisabled = true;
+        _parsed = VideoNameParser.parse(widget.video.uri);
+      });
+      return;
+    }
+
     setState(() {
       _loading = true;
       _notFound = false;
+      _lookupDisabled = false;
     });
 
     final language = context.locale.languageCode;
@@ -83,6 +94,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
 
     _media = result.mediaInfo;
     _parsed = result.parsed;
+    _episode = result.episode;
 
     // Adapt app bar foreground (title/back/edit icons) to the backdrop image.
     _updateAppBarForegroundFromBackdrop(result.mediaInfo.backdropUrl);
@@ -96,13 +108,34 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     // Pre-compute next episode suggestion for local TV files.
     _nextEpisode = await EpisodeContinuationService.findNextEpisode(widget.video);
 
-    // For TV episodes, also load the English episode synopsis.
-    if (result.mediaInfo.type == MediaType.tv && result.parsed.isTV && result.parsed.season != null && result.parsed.episode != null) {
-      final ep = await _lookup.fetchEpisodeInfo(result.mediaInfo.id, result.parsed.season!, result.parsed.episode!, language);
-      if (mounted) _episode = ep;
-    }
-
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _savePick(MediaInfo picked) async {
+    final language = context.locale.languageCode;
+    _videoHash ??= await VideoHashService.hashForVideo(widget.video);
+    final written = await _lookup.saveManualPick(widget.video.uri, picked, language, videoHash: _videoHash);
+    await PlayraStorage.setMediaLookupDisabled(widget.video.id, false);
+    if (!mounted) return;
+    if (!written) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('video.nfo_write_failed'.tr())));
+    }
+    await _startLookup();
+  }
+
+  Future<void> _disableLookup() async {
+    await PlayraStorage.setMediaLookupDisabled(widget.video.id, true);
+    if (!mounted) return;
+    setState(() {
+      _lookupDisabled = true;
+      _notFound = false;
+    });
+  }
+
+  Future<void> _enableLookup() async {
+    await PlayraStorage.setMediaLookupDisabled(widget.video.id, false);
+    if (!mounted) return;
+    await _startLookup();
   }
 
   Future<void> _updateAppBarForegroundFromBackdrop(String backdropUrl) async {
@@ -172,9 +205,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   void _showManualSearch() async {
     final picked = await _showSearchDialog();
     if (picked == null || !mounted) return;
-    await _lookup.saveMapping(widget.video.uri, picked);
-    // Reload from cache.
-    await _startLookup();
+    await _savePick(picked);
   }
 
   void _showRenameSearch() async {
@@ -201,8 +232,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     if (customQuery == null || customQuery.trim().isEmpty) return;
     final picked = await _showSearchDialog(initialQuery: customQuery.trim());
     if (picked == null || !mounted) return;
-    await _lookup.saveMapping(widget.video.uri, picked);
-    await _startLookup();
+    await _savePick(picked);
   }
 
   Future<MediaInfo?> _showSearchDialog({String? initialQuery}) async {
@@ -312,9 +342,45 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     return Scaffold(
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _lookupDisabled
+          ? _buildLookupDisabled()
           : _notFound
           ? _buildNotFound()
           : _buildContent(),
+    );
+  }
+
+  Widget _buildLookupDisabled() {
+    return CustomScrollView(
+      slivers: [
+        SliverAppBar(floating: true, title: Text(widget.video.displayName, maxLines: 1, overflow: TextOverflow.ellipsis)),
+        SliverFillRemaining(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.visibility_off_outlined, size: 72, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text('video.identification_disabled'.tr(), style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      OutlinedButton.icon(icon: const Icon(Icons.travel_explore), label: Text('video.identify_now'.tr()), onPressed: _enableLookup),
+                      OutlinedButton.icon(icon: const Icon(Icons.search), label: Text('video.manual_search'.tr()), onPressed: _showManualSearch),
+                      FilledButton.icon(icon: const Icon(Icons.play_arrow), label: Text('video.play'.tr()), onPressed: _play),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -333,13 +399,18 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                   const SizedBox(height: 16),
                   Text('video.media_not_found'.tr(), style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
                       OutlinedButton.icon(icon: const Icon(Icons.search), label: Text('video.manual_search'.tr()), onPressed: _showManualSearch),
-                      const SizedBox(width: 12),
                       OutlinedButton.icon(icon: const Icon(Icons.edit), label: Text('video.change_search_name'.tr()), onPressed: _showRenameSearch),
-                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.visibility_off_outlined),
+                        label: Text('video.skip_identification'.tr()),
+                        onPressed: _disableLookup,
+                      ),
                       FilledButton.icon(icon: const Icon(Icons.play_arrow), label: Text('video.play'.tr()), onPressed: _play),
                     ],
                   ),
@@ -382,6 +453,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
           actions: [
             IconButton(icon: const Icon(Icons.edit), tooltip: 'video.edit_media_info'.tr(), onPressed: _showManualSearch),
             IconButton(icon: const Icon(Icons.drive_file_rename_outline), tooltip: 'video.change_search_name'.tr(), onPressed: _showRenameSearch),
+            IconButton(icon: const Icon(Icons.visibility_off_outlined), tooltip: 'video.skip_identification'.tr(), onPressed: _disableLookup),
           ],
         ),
 

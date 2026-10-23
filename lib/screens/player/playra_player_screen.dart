@@ -65,6 +65,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   Timer? _overlayTimer;
   Timer? _resumePersistTimer;
   Timer? _syncSessionTimer;
+  Timer? _codecStallTimer;
+  static const Duration _codecStallTimeout = Duration(seconds: 5);
   int _lastPersistedResumeMs = -1;
   int _lastPersistedDurationMs = -1;
   String? _videoHash;
@@ -141,6 +143,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     _overlayTimer?.cancel();
     _resumePersistTimer?.cancel();
     _syncSessionTimer?.cancel();
+    _codecStallTimer?.cancel();
     _downloadToken?.cancel();
     _subtitleDelayPopupTimer?.cancel();
     unawaited(_persistResumeNow().catchError((error, stackTrace) {}));
@@ -180,8 +183,24 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       _scheduleSessionSync();
     });
 
-    _errorSub = _player.stream.error.listen((e) {
-      _handlePlayerError(e, markFatal: _isCodecError(e));
+    _errorSub = _player.stream.error.listen(_onPlayerStreamError);
+  }
+
+  /// mpv reports decoder errors that it recovers from, e.g. when the hardware
+  /// decoder rejects a stream and it falls back to software, so a codec error
+  /// only counts once playback has stopped advancing.
+  void _onPlayerStreamError(String error) {
+    debugPrint('Playra player error: $error');
+    if (!_isCodecError(error)) {
+      _handlePlayerError(error);
+      return;
+    }
+
+    final positionAtError = _position;
+    _codecStallTimer?.cancel();
+    _codecStallTimer = Timer(_codecStallTimeout, () {
+      if (!mounted || !_player.state.playing || _position != positionAtError) return;
+      _handlePlayerError(error, markFatal: true);
     });
   }
 
@@ -228,6 +247,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     try {
       final settings = PlayraStorage.getPlayerSettings();
 
+      _codecStallTimer?.cancel();
       setState(() {
         _hasFatalPlaybackError = false;
         _fatalPlaybackMessage = null;
@@ -361,27 +381,57 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     });
   }
 
+  /// Loads a sibling subtitle file. mpv only picks these up by itself for
+  /// local files, so over SMB a remembered subtitle-file choice has to be
+  /// attached here before [_restorePreferredTracks] can match it.
   Future<void> _attachAutoSubtitleIfAvailable() async {
-    final preferred = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
-    if (preferred != null && preferred.isNotEmpty) return;
-
-    final settings = PlayraStorage.getPlayerSettings();
-    if (settings.defaultSubtitleLanguage.trim().isNotEmpty) return;
-
     final current = _player.state.track.subtitle;
     if (current.id != 'auto' && current.id != 'no') {
       return;
     }
 
+    final preferred = PlayraStorage.getPreferredSubtitleTrackKey(widget.video.id);
+    final preferredTitle = preferred == null ? null : parseStoredTrackKey(preferred).title;
+    if (preferredTitle != null && !_isSubtitleFileName(preferredTitle)) return;
+
     final candidates = await _subtitleCandidates();
     if (candidates.isEmpty) return;
 
-    final first = candidates.first;
-    final track = SubtitleTrack.uri(first, title: p.basename(Uri.parse(first).path));
+    final language = PlayraStorage.getPlayerSettings().defaultSubtitleLanguage.trim();
+    final chosen = _pickSubtitleCandidate(candidates, preferredTitle: preferredTitle, language: language);
+    if (chosen == null) return;
+
+    final track = SubtitleTrack.uri(chosen, title: _subtitleCandidateName(chosen));
     final subtitleSet = await _runPlayerAction(() => _player.setSubtitleTrack(track), operation: 'set auto subtitle');
-    if (!subtitleSet) return;
+    if (!subtitleSet || preferred != null) return;
     await PlayraStorage.savePreferredSubtitleTrackKey(widget.video.id, _subtitleTrackKey(track));
   }
+
+  String? _pickSubtitleCandidate(List<String> candidates, {required String? preferredTitle, required String language}) {
+    if (preferredTitle != null) {
+      for (final candidate in candidates) {
+        if (normalizeTrackPart(_subtitleCandidateName(candidate)) == preferredTitle) return candidate;
+      }
+    }
+    if (language.isNotEmpty) {
+      for (final candidate in candidates) {
+        if (_isLanguageMatch(_subtitleCandidateLanguage(candidate), language)) return candidate;
+      }
+      if (preferredTitle == null) return null;
+    }
+    return candidates.first;
+  }
+
+  String _subtitleCandidateName(String candidate) => p.basename(Uri.parse(candidate).path);
+
+  String _subtitleCandidateLanguage(String candidate) {
+    final suffix = p.extension(p.basenameWithoutExtension(_subtitleCandidateName(candidate))).replaceFirst('.', '').toLowerCase();
+    return _subtitleFileLanguageAliases[suffix] ?? suffix;
+  }
+
+  static const Map<String, String> _subtitleFileLanguageAliases = {'cz': 'cs', 'czech': 'cs', 'english': 'en'};
+
+  bool _isSubtitleFileName(String name) => const {'.srt', '.ass', '.ssa', '.vtt', '.sub'}.contains(p.extension(name).toLowerCase());
 
   Future<List<String>> _subtitleCandidates() async {
     final out = <String>[];
@@ -1195,6 +1245,13 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     );
   }
 
+  void _dismissFatalPlaybackError() {
+    setState(() {
+      _hasFatalPlaybackError = false;
+      _fatalPlaybackMessage = null;
+    });
+  }
+
   Widget _buildFatalPlaybackOverlay() {
     return Container(
       color: Colors.black87,
@@ -1227,6 +1284,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back')),
+                      const SizedBox(width: 10),
+                      OutlinedButton(onPressed: _dismissFatalPlaybackError, child: const Text('Dismiss')),
                       const SizedBox(width: 10),
                       FilledButton(onPressed: _openMedia, child: const Text('Retry')),
                     ],

@@ -52,6 +52,9 @@ class VideoNameParser {
     return ParsedVideoName(originalFileName: fileName, cleanName: cleanName, isTV: isTV, season: season, episode: episode, year: year);
   }
 
+  /// A folder or file name stripped of release tags, season markers and year.
+  static String cleanTitle(String name) => _sanitizeTitleCandidate(name, removeYear: true);
+
   static String? _deriveDirectoryTitle(List<String> ancestors, bool isTV) {
     final seasonFolderPattern = RegExp(r'^(season\s*\d+|serie\s*\d+|s\d{1,2}|s\d{1,2}\s*[- ]\s*s?\d{1,2}|series\s*\d+\s*[- ]\s*\d+)$', caseSensitive: false);
 

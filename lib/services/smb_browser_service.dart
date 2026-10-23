@@ -154,6 +154,48 @@ class SmbBrowserService {
     return controller.stream;
   }
 
+  /// Reads a whole small file (e.g. an `.nfo`); null when it does not exist.
+  Future<Uint8List?> readSmallFile(ServerConnection server, String path) async {
+    final opened = await _runWithReconnect(server, (c) async {
+      final file = await c.file(path);
+      if (!file.isExists || file.isDirectory()) return null;
+      return (file, await c.open(file));
+    });
+    if (opened == null) return null;
+    final (file, raf) = opened;
+    try {
+      final out = BytesBuilder(copy: false);
+      while (out.length < file.size) {
+        final chunk = await raf.read(min(64 * 1024, file.size - out.length)).timeout(_readTimeout);
+        if (chunk.isEmpty) break;
+        out.add(chunk);
+      }
+      return out.takeBytes();
+    } finally {
+      await raf.close();
+    }
+  }
+
+  Future<bool> exists(ServerConnection server, String path) async {
+    return _runWithReconnect(server, (c) async => (await c.file(path)).isExists);
+  }
+
+  /// Replaces [path] with [bytes]. The existing file is deleted first because
+  /// smb_connect writes from offset 0 without truncating.
+  Future<void> writeFile(ServerConnection server, String path, List<int> bytes) async {
+    await _runWithReconnect(server, (c) async {
+      var file = await c.file(path);
+      if (file.isExists) {
+        await c.delete(file);
+        file = await c.file(path);
+      }
+      final sink = await c.openWrite(file);
+      sink.add(bytes);
+      await sink.flush();
+      await sink.close();
+    });
+  }
+
   /// Get file size in bytes.
   Future<int> getSize(ServerConnection server, String path) async {
     return _runWithReconnect(server, (c) async {

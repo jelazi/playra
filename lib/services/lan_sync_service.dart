@@ -41,28 +41,45 @@ class LanSyncService {
   static final LanSyncService instance = LanSyncService._();
 
   RawDatagramSocket? _udpSocket;
-  HttpServer? _httpServer;
   int _httpPort = _preferredHttpPort;
-  bool _started = false;
+  Future<void>? _starting;
 
   final Map<String, _DiscoveryRequest> _pendingDiscovery = <String, _DiscoveryRequest>{};
 
+  /// Binds the discovery socket and the sync server once. A failed attempt is
+  /// forgotten, so the next sync retries instead of running without sockets.
   Future<void> start() async {
-    if (_started) return;
-    _started = true;
-
-    _udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _udpDiscoveryPort, reuseAddress: true, reusePort: true);
-    _udpSocket?.broadcastEnabled = true;
-    _udpSocket?.listen(_handleUdpEvent, onError: (_, error) {});
-
+    final pending = _starting ??= _bind();
     try {
-      _httpServer = await HttpServer.bind(InternetAddress.anyIPv4, _preferredHttpPort, shared: true);
-      _httpPort = _preferredHttpPort;
+      await pending;
     } catch (_) {
-      _httpServer = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
-      _httpPort = _httpServer!.port;
+      if (identical(_starting, pending)) _starting = null;
+      rethrow;
     }
-    _httpServer?.listen(_handleHttpRequest, onError: (_, error) {});
+  }
+
+  Future<void> _bind() async {
+    // SO_REUSEPORT exists only on the BSD-based Apple platforms; dart:io
+    // rejects it on Android, Linux and Windows.
+    final udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _udpDiscoveryPort, reuseAddress: true, reusePort: Platform.isMacOS || Platform.isIOS);
+
+    HttpServer http;
+    try {
+      try {
+        http = await HttpServer.bind(InternetAddress.anyIPv4, _preferredHttpPort, shared: true);
+      } catch (_) {
+        http = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
+      }
+    } catch (_) {
+      udp.close();
+      rethrow;
+    }
+
+    _udpSocket = udp
+      ..broadcastEnabled = true
+      ..listen(_handleUdpEvent, onError: (_, error) {});
+    http.listen(_handleHttpRequest, onError: (_, error) {});
+    _httpPort = http.port;
   }
 
   bool get _isConfigured {
@@ -78,9 +95,8 @@ class LanSyncService {
       return const LanSyncRunResult(configured: false, peersFound: 0, mergedFromPeers: 0, pushedToPeers: 0);
     }
 
-    await start();
-
     try {
+      await start();
       final peers = await _discoverPeers();
       if (peers.isEmpty) {
         return const LanSyncRunResult(configured: true, peersFound: 0, mergedFromPeers: 0, pushedToPeers: 0);
@@ -111,7 +127,11 @@ class LanSyncService {
   Future<List<LanPeerPlaybackSession>> discoverPeerPlaybackSessions() async {
     if (!_isConfigured) return const [];
 
-    await start();
+    try {
+      await start();
+    } catch (_) {
+      return const [];
+    }
     final peers = await _discoverPeers();
     if (peers.isEmpty) return const [];
 

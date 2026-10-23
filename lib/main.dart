@@ -37,7 +37,7 @@ void main() async {
   await SecretStore.init();
   await PlayraStorage.migrateSecretsToSecretStore();
   // LAN sync server should not block app startup in release builds.
-  unawaited(LanSyncService.instance.start().catchError((_) {}));
+  unawaited(LanSyncService.instance.start().catchError((Object e) => debugPrint('LanSyncService: start failed ($e)')));
 
   await EasyLocalization.ensureInitialized();
 

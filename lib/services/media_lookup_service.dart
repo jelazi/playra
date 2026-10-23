@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import '../models/media_info.dart';
 import 'media_cache_service.dart';
+import 'media_sidecar_service.dart';
 import 'playra_storage.dart';
 import 'tmdb_service.dart';
 import 'video_name_parser.dart';
@@ -9,38 +12,55 @@ class MediaLookupResult {
   final MediaInfo mediaInfo;
   final ParsedVideoName parsed;
 
-  /// True if the result came from the local Hive cache.
+  /// True if the result came from the local Hive cache or the `.nfo` next to the video.
   final bool fromCache;
 
-  const MediaLookupResult({required this.mediaInfo, required this.parsed, required this.fromCache});
+  /// The episode, for a TV file whose season and episode are known.
+  final EpisodeInfo? episode;
+
+  const MediaLookupResult({required this.mediaInfo, required this.parsed, required this.fromCache, this.episode});
 }
 
-/// Provides TMDB media lookups with a local Hive cache layer.
+/// Provides TMDB media lookups with a local Hive cache layer and `.nfo`
+/// sidecar files shared with other devices and players.
 ///
 /// This is the extracted core of the lookup logic previously embedded in
 /// [VideoLibraryScreen] so it can be reused from [MediaInfoScreen] and
 /// [HomeScreen].
 class MediaLookupService {
   final TmdbService _tmdb;
+  final MediaSidecarService _sidecars;
 
-  MediaLookupService(this._tmdb);
+  MediaLookupService(this._tmdb, {MediaSidecarService? sidecars}) : _sidecars = sidecars ?? MediaSidecarService();
 
   /// Looks up media info for [filePath].
   ///
-  /// - If a mapping is already cached, details are refreshed from TMDB and
-  ///   returned immediately.
+  /// - An `.nfo` next to the video wins: its TMDB id is refreshed from TMDB
+  ///   (or used as stored when offline).
+  /// - Otherwise a mapping already cached for this file or name is used.
   /// - Otherwise the top TMDB result (by popularity) is used automatically
   ///   and cached — no user interaction required.
+  /// - Whatever was found is written next to the video as `.nfo` files
+  ///   unless they already exist.
   /// - Returns `null` if no result could be found.
   Future<MediaLookupResult?> lookupForFile(String filePath, String language, {String? videoHash}) async {
     final parsed = VideoNameParser.parse(filePath);
+
+    final sidecar = await _sidecars.read(filePath, parsed);
+    if (sidecar != null) {
+      final info = await _details(sidecar.media, language) ?? sidecar.media;
+      await _remember(parsed, info, videoHash);
+      final episode = await _episodeFor(info, parsed, language) ?? sidecar.episode;
+      unawaited(_sidecars.write(filePath, parsed, info, episode: episode));
+      return MediaLookupResult(mediaInfo: info, parsed: parsed, fromCache: true, episode: episode);
+    }
 
     if (videoHash != null && videoHash.isNotEmpty) {
       final byHash = PlayraStorage.getMediaInfoForHash(videoHash);
       if (byHash != null) {
         final info = _mediaInfoFromStoredMap(byHash);
         if (info != null) {
-          return MediaLookupResult(mediaInfo: info, parsed: parsed, fromCache: true);
+          return _finish(filePath, parsed, info, language, fromCache: true);
         }
       }
     }
@@ -55,7 +75,7 @@ class MediaLookupService {
       if (videoHash != null && videoHash.isNotEmpty) {
         await PlayraStorage.saveMediaInfoForHash(videoHash, _mediaInfoToStoredMap(info));
       }
-      return MediaLookupResult(mediaInfo: info, parsed: parsed, fromCache: true);
+      return _finish(filePath, parsed, info, language, fromCache: true);
     }
 
     // No cache: search TMDB.
@@ -66,18 +86,10 @@ class MediaLookupService {
     // Auto-pick top result by popularity.
     final best = results.reduce((a, b) => (a.popularity ?? 0) >= (b.popularity ?? 0) ? a : b);
 
-    // Fetch full details.
-    final MediaInfo? details = best.type == MediaType.movie ? await _tmdb.getMovieDetails(best.id, language) : await _tmdb.getTVDetails(best.id, language);
+    final finalInfo = await _details(best, language) ?? best;
+    await _remember(parsed, finalInfo, videoHash);
 
-    final finalInfo = details ?? best;
-
-    // Persist to cache.
-    await MediaCacheService.saveMapping(parsed.cleanName, finalInfo);
-    if (videoHash != null && videoHash.isNotEmpty) {
-      await PlayraStorage.saveMediaInfoForHash(videoHash, _mediaInfoToStoredMap(finalInfo));
-    }
-
-    return MediaLookupResult(mediaInfo: finalInfo, parsed: parsed, fromCache: false);
+    return _finish(filePath, parsed, finalInfo, language, fromCache: false);
   }
 
   /// Returns candidate results from TMDB for a manual/override search.
@@ -89,10 +101,35 @@ class MediaLookupService {
   Future<EpisodeInfo?> fetchEpisodeInfo(int tvId, int season, int episode, String language) =>
       _tmdb.getEpisodeDetails(tvId, season, episode, language: language);
 
-  /// Persists a user-selected [mediaInfo] for [filePath] to the local cache.
-  Future<void> saveMapping(String filePath, MediaInfo mediaInfo) async {
+  /// Stores a user-selected [picked] for [filePath] and overwrites the `.nfo`
+  /// files next to it. Returns false when they could not be written.
+  Future<bool> saveManualPick(String filePath, MediaInfo picked, String language, {String? videoHash}) async {
     final parsed = VideoNameParser.parse(filePath);
-    await MediaCacheService.saveMapping(parsed.cleanName, mediaInfo);
+    final info = await _details(picked, language) ?? picked;
+    await _remember(parsed, info, videoHash);
+    final episode = await _episodeFor(info, parsed, language);
+    return _sidecars.write(filePath, parsed, info, episode: episode, overwrite: true);
+  }
+
+  Future<MediaLookupResult> _finish(String filePath, ParsedVideoName parsed, MediaInfo info, String language, {required bool fromCache}) async {
+    final episode = await _episodeFor(info, parsed, language);
+    unawaited(_sidecars.write(filePath, parsed, info, episode: episode));
+    return MediaLookupResult(mediaInfo: info, parsed: parsed, fromCache: fromCache, episode: episode);
+  }
+
+  Future<MediaInfo?> _details(MediaInfo media, String language) =>
+      media.type == MediaType.movie ? _tmdb.getMovieDetails(media.id, language) : _tmdb.getTVDetails(media.id, language);
+
+  Future<EpisodeInfo?> _episodeFor(MediaInfo media, ParsedVideoName parsed, String language) async {
+    if (media.type != MediaType.tv || parsed.season == null || parsed.episode == null) return null;
+    return _tmdb.getEpisodeDetails(media.id, parsed.season!, parsed.episode!, language: language);
+  }
+
+  Future<void> _remember(ParsedVideoName parsed, MediaInfo info, String? videoHash) async {
+    await MediaCacheService.saveMapping(parsed.cleanName, info);
+    if (videoHash != null && videoHash.isNotEmpty) {
+      await PlayraStorage.saveMediaInfoForHash(videoHash, _mediaInfoToStoredMap(info));
+    }
   }
 
   Map<String, dynamic> _mediaInfoToStoredMap(MediaInfo media) {

@@ -176,26 +176,31 @@ class LibraryService {
     return out;
   }
 
+  /// Scans one library folder; null when it is currently unreachable (offline
+  /// SMB server, unmounted volume), as opposed to reachable but empty.
+  Future<List<VideoItem>?> scanFolder(String folder, {bool recursive = true}) async {
+    try {
+      var loaded = await listFolder(folder, recursive: recursive).timeout(_scanTimeoutForFolder(folder));
+
+      // Mounted SMB volumes on macOS can be slow to wake after app start.
+      // Wait a moment before retrying so the OS has time to trigger the automount.
+      if (loaded.isEmpty && Platform.isMacOS && folder.startsWith('/Volumes/')) {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        loaded = await listFolder(folder, recursive: recursive).timeout(const Duration(minutes: 4));
+      }
+
+      if (loaded.isEmpty && !folder.startsWith('smb://') && !await Directory(folder).exists()) return null;
+      return loaded;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Scan multiple library folders at once.
   Future<List<VideoItem>> listFolders(List<String> folders, {bool recursive = true}) async {
     final all = <VideoItem>[];
     for (final f in folders) {
-      try {
-        var loaded = await listFolder(f, recursive: recursive).timeout(_scanTimeoutForFolder(f));
-
-        // Mounted SMB volumes on macOS can be slow to wake after app start.
-        // Wait a moment before retrying so the OS has time to trigger the automount.
-        if (loaded.isEmpty && Platform.isMacOS && f.startsWith('/Volumes/')) {
-          await Future<void>.delayed(const Duration(seconds: 3));
-          loaded = await listFolder(f, recursive: recursive).timeout(const Duration(minutes: 4));
-        }
-
-        all.addAll(loaded);
-      } on TimeoutException {
-        // Skip folders that are currently unreachable (for example offline SMB paths).
-      } catch (_) {
-        // Keep loading remaining folders even when one fails.
-      }
+      all.addAll(await scanFolder(f, recursive: recursive) ?? const []);
     }
     return all;
   }

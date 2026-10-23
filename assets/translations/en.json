@@ -44,7 +44,11 @@
         "continue_next_episode": "Continue with next episode",
         "tap_to_add": "Tap button to add videos",
         "remove": "Remove",
-        "play_video": "Play video"
+        "play_video": "Play video",
+        "skip_identification": "Don't identify",
+        "identification_disabled": "Identification is turned off for this file.",
+        "identify_now": "Identify",
+        "nfo_write_failed": "Could not save the .nfo file next to the video."
     },
     "subtitle": {
         "search_title": "Select Subtitles",

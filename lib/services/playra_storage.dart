@@ -44,6 +44,8 @@ class PlayraStorage {
   static const String _lastOpenedDirectoryKey = 'last_opened_directory';
   static const String _librarySectionExpandedKey = 'library_section_expanded';
   static const String _standaloneFilesKey = 'standalone_files';
+  static const String _librarySnapshotKey = 'library_snapshot';
+  static const String _mediaLookupDisabledKey = 'media_lookup_disabled';
 
   static const int _maxRecents = 20;
   static const int _maxNowPlayingAgeMs = 6 * 60 * 60 * 1000;
@@ -1190,6 +1192,43 @@ class PlayraStorage {
       return;
     }
     await _player?.put(_lastOpenedDirectoryKey, directory);
+  }
+
+  // --- Library snapshot (last scan result, shown while the next scan runs) ---
+  static List<VideoItem> getLibrarySnapshot() {
+    final raw = _player?.get(_librarySnapshotKey);
+    if (raw == null) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded.whereType<Map>().map((m) => VideoItem.fromJson(Map<String, dynamic>.from(m))).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> saveLibrarySnapshot(List<VideoItem> videos) async {
+    await _player?.put(_librarySnapshotKey, jsonEncode(videos.map((v) => v.toJson()).toList()));
+  }
+
+  // --- Media identification switched off per video ---
+  static bool isMediaLookupDisabled(String videoId) => _readStringSet(_mediaLookupDisabledKey).contains(videoId);
+
+  static Future<void> setMediaLookupDisabled(String videoId, bool disabled) async {
+    final ids = _readStringSet(_mediaLookupDisabledKey);
+    final changed = disabled ? ids.add(videoId) : ids.remove(videoId);
+    if (changed) await _player?.put(_mediaLookupDisabledKey, jsonEncode(ids.toList()));
+  }
+
+  static Set<String> _readStringSet(String key) {
+    final raw = _player?.get(key);
+    if (raw == null) return <String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is List ? decoded.map((e) => e.toString()).toSet() : <String>{};
+    } catch (_) {
+      return <String>{};
+    }
   }
 
   // --- Library section expand/collapse state ---
