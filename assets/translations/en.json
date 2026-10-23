@@ -89,7 +89,11 @@
         "load_subtitle_file": "Load subtitle file (.srt, .ass, .vtt)",
         "download_subtitles": "Download subtitles",
         "download_subtitles_hint": "Search and download from titulky.com",
-        "no_subtitle_tracks": "No embedded subtitle tracks"
+        "no_subtitle_tracks": "No embedded subtitle tracks",
+        "secondary_subtitles": "Secondary subtitles",
+        "secondary_subtitles_hint": "A second, smaller line under the main subtitles – e.g. English subtitles for learning.",
+        "secondary_subtitles_off": "Off",
+        "load_secondary_subtitle_file": "Load file as secondary subtitles"
     },
     "editor": {
         "title": "Subtitle Editor",
@@ -288,7 +292,22 @@
         "tmdb_key_verifying": "Verifying the key with TMDB…",
         "tmdb_key_invalid_format": "The key must be 32 characters (0-9, a-f).",
         "tmdb_key_rejected": "TMDB rejected this key. Check it and try again.",
-        "tmdb_key_remove": "Remove"
+        "tmdb_key_remove": "Remove",
+        "secondary_subtitle_size": "Secondary subtitle size",
+        "secondary_subtitle_size_hint": "Relative to the main subtitles",
+        "default_secondary_subtitle_language": "Default secondary subtitle language",
+        "default_secondary_subtitle_language_hint": "Turns on a second, smaller subtitle line in this language when the video has one",
+        "secondary_subtitle_position": "Secondary subtitle position",
+        "secondary_position_below": "Below the main ones",
+        "secondary_position_above": "Above the main ones",
+        "secondary_position_top": "At the top of the screen",
+        "secondary_subtitle_color": "Secondary subtitle colour",
+        "subtitle_alignment": "Subtitle alignment",
+        "subtitle_align_left": "Left",
+        "subtitle_align_center": "Centre",
+        "subtitle_align_right": "Right",
+        "subtitle_horizontal_offset": "Shift sideways",
+        "subtitle_horizontal_offset_hint": "Relative to the screen width, negative values to the left"
     },
     "servers": {
         "title": "Servers",

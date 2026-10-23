@@ -2,6 +2,142 @@
 
 > Persistent development context log for Playra. Newest entries first.
 
+## 2026-10-23 (part 8) — feat: picture-based (PGS) subtitles, swappable with SRT
+
+### What was done
+
+- **Full libmpv builds** via vendored copies of `media_kit_libs_android_video` 1.3.8,
+  `media_kit_libs_macos_video` 1.1.4 and `media_kit_libs_ios_video` 1.1.4 in `third_party/`
+  (`dependency_overrides` in `pubspec.yaml`; `third_party/README.md` explains the change,
+  `third_party/.gitignore` keeps the downloaded binaries out of git):
+  Android `libmpv-android-video-build` v1.1.8 `full-<abi>.jar` (new MD5s), macOS/iOS
+  `libmpv-darwin-build` v0.6.0 `*-universal-video-full.tar.gz` (new SHA-256, separate cache
+  file name). APK 109.8 → 121.1 MB, macOS app 104 → 112.6 MB, iOS 49.1 → 53.2 MB.
+- `secondary_subtitles.dart`: `isBitmapSubtitle()` (PGS / VobSub / DVB codecs); the
+  secondary track toggles `secondary-sub-visibility` for picture-based tracks;
+  `syncMainTrackRendering()` sets `sub-visibility` from the main track's codec (called from a
+  new `_player.stream.track` listener); `mainTrack()` reads mpv's `sid`.
+- `DualSubtitleView`: `BitmapSubtitleRole` + video size / fit / zoom. A picture-based track's
+  text line is never shown (mpv draws it); with a picture-based secondary track the text block
+  is lifted above the bottom 22 % of the picture, with a picture-based main track the small
+  secondary line goes below the picture.
+- Subtitle sheet: picking the secondary track as main (or the main track as secondary) swaps
+  the two, because mpv refuses one track in both roles ("Track N is already selected").
+- `_armCodecStallCheck`: the codec-error stall check re-arms while `player.state.buffering`.
+
+### What was fixed
+
+- Blu-ray PGS subtitles in MKV never showed: the default FFmpeg in media_kit's libmpv has no
+  `pgssub` decoder (checked with `strings` on the APK's `libmpv.so` and macOS `Avcodec`), so
+  mpv dropped the track (`sid: no`) and, picked as secondary, both tracks. Even decoded, they
+  could not show because media_kit runs mpv with `sub-visibility=no`.
+- A slow SMB start after a recoverable "Could not open codec." (logged on the tablet) was
+  reported as a fatal codec error.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 173 passed. `pgssub` present in all three
+  builds (APK `libmpv.so`, iOS and macOS `Avcodec`).
+- Real libmpv on macOS (throwaway `integration_test`, removed) with
+  `Mr.Robot.S01E01…mkv` (English PGS) + its Czech `.srt`: PGS alone `sid 1`; PGS main + SRT
+  secondary `sid 1 / secondary-sid 2`; SRT main + PGS secondary `sid 2 / secondary-sid 1`.
+- Tablet, by screenshot: Czech SRT main above English PGS secondary without overlap; after
+  the swap English PGS main with the small Czech line below it; no false codec dialog.
+- Installed: tablet (APK), iPad (`ios-deploy`, not launched by me), Mac
+  (`/Applications/Playra.app` replaced and running; previous build in the session scratchpad).
+
+### Pending / next steps
+
+- The 22 % band is a guess for where disc subtitles sit; very tall or high-placed PGS lines
+  could still touch the text.
+- Picture-based tracks keep their own size; the secondary size slider applies to text only.
+
+## 2026-10-23 (part 7) — Deployed 2.0.3 (4) to the tablet, the iPad and this Mac
+
+### What was done
+
+- Version bumped to `2.0.3+4` (by the user). Release builds with
+  `--dart-define-from-file=env.json` installed on: the Android tablet (`adb install -r`), the
+  iPad Air 2 (`ios-deploy --bundle build/ios/iphoneos/Runner.app`) and this Mac (quit the
+  running app, moved the old `/Applications/Playra.app` to the session scratchpad as
+  `Playra.app.previous`, copied the new build in with `ditto`, relaunched).
+
+### Current state
+
+- Installed versions read back: tablet `versionName=2.0.3`, `versionCode=4`; iPad
+  `CFBundleShortVersionString 2.0.3`, `CFBundleVersion 4`; Mac `2.0.3` / `4`, running.
+- The builds contain the uncommitted dual-subtitle work (part 6).
+
+## 2026-10-23 (part 6) — feat: dual subtitles (small secondary line for language learning)
+
+### What was done
+
+- **`SecondarySubtitles`** (`lib/screens/player/secondary_subtitles.dart`) drives mpv's
+  `secondary-sid` through `NativePlayer.setProperty` / `command`, which media_kit has no API
+  for: `select(track)`, `addFile(uri, title)` (`sub-add <uri> auto <title>`, then the last `sub`
+  entry of `track-list` is selected, so the main track is untouched) and `off()`. The selection
+  is a `ValueNotifier<SubtitleTrack?>`.
+- **`DualSubtitleView`** (`lib/screens/player/widgets/dual_subtitle_view.dart`) now renders all
+  player subtitles: the main line from `player.state.subtitle[0]` and, when a secondary track
+  is on, `[1]` underneath at `fontSize × secondaryFontScale`. It copies media_kit's 1080p
+  text-scale reference, so the main line keeps its size. The `Video` widgets get
+  `SubtitleViewConfiguration(visible: false)`; `_subtitleConfig` was split into
+  `_subtitleTextStyle` / `_subtitlePadding`.
+- **Subtitle sheet**: new "Secondary subtitles" section: Off, every subtitle track except the
+  main one, sibling subtitle files not loaded yet, and "Load file as secondary subtitles".
+  The choice is stored per video (`PlayraStorage.getSecondarySubtitleKey` /
+  `saveSecondarySubtitleKey`, `"title|language"` or `secondarySubtitleOff`).
+- **Restore on open**: `_scheduleSecondarySubtitleRestore` (up to 7 tries, 700 ms apart)
+  applies the stored choice, or the new **default secondary subtitle language**
+  (`PlayerSettings.defaultSecondarySubtitleLanguage`, Settings → Player) to an embedded track
+  or a sibling file named `<video>.<lang>.srt`. Sibling files are probed once per open
+  (`_siblingSubtitleFiles`, shared with the main-subtitle auto attach).
+- `SubtitleStyleSettings.secondaryFontScale` (default 0.6, slider 30–100 % in the shared
+  `SubtitleStyleControls`). Subtitle delay also sets `secondary-sub-delay`.
+- Translations: `player.secondary_subtitles`, `secondary_subtitles_hint`,
+  `secondary_subtitles_off`, `load_secondary_subtitle_file`; `settings.secondary_subtitle_size`,
+  `secondary_subtitle_size_hint`, `default_secondary_subtitle_language`,
+  `default_secondary_subtitle_language_hint` (cs, en).
+- `test/secondary_subtitle_settings_test.dart`: model round trips and the per-video storage.
+
+### Design decisions
+
+- media_kit's own subtitle view is no longer used: after `secondary-sid=no` mpv stops
+  reporting `secondary-sub-text` instead of sending an empty string, so media_kit keeps the
+  last secondary line in `state.subtitle[1]` and its view kept showing it.
+
+### Current state
+
+- `flutter analyze`: no issues. `flutter test`: 173 passed.
+- Checked against the real libmpv on macOS with a throwaway `integration_test` (removed again,
+  not committed) on a generated MKV with Czech + English SRT tracks: main "Ahoj svete" +
+  secondary "Hello world"; after `off()` the stale `[1]` was confirmed; `addFile` of an extra
+  `.en.srt` became track 3 with the main track unchanged.
+- Release APK installed on the tablet; the UI itself was not tried by hand.
+
+### Pending / next steps
+
+- Try it on the tablet with a real film (main Czech, secondary English); the Mac and iPad need
+  a new build.
+- Sibling detection only knows `<video>.srt`, `.cs/.cz/.czech.srt` and `.en/.english.srt`.
+
+## 2026-10-23 (part 5) — Deployed the part 1–4 build to the iPad and this Mac
+
+### What was done
+
+- iPad Air 2: `flutter build ios --release --dart-define-from-file=env.json` (49.1 MB) and
+  `ios-deploy --id ee4853b77c83be7bd029b702f256ba81a542d722 --bundle build/ios/iphoneos/Runner.app`.
+- Mac: `flutter build macos --release --dart-define-from-file=env.json` (104 MB); quit the
+  running `/Applications/Playra.app`, moved it to the session scratchpad as
+  `Playra.app.backup-2026-10-14`, copied the new build in with `ditto` and relaunched it.
+
+### Current state
+
+- `ios-deploy`: `[100%] Installed package`. Not launched or checked on the iPad by me.
+- Mac: the new `/Applications/Playra.app` (binary dated 2026-10-23 21:07) is running.
+- The version number is still 2.0.2 (3) on all devices, so builds can only be told apart by
+  install date.
+
 ## 2026-10-23 (part 4) — feat: Kodi .nfo sidecars, "don't identify", instant library start
 
 ### What was done

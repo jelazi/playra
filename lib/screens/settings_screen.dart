@@ -334,6 +334,19 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               ListTile(
+                title: Text('settings.default_secondary_subtitle_language'.tr()),
+                subtitle: Text('settings.default_secondary_subtitle_language_hint'.tr()),
+                trailing: DropdownButton<String>(
+                  value: p.defaultSecondarySubtitleLanguage,
+                  items: _defaultTrackLanguageOptions.map((code) => DropdownMenuItem(value: code, child: Text(_trackLanguageLabel(code)))).toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      context.read<PlayraSettingsCubit>().updatePlayer(p.copyWith(defaultSecondarySubtitleLanguage: v));
+                    }
+                  },
+                ),
+              ),
+              ListTile(
                 title: Text('settings.clear_all_resume'.tr()),
                 trailing: const Icon(Icons.delete_sweep),
                 onTap: () async {

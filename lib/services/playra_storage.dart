@@ -46,6 +46,11 @@ class PlayraStorage {
   static const String _standaloneFilesKey = 'standalone_files';
   static const String _librarySnapshotKey = 'library_snapshot';
   static const String _mediaLookupDisabledKey = 'media_lookup_disabled';
+  static const String _secondarySubtitleKey = 'secondary_subtitle_by_video';
+
+  /// Stored as the secondary subtitle choice when the viewer turned it off,
+  /// so a default secondary language does not switch it back on.
+  static const String secondarySubtitleOff = 'off';
 
   static const int _maxRecents = 20;
   static const int _maxNowPlayingAgeMs = 6 * 60 * 60 * 1000;
@@ -1218,6 +1223,19 @@ class PlayraStorage {
     final ids = _readStringSet(_mediaLookupDisabledKey);
     final changed = disabled ? ids.add(videoId) : ids.remove(videoId);
     if (changed) await _player?.put(_mediaLookupDisabledKey, jsonEncode(ids.toList()));
+  }
+
+  // --- Secondary subtitle choice per video ("title|language" track key or [secondarySubtitleOff]) ---
+  static String? getSecondarySubtitleKey(String videoId) => _readStringMap(_secondarySubtitleKey)[videoId];
+
+  static Future<void> saveSecondarySubtitleKey(String videoId, String? key) async {
+    final map = _readStringMap(_secondarySubtitleKey);
+    if (key == null || key.isEmpty) {
+      map.remove(videoId);
+    } else {
+      map[videoId] = key;
+    }
+    await _writeStringMap(_secondarySubtitleKey, map);
   }
 
   static Set<String> _readStringSet(String key) {

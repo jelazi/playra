@@ -56,6 +56,51 @@ class SubtitleStyleControls extends StatelessWidget {
           label: style.fontSize.toStringAsFixed(0),
           onChanged: (v) => onChanged(style.copyWith(fontSize: v)),
         ),
+        _SliderTile(
+          title: 'settings.secondary_subtitle_size'.tr(),
+          hint: 'settings.secondary_subtitle_size_hint'.tr(),
+          value: style.secondaryFontScale.clamp(0.3, 1.0),
+          min: 0.3,
+          max: 1.0,
+          divisions: 14,
+          label: '${(style.secondaryFontScale * 100).round()} %',
+          onChanged: (v) => onChanged(style.copyWith(secondaryFontScale: v)),
+        ),
+        ListTile(
+          title: Text('settings.secondary_subtitle_position'.tr()),
+          trailing: DropdownButton<String>(
+            value: style.secondaryPosition,
+            items: kSecondarySubtitlePositions.map((v) => DropdownMenuItem(value: v, child: Text('settings.secondary_position_$v'.tr()))).toList(),
+            onChanged: (v) {
+              if (v != null) onChanged(style.copyWith(secondaryPosition: v));
+            },
+          ),
+        ),
+        ColorPickerTile(
+          title: 'settings.secondary_subtitle_color'.tr(),
+          color: style.secondaryTextColor,
+          onChanged: (c) => onChanged(style.copyWith(secondaryTextColor: c)),
+        ),
+        ListTile(
+          title: Text('settings.subtitle_alignment'.tr()),
+          trailing: DropdownButton<String>(
+            value: style.horizontalAlign,
+            items: kSubtitleHorizontalAligns.map((v) => DropdownMenuItem(value: v, child: Text('settings.subtitle_align_$v'.tr()))).toList(),
+            onChanged: (v) {
+              if (v != null) onChanged(style.copyWith(horizontalAlign: v));
+            },
+          ),
+        ),
+        _SliderTile(
+          title: 'settings.subtitle_horizontal_offset'.tr(),
+          hint: 'settings.subtitle_horizontal_offset_hint'.tr(),
+          value: style.horizontalOffset.clamp(-0.4, 0.4),
+          min: -0.4,
+          max: 0.4,
+          divisions: 32,
+          label: '${(style.horizontalOffset * 100).round()} %',
+          onChanged: (v) => onChanged(style.copyWith(horizontalOffset: v)),
+        ),
         if (showBottomPadding)
           _SliderTile(
             title: 'settings.subtitle_bottom_padding'.tr(),

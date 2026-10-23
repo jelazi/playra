@@ -89,7 +89,11 @@
         "load_subtitle_file": "Načíst soubor titulků (.srt, .ass, .vtt)",
         "download_subtitles": "Stáhnout titulky",
         "download_subtitles_hint": "Vyhledat a stáhnout z titulky.com",
-        "no_subtitle_tracks": "Video neobsahuje vestavěné titulky"
+        "no_subtitle_tracks": "Video neobsahuje vestavěné titulky",
+        "secondary_subtitles": "Vedlejší titulky",
+        "secondary_subtitles_hint": "Druhý, menší řádek pod hlavními titulky – třeba anglické titulky pro učení.",
+        "secondary_subtitles_off": "Vypnuto",
+        "load_secondary_subtitle_file": "Načíst soubor jako vedlejší titulky"
     },
     "editor": {
         "title": "Editor titulků",
@@ -288,7 +292,22 @@
         "tmdb_key_verifying": "Ověřuji klíč u TMDB…",
         "tmdb_key_invalid_format": "Klíč musí mít 32 znaků (0-9, a-f).",
         "tmdb_key_rejected": "TMDB klíč odmítlo. Zkontrolujte ho a zkuste to znovu.",
-        "tmdb_key_remove": "Odstranit"
+        "tmdb_key_remove": "Odstranit",
+        "secondary_subtitle_size": "Velikost vedlejších titulků",
+        "secondary_subtitle_size_hint": "Vůči hlavním titulkům",
+        "default_secondary_subtitle_language": "Výchozí jazyk vedlejších titulků",
+        "default_secondary_subtitle_language_hint": "Zapne druhý, menší řádek titulků v tomto jazyce, pokud ho video má",
+        "secondary_subtitle_position": "Umístění vedlejších titulků",
+        "secondary_position_below": "Pod hlavními",
+        "secondary_position_above": "Nad hlavními",
+        "secondary_position_top": "Nahoře na obrazovce",
+        "secondary_subtitle_color": "Barva vedlejších titulků",
+        "subtitle_alignment": "Zarovnání titulků",
+        "subtitle_align_left": "Vlevo",
+        "subtitle_align_center": "Na střed",
+        "subtitle_align_right": "Vpravo",
+        "subtitle_horizontal_offset": "Posun do strany",
+        "subtitle_horizontal_offset_hint": "Vůči šířce obrazovky, záporné hodnoty doleva"
     },
     "servers": {
         "title": "Servery",

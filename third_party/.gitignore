@@ -1,0 +1,4 @@
+# Binaries downloaded by the package build scripts
+**/.cache/
+**/Frameworks/*.xcframework
+**/Frameworks/.symlinks/

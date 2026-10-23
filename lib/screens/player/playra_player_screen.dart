@@ -27,7 +27,9 @@ import '../../services/subtitle_file_service.dart';
 import '../../services/video_hash_service.dart';
 import '../player_launcher.dart';
 import '../subtitle_editor_screen.dart';
+import 'secondary_subtitles.dart';
 import 'track_keys.dart';
+import 'widgets/dual_subtitle_view.dart';
 import 'widgets/subtitle_options_sheet.dart';
 
 class PlayraPlayerScreen extends StatefulWidget {
@@ -44,6 +46,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
   late final Player _player;
   late final VideoController _videoController;
+  late final SecondarySubtitles _secondarySubtitles;
+  List<String>? _siblingSubtitleFilesCache;
 
   final FocusNode _keyboardFocusNode = FocusNode();
 
@@ -83,6 +87,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   int? _dragSeekPositionMs;
 
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Track>? _trackSub;
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<Duration>? _durationSub;
   StreamSubscription<String>? _errorSub;
@@ -106,6 +111,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
 
     _player = Player(configuration: const PlayerConfiguration(title: 'Playra'));
     _videoController = VideoController(_player);
+    _secondarySubtitles = SecondarySubtitles(_player)..selected.addListener(_onSecondarySubtitleChanged);
 
     _bindPlayerStreams();
     _openMedia();
@@ -136,6 +142,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   @override
   void dispose() {
     _playingSub?.cancel();
+    _trackSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();
     _errorSub?.cancel();
@@ -150,11 +157,17 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     unawaited(_pushSessionUpdate(force: true).catchError((error, stackTrace) {}));
     WidgetsBinding.instance.removeObserver(this);
     _keyboardFocusNode.dispose();
+    _secondarySubtitles.dispose();
     _player.dispose();
     super.dispose();
   }
 
   void _bindPlayerStreams() {
+    _trackSub = _player.stream.track.listen((track) {
+      unawaited(_secondarySubtitles.syncMainTrackRendering(track.subtitle).catchError((_) {}));
+      if (mounted) setState(() {});
+    });
+
     _playingSub = _player.stream.playing.listen((p) {
       if (!mounted) return;
       setState(() => _playing = p);
@@ -196,10 +209,18 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       return;
     }
 
-    final positionAtError = _position;
+    _armCodecStallCheck(error, _position);
+  }
+
+  void _armCodecStallCheck(String error, Duration positionAtError) {
     _codecStallTimer?.cancel();
     _codecStallTimer = Timer(_codecStallTimeout, () {
       if (!mounted || !_player.state.playing || _position != positionAtError) return;
+      // Waiting for data (e.g. a slow SMB start) is not a decoder failure.
+      if (_player.state.buffering) {
+        _armCodecStallCheck(error, positionAtError);
+        return;
+      }
       _handlePlayerError(error, markFatal: true);
     });
   }
@@ -291,6 +312,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
       _startHideTimer();
       _scheduleSessionSync();
       _schedulePreferredTrackRestore();
+      _scheduleSecondarySubtitleRestore();
     } catch (e, st) {
       debugPrint('Playra player open media flow failed: $e\n$st');
       _handlePlayerError(e.toString(), markFatal: true);
@@ -303,6 +325,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     final dynamic platform = _player.platform;
     try {
       await platform.setProperty('sub-delay', seconds);
+      await platform.setProperty('secondary-sub-delay', seconds);
     } catch (_) {}
   }
 
@@ -394,7 +417,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     final preferredTitle = preferred == null ? null : parseStoredTrackKey(preferred).title;
     if (preferredTitle != null && !_isSubtitleFileName(preferredTitle)) return;
 
-    final candidates = await _subtitleCandidates();
+    final candidates = await _siblingSubtitleFiles();
     if (candidates.isEmpty) return;
 
     final language = PlayraStorage.getPlayerSettings().defaultSubtitleLanguage.trim();
@@ -432,6 +455,52 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   static const Map<String, String> _subtitleFileLanguageAliases = {'cz': 'cs', 'czech': 'cs', 'english': 'en'};
 
   bool _isSubtitleFileName(String name) => const {'.srt', '.ass', '.ssa', '.vtt', '.sub'}.contains(p.extension(name).toLowerCase());
+
+  /// Over SMB every probe is an HTTP request, so the sibling files are looked up once per open.
+  Future<List<String>> _siblingSubtitleFiles() async => _siblingSubtitleFilesCache ??= await _subtitleCandidates();
+
+  void _onSecondarySubtitleChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _scheduleSecondarySubtitleRestore([int attempt = 0]) {
+    Timer(const Duration(milliseconds: 700), () async {
+      if (!mounted || _secondarySubtitles.selected.value != null) return;
+      bool done;
+      try {
+        done = await _restoreSecondarySubtitle();
+      } catch (e) {
+        debugPrint('Playra secondary subtitle restore failed: $e');
+        done = false;
+      }
+      if (!done && attempt < 6) _scheduleSecondarySubtitleRestore(attempt + 1);
+    });
+  }
+
+  /// Applies this video's secondary subtitle choice, or the default secondary
+  /// language. Returns false while the matching track may still be loading.
+  Future<bool> _restoreSecondarySubtitle() async {
+    final stored = PlayraStorage.getSecondarySubtitleKey(widget.video.id);
+    if (stored == PlayraStorage.secondarySubtitleOff) return true;
+    final language = PlayraStorage.getPlayerSettings().defaultSecondarySubtitleLanguage.trim();
+    if (stored == null && language.isEmpty) return true;
+
+    final primary = _player.state.track.subtitle;
+    final tracks = _player.state.tracks.subtitle.where((t) => t.id != primary.id && t.id != 'auto' && t.id != 'no').toList();
+    final match = stored != null ? _matchSubtitleTrack(tracks, stored) : _matchSubtitleTrackByLanguage(tracks, language);
+    if (match != null) {
+      await _secondarySubtitles.select(match);
+      return true;
+    }
+
+    final storedTitle = stored == null ? null : parseStoredTrackKey(stored).title;
+    final files = (await _siblingSubtitleFiles()).where((f) => normalizeTrackPart(_subtitleCandidateName(f)) != normalizeTrackPart(primary.title));
+    final file = storedTitle != null
+        ? files.where((f) => normalizeTrackPart(_subtitleCandidateName(f)) == storedTitle).firstOrNull
+        : files.where((f) => _isLanguageMatch(_subtitleCandidateLanguage(f), language)).firstOrNull;
+    if (file == null) return false;
+    return await _secondarySubtitles.addFile(file, _subtitleCandidateName(file)) != null;
+  }
 
   Future<List<String>> _subtitleCandidates() async {
     final out = <String>[];
@@ -1149,7 +1218,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
   Widget build(BuildContext context) {
     return BlocBuilder<PlayraSettingsCubit, PlayraSettingsState>(
       builder: (context, settings) {
-        final subtitleCfg = _subtitleConfig(settings.subtitleStyle);
+        const subtitleCfg = SubtitleViewConfiguration(visible: false);
         final touchGesturesEnabled = settings.player.gesturesEnabled;
 
         return Focus(
@@ -1184,6 +1253,25 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
                               ),
                             ),
                     ),
+                    if (settings.subtitleStyle.enabled)
+                      Positioned.fill(
+                        child: DualSubtitleView(
+                          subtitles: _player.stream.subtitle,
+                          initialSubtitles: _player.state.subtitle,
+                          style: _subtitleTextStyle(settings.subtitleStyle),
+                          showSecondary: _secondarySubtitles.selected.value != null,
+                          secondaryScale: settings.subtitleStyle.secondaryFontScale,
+                          secondaryColor: Color(settings.subtitleStyle.secondaryTextColor),
+                          secondaryPosition: settings.subtitleStyle.secondaryPosition,
+                          horizontalAlign: settings.subtitleStyle.horizontalAlign,
+                          horizontalOffset: settings.subtitleStyle.horizontalOffset,
+                          padding: _subtitlePadding(settings.subtitleStyle),
+                          bitmapRole: _bitmapSubtitleRole(),
+                          videoSize: _videoPixelSize(),
+                          fit: _currentVideoBoxFit(),
+                          zoom: _videoZoom,
+                        ),
+                      ),
 
                     Positioned.fill(
                       child: Row(
@@ -1299,30 +1387,36 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     );
   }
 
-  SubtitleViewConfiguration _subtitleConfig(SubtitleStyleSettings s) {
-    if (!s.enabled) {
-      return const SubtitleViewConfiguration(visible: false);
-    }
-    return SubtitleViewConfiguration(
-      visible: true,
-      style: TextStyle(
-        height: 1.4,
-        fontSize: s.fontSize,
-        fontFamily: s.fontFamily,
-        color: Color(s.textColor),
-        fontWeight: s.bold ? FontWeight.bold : FontWeight.normal,
-        backgroundColor: Color(s.backgroundColor),
-        shadows: s.outlineWidth > 0
-            ? [
-                for (final dx in [-s.outlineWidth, 0.0, s.outlineWidth])
-                  for (final dy in [-s.outlineWidth, 0.0, s.outlineWidth])
-                    if (dx != 0 || dy != 0) Shadow(offset: Offset(dx, dy), color: Color(s.outlineColor), blurRadius: 0),
-              ]
-            : null,
-      ),
-      textAlign: TextAlign.center,
-      padding: EdgeInsets.fromLTRB(16, 0, 16, s.bottomPadding),
+  TextStyle _subtitleTextStyle(SubtitleStyleSettings s) {
+    return TextStyle(
+      height: 1.4,
+      fontSize: s.fontSize,
+      fontFamily: s.fontFamily,
+      color: Color(s.textColor),
+      fontWeight: s.bold ? FontWeight.bold : FontWeight.normal,
+      backgroundColor: Color(s.backgroundColor),
+      shadows: s.outlineWidth > 0
+          ? [
+              for (final dx in [-s.outlineWidth, 0.0, s.outlineWidth])
+                for (final dy in [-s.outlineWidth, 0.0, s.outlineWidth])
+                  if (dx != 0 || dy != 0) Shadow(offset: Offset(dx, dy), color: Color(s.outlineColor), blurRadius: 0),
+            ]
+          : null,
     );
+  }
+
+  EdgeInsets _subtitlePadding(SubtitleStyleSettings s) => EdgeInsets.fromLTRB(16, 0, 16, s.bottomPadding);
+
+  BitmapSubtitleRole _bitmapSubtitleRole() {
+    if (isBitmapSubtitle(_player.state.track.subtitle)) return BitmapSubtitleRole.primary;
+    if (isBitmapSubtitle(_secondarySubtitles.selected.value)) return BitmapSubtitleRole.secondary;
+    return BitmapSubtitleRole.none;
+  }
+
+  Size? _videoPixelSize() {
+    final width = _player.state.width;
+    final height = _player.state.height;
+    return width == null || height == null ? null : Size(width.toDouble(), height.toDouble());
   }
 
   /// Downloads the current SMB video (and subtitle sidecars) to the device's
@@ -1614,6 +1708,8 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
         video: widget.video,
         onOpenSubtitleDelayPopup: _showSubtitleDelayPopup,
         onOpenSubtitleEditor: _openSubtitleEditor,
+        secondarySubtitles: _secondarySubtitles,
+        siblingSubtitleFiles: _siblingSubtitleFiles,
       ),
     );
   }
@@ -1694,6 +1790,7 @@ class _PlayraPlayerScreenState extends State<PlayraPlayerScreen> with WidgetsBin
     final seconds = (clamped / 1000.0).toStringAsFixed(3);
     try {
       await platform.setProperty('sub-delay', seconds);
+      await platform.setProperty('secondary-sub-delay', seconds);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Playback error: $e')));
